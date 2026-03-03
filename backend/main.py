@@ -154,4 +154,33 @@ def create_permit(req: PermitRequest):
         signed_at=now,
         expires_at=exp,
         expires_in_seconds=PERMIT_TTL_SECONDS,
-    )
+    from nacl.exceptions import BadSignatureError
+
+
+class VerifyRequest(BaseModel):
+    bundle: dict
+    signature: str
+
+
+@app.post("/v1/verify")
+def verify_permit(req: VerifyRequest):
+    try:
+        canonical = canonical_json(req.bundle).encode("utf-8")
+        sig_bytes = base64.b64decode(req.signature)
+
+        # Verify signature
+        VERIFY_KEY.verify(canonical, sig_bytes)
+        signature_valid = True
+    except (BadSignatureError, Exception):
+        signature_valid = False
+
+    now = int(time.time())
+    exp = req.bundle.get("exp", 0)
+    not_expired = now < exp
+
+    return {
+        "signature_valid": signature_valid,
+        "not_expired": not_expired,
+        "subject": req.bundle.get("subject"),
+        "policy_version": req.bundle.get("policy", {}).get("version"),
+    }
