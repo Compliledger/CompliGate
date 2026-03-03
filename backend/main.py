@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import time
+import hashlib
 from uuid import uuid4
 
 from dotenv import load_dotenv
