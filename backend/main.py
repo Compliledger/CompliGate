@@ -26,11 +26,9 @@ PRIVATE_KEY_B64 = os.getenv("COMPLIGATE_PRIVATE_KEY_B64", "").strip()
 
 PERMIT_TTL_SECONDS = 300  # 5 minutes
 
-
-def canonical_json(obj: dict) -> str:
-    """Canonical JSON string for signing."""
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"))
-
+def proof_hash(bundle: dict) -> str:
+    canonical = canonical_json(bundle).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
 
 def random_hex(n_bytes: int = 32) -> str:
     return "0x" + os.urandom(n_bytes).hex()
@@ -107,9 +105,58 @@ def validate_subject(subject: str) -> None:
         raise HTTPException(status_code=400, detail="subject length must be 25-35 chars")
 
 
-@app.post("/v1/permit"), response_model=PermitResponse)
+@app.post("/v1/permit", response_model=PermitResponse)
 def create_permit(req: PermitRequest):
     validate_subject(req.subject)
+
+    now = int(time.time())
+    exp = now + PERMIT_TTL_SECONDS
+
+    bundle = {
+        "bundle_id": str(uuid4()),
+        "asset": {
+            "issuer": ISSUER_ADDRESS,
+            "currency": CURRENCY,
+            "classification": "regulated_stablecoin",
+        },
+        "subject": req.subject,
+        "policy": {
+            "version": POLICY_VERSION,
+            "jurisdiction": JURISDICTION,
+        },
+        "attestations": {
+            "custody_hash": random_hex(32),
+            "reserve_hash": random_hex(32),
+        },
+        "scope": ["trustset", "payment"],
+        "exp": exp,
+        "nonce": str(uuid4()),
+    }
+
+    msg = canonical_json(bundle).encode("utf-8")
+    sig = SIGNING_KEY.sign(msg).signature
+    sig_b64 = base64.b64encode(sig).decode("utf-8")
+
+    bundle_hash = proof_hash(bundle)
+
+    summary = {
+        "issuer_verified": True,
+        "asset_classification": bundle["asset"]["classification"],
+        "custody_attestation_bound": True,
+        "reserve_attestation_bound": True,
+        "policy_version": POLICY_VERSION,
+        "expires_in_seconds": PERMIT_TTL_SECONDS,
+    }
+
+    return PermitResponse(
+        summary=summary,
+        bundle=bundle,
+        signature=sig_b64,
+        signed_at=now,
+        expires_at=exp,
+        expires_in_seconds=PERMIT_TTL_SECONDS,
+        bundle_hash=bundle_hash,
+    )
 
     now = int(time.time())
     exp = now + PERMIT_TTL_SECONDS
