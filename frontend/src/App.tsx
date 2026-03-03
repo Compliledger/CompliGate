@@ -15,6 +15,14 @@ type PermitResponse = {
   signed_at: number;
   expires_at: number;
   expires_in_seconds: number;
+  bundle_hash: string;
+};
+
+type VerifyResponse = {
+  signature_valid: boolean;
+  not_expired: boolean;
+  subject?: string;
+  policy_version?: string;
 };
 
 function formatSeconds(s: number) {
@@ -29,6 +37,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState<number>(() => Math.floor(Date.now() / 1000));
   const [showTechnical, setShowTechnical] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<VerifyResponse | null>(null);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
@@ -52,6 +61,7 @@ export default function App() {
   async function requestPermit() {
     setError(null);
     setPermit(null);
+    setVerifyResult(null);
     setShowTechnical(false);
 
     const trimmed = subject.trim();
@@ -61,7 +71,7 @@ export default function App() {
     }
 
     try {
-      const res = await fetch("http://localhost:8000/permit", {
+      const res = await fetch("http://localhost:8000/v1/permit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ subject: trimmed }),
@@ -75,6 +85,31 @@ export default function App() {
       setPermit(data);
     } catch (e: any) {
       setError(e?.message ?? "Network error calling backend.");
+    }
+  }
+
+  async function verifyPermit() {
+    if (!permit) return;
+
+    setError(null);
+    setVerifyResult(null);
+
+    try {
+      const res = await fetch("http://localhost:8000/v1/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bundle: permit.bundle, signature: permit.signature }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data?.detail ?? "Failed to verify permit.");
+        return;
+      }
+
+      setVerifyResult(data);
+    } catch (e: any) {
+      setError(e?.message ?? "Network error calling verify endpoint.");
     }
   }
 
@@ -122,6 +157,7 @@ export default function App() {
               className="btn"
               onClick={() => {
                 setPermit(null);
+                setVerifyResult(null);
                 setError(null);
                 setShowTechnical(false);
               }}
@@ -168,12 +204,32 @@ export default function App() {
                 <button className="btn" onClick={() => setShowTechnical((v) => !v)}>
                   {showTechnical ? "Hide Technical Proof" : "View Technical Proof"}
                 </button>
+
+                <button className="btn" onClick={verifyPermit}>
+                  Verify Permit
+                </button>
               </div>
+
+              {verifyResult && (
+                <div
+                  className={`alert ${
+                    verifyResult.signature_valid && verifyResult.not_expired ? "warn" : "bad"
+                  }`}
+                >
+                  Verification → signature_valid=
+                  <b>{String(verifyResult.signature_valid)}</b> | not_expired=
+                  <b>{String(verifyResult.not_expired)}</b>
+                </div>
+              )}
 
               {showTechnical && (
                 <div className="codeBlock">
+                  <div className="codeTitle">Bundle Hash (SHA-256)</div>
+                  <pre>{permit.bundle_hash}</pre>
+
                   <div className="codeTitle">Proof Bundle (raw)</div>
                   <pre>{JSON.stringify(permit.bundle, null, 2)}</pre>
+
                   <div className="codeTitle">Signature</div>
                   <pre>{permit.signature}</pre>
                 </div>
