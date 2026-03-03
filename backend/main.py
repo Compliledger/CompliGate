@@ -106,7 +106,7 @@ def validate_subject(subject: str) -> None:
         raise HTTPException(status_code=400, detail="subject length must be 25-35 chars")
 
 
-@app.post("/permit", response_model=PermitResponse)
+@app.post("/v1/permit"), response_model=PermitResponse)
 def create_permit(req: PermitRequest):
     validate_subject(req.subject)
 
