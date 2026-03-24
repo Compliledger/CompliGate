@@ -7,6 +7,8 @@ import time
 import hashlib
 from uuid import uuid4
 
+import requests as http_requests
+
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -91,6 +93,14 @@ class PermitResponse(BaseModel):
 class VerifyRequest(BaseModel):
     bundle: dict
     signature: str
+
+
+class CommitRequest(BaseModel):
+    bundle_hash: str
+    subject: str
+    policy_id: str
+    exp: int
+    action: str
 
 
 # -----------------------
@@ -328,4 +338,47 @@ def verify_permit(req: VerifyRequest):
         "not_expired": not_expired,
         "subject": req.bundle.get("subject"),
         "policy_version": req.bundle.get("policy", {}).get("version"),
+    }
+
+
+# -----------------------
+# Algorand Adapter
+# -----------------------
+
+def call_algorand_adapter(payload: dict) -> dict:
+    """Forward a commit request to the Algorand adapter service.
+
+    :param payload: Dict with keys bundle_hash, subject, policy_id, exp, action.
+    :returns: Parsed JSON response from the adapter (expected to contain 'tx_id').
+    :raises HTTPException 502: If ALGORAND_ADAPTER_URL is not set or the request fails.
+    """
+    adapter_url = ALGORAND_ADAPTER_URL
+    if not adapter_url:
+        raise HTTPException(status_code=502, detail="ALGORAND_ADAPTER_URL is not configured")
+    try:
+        resp = http_requests.post(f"{adapter_url}/v1/commit", json=payload, timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+    except http_requests.RequestException as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Algorand adapter call failed: {exc}",
+        ) from exc
+
+
+@app.post("/v1/commit")
+def commit_bundle(req: CommitRequest):
+    payload = {
+        "bundle_hash": req.bundle_hash,
+        "subject": req.subject,
+        "policy_id": req.policy_id,
+        "exp": req.exp,
+        "action": req.action,
+    }
+    result = call_algorand_adapter(payload)
+    return {
+        "committed": True,
+        "algorand_tx_id": result.get("tx_id"),
+        "bundle_hash": req.bundle_hash,
+        "adapter_response": result,
     }
