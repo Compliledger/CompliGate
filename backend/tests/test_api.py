@@ -182,7 +182,9 @@ def test_commit_returns_502_when_adapter_url_not_configured():
     with patch("main.ALGORAND_ADAPTER_URL", ""):
         response = client.post("/v1/commit", json=COMMIT_PAYLOAD)
     assert response.status_code == 502
-    assert "ALGORAND_ADAPTER_URL" in response.json()["detail"]
+    detail = response.json()["detail"]
+    assert detail["error"] == "adapter_commit_failed"
+    assert "ALGORAND_ADAPTER_URL" in detail["reason"]
 
 
 def test_commit_returns_502_when_adapter_call_fails():
@@ -195,7 +197,9 @@ def test_commit_returns_502_when_adapter_call_fails():
             response = client.post("/v1/commit", json=COMMIT_PAYLOAD)
 
     assert response.status_code == 502
-    assert "Algorand adapter call failed" in response.json()["detail"]
+    detail = response.json()["detail"]
+    assert detail["error"] == "adapter_commit_failed"
+    assert "connection refused" in detail["reason"]
 
 
 def test_commit_tx_id_is_none_when_missing_from_adapter():
