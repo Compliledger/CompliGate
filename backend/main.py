@@ -33,7 +33,6 @@ CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost
 
 ALGORAND_ADAPTER_URL = os.getenv("ALGORAND_ADAPTER_URL", "")
 PERMIT_TTL_SECONDS = 300  # 5 minutes
-ALGORAND_ADAPTER_URL = os.getenv("ALGORAND_ADAPTER_URL", "")
 
 
 # -----------------------
@@ -145,24 +144,23 @@ def public_key():
     }
 
 
-SUPPORTED_ACTIONS = {"transfer", "payment", "escrow"}
-MAX_AMOUNT = 1000
-
-
 def validate_subject(subject: str) -> None:
     if not isinstance(subject, str):
-        raise HTTPException(status_code=400, detail={"error": "subject must be a string"})
+        raise HTTPException(status_code=400, detail={"error": "invalid_subject", "reason": "subject must be a string"})
     if not subject.startswith("r"):
-        raise HTTPException(status_code=400, detail={"error": "subject must start with 'r'"})
+        raise HTTPException(status_code=400, detail={"error": "invalid_subject", "reason": "subject must start with 'r'"})
     if not (25 <= len(subject) <= 35):
-        raise HTTPException(status_code=400, detail={"error": "subject length must be 25-35 chars"})
+        raise HTTPException(status_code=400, detail={"error": "invalid_subject", "reason": "subject length must be 25-35 chars"})
 
 
 def validate_action(action: str) -> None:
     if action not in SUPPORTED_ACTIONS:
         raise HTTPException(
             status_code=400,
-            detail={"error": f"Unsupported action: '{action}'. Must be one of: {sorted(SUPPORTED_ACTIONS)}"},
+            detail={
+                "error": "unsupported_action",
+                "reason": f"action '{action}' is not supported; allowed: {sorted(SUPPORTED_ACTIONS)}",
+            },
         )
 
 
@@ -170,7 +168,10 @@ def validate_amount(amount: float | int | None) -> None:
     if amount is not None and amount > MAX_AMOUNT:
         raise HTTPException(
             status_code=400,
-            detail={"error": f"Amount {amount} exceeds maximum allowed: {MAX_AMOUNT}"},
+            detail={
+                "error": "transaction_not_allowed",
+                "reason": "amount exceeds policy maximum",
+            },
         )
 
 
@@ -179,24 +180,6 @@ def create_permit(req: PermitRequest):
     validate_subject(req.subject)
     validate_action(req.action)
     validate_amount(req.amount)
-
-    if req.action not in SUPPORTED_ACTIONS:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "unsupported_action",
-                "reason": f"action '{req.action}' is not supported; allowed: {sorted(SUPPORTED_ACTIONS)}",
-            },
-        )
-
-    if req.amount is not None and req.amount > MAX_AMOUNT:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "transaction_not_allowed",
-                "reason": "amount exceeds policy maximum",
-            },
-        )
 
     now = int(time.time())
     exp = now + PERMIT_TTL_SECONDS
@@ -283,8 +266,6 @@ def verify_permit(req: VerifyRequest):
         "subject": req.bundle.get("subject"),
         "policy_version": req.bundle.get("policy", {}).get("version"),
     }
-
-
 
 
 # -----------------------

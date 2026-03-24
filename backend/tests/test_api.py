@@ -102,19 +102,25 @@ def test_permit_bundle_structure():
 def test_permit_subject_validation_no_r():
     response = client.post("/v1/permit", json={"subject": "xInvalidAddress12345678901234"})
     assert response.status_code == 400
-    assert response.json()["detail"]["error"] == "subject must start with 'r'"
+    detail = response.json()["detail"]
+    assert detail["error"] == "invalid_subject"
+    assert "r" in detail["reason"]
 
 
 def test_permit_subject_validation_too_short():
     response = client.post("/v1/permit", json={"subject": "rShort"})
     assert response.status_code == 400
-    assert response.json()["detail"]["error"] == "subject length must be 25-35 chars"
+    detail = response.json()["detail"]
+    assert detail["error"] == "invalid_subject"
+    assert "25-35" in detail["reason"]
 
 
 def test_permit_subject_validation_too_long():
     response = client.post("/v1/permit", json={"subject": "r" + "a" * 35})
     assert response.status_code == 400
-    assert response.json()["detail"]["error"] == "subject length must be 25-35 chars"
+    detail = response.json()["detail"]
+    assert detail["error"] == "invalid_subject"
+    assert "25-35" in detail["reason"]
 
 
 def test_verify_validates_signature():
@@ -268,18 +274,16 @@ def test_permit_unsupported_action_returns_structured_error():
     response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "action": "burn"})
     assert response.status_code == 400
     detail = response.json()["detail"]
-    assert "error" in detail
-    assert "Unsupported action" in detail["error"]
-    assert "burn" in detail["error"]
+    assert detail["error"] == "unsupported_action"
+    assert "burn" in detail["reason"]
 
 
 def test_permit_amount_exceeds_max_returns_structured_error():
     response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 1001})
     assert response.status_code == 400
     detail = response.json()["detail"]
-    assert "error" in detail
-    assert "1001" in detail["error"]
-    assert "1000" in detail["error"]
+    assert detail["error"] == "transaction_not_allowed"
+    assert "reason" in detail
 
 
 def test_permit_amount_at_max_is_accepted():
