@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+from unittest.mock import patch, MagicMock
 from main import app
 
 client = TestClient(app)
@@ -93,3 +94,89 @@ def test_verify_validates_signature():
     data = verify_response.json()
     assert data["signature_valid"] is True
     assert data["not_expired"] is True
+
+
+COMMIT_PAYLOAD = {
+    "bundle_hash": "abc123def456",
+    "subject": VALID_SUBJECT,
+    "policy_id": "RLUSD_US_v1",
+    "exp": 9999999999,
+    "action": "transfer",
+}
+
+
+def test_commit_returns_committed_response():
+    mock_result = {"tx_id": "ALGO_TX_001", "status": "confirmed"}
+    with patch("main.http_requests.post") as mock_post:
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = mock_result
+        mock_resp.raise_for_status.return_value = None
+        mock_post.return_value = mock_resp
+
+        with patch("main.ALGORAND_ADAPTER_URL", "http://adapter:8080"):
+            response = client.post("/v1/commit", json=COMMIT_PAYLOAD)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["committed"] is True
+    assert data["algorand_tx_id"] == "ALGO_TX_001"
+    assert data["bundle_hash"] == COMMIT_PAYLOAD["bundle_hash"]
+    assert data["adapter_response"] == mock_result
+
+
+def test_commit_calls_adapter_with_correct_payload():
+    mock_result = {"tx_id": "ALGO_TX_002"}
+    with patch("main.http_requests.post") as mock_post:
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = mock_result
+        mock_resp.raise_for_status.return_value = None
+        mock_post.return_value = mock_resp
+
+        with patch("main.ALGORAND_ADAPTER_URL", "http://adapter:8080"):
+            client.post("/v1/commit", json=COMMIT_PAYLOAD)
+
+        called_url = mock_post.call_args[0][0]
+        called_json = mock_post.call_args[1]["json"]
+
+    assert called_url == "http://adapter:8080/v1/commit"
+    assert called_json["bundle_hash"] == COMMIT_PAYLOAD["bundle_hash"]
+    assert called_json["subject"] == COMMIT_PAYLOAD["subject"]
+    assert called_json["policy_id"] == COMMIT_PAYLOAD["policy_id"]
+    assert called_json["exp"] == COMMIT_PAYLOAD["exp"]
+    assert called_json["action"] == COMMIT_PAYLOAD["action"]
+
+
+def test_commit_returns_502_when_adapter_url_not_configured():
+    with patch("main.ALGORAND_ADAPTER_URL", ""):
+        response = client.post("/v1/commit", json=COMMIT_PAYLOAD)
+    assert response.status_code == 502
+    assert "ALGORAND_ADAPTER_URL" in response.json()["detail"]
+
+
+def test_commit_returns_502_when_adapter_call_fails():
+    import requests as req_lib
+
+    with patch("main.http_requests.post") as mock_post:
+        mock_post.side_effect = req_lib.RequestException("connection refused")
+
+        with patch("main.ALGORAND_ADAPTER_URL", "http://adapter:8080"):
+            response = client.post("/v1/commit", json=COMMIT_PAYLOAD)
+
+    assert response.status_code == 502
+    assert "Algorand adapter call failed" in response.json()["detail"]
+
+
+def test_commit_tx_id_is_none_when_missing_from_adapter():
+    mock_result = {"status": "ok"}  # no tx_id key
+    with patch("main.http_requests.post") as mock_post:
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = mock_result
+        mock_resp.raise_for_status.return_value = None
+        mock_post.return_value = mock_resp
+
+        with patch("main.ALGORAND_ADAPTER_URL", "http://adapter:8080"):
+            response = client.post("/v1/commit", json=COMMIT_PAYLOAD)
+
+    assert response.status_code == 200
+    assert response.json()["algorand_tx_id"] is None
+
