@@ -40,21 +40,15 @@ type VerifyResponse = {
   constraints?: PermitConstraints;
 };
 
-type CommitResult = {
-  committed: boolean;
-  algorand_tx_id?: string | null;
-  bundle_hash: string;
+type CommitResponse = {
+  status: string;
+  tx_id?: string;
 };
 
 type PermitRequestBody = {
   subject: string;
   action: string;
   amount?: number;
-};
-
-type CommitResponse = {
-  status: string;
-  tx_id?: string;
 };
 
 function formatSeconds(s: number) {
@@ -69,12 +63,19 @@ function checkClass(valid: boolean) {
 
 function checkSymbol(valid: boolean) {
   return valid ? "✔" : "✘";
-function extractErrorMessage(data: any, fallback: string): string {
+}
+
+function extractErrorMessage(data: unknown, fallback: string): string {
   if (!data) return fallback;
-  const detail = data.detail;
+  const d = data as Record<string, unknown>;
+  const detail = d.detail;
   if (typeof detail === "string") return detail;
   if (typeof detail === "object" && detail !== null) {
-    return (detail as Record<string, string>).reason ?? (detail as Record<string, string>).error ?? JSON.stringify(detail);
+    return (
+      (detail as Record<string, string>).reason ??
+      (detail as Record<string, string>).error ??
+      JSON.stringify(detail)
+    );
   }
   return fallback;
 }
@@ -87,7 +88,6 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState<number>(() => Math.floor(Date.now() / 1000));
   const [verifyResult, setVerifyResult] = useState<VerifyResponse | null>(null);
-  const [commitResult, setCommitResult] = useState<CommitResult | null>(null);
   const [commitResult, setCommitResult] = useState<CommitResponse | null>(null);
   const [committing, setCommitting] = useState(false);
 
@@ -115,7 +115,6 @@ export default function App() {
     setPermit(null);
     setVerifyResult(null);
     setCommitResult(null);
-    setShowTechnical(false);
 
     const trimmed = subject.trim();
     if (!trimmed) {
@@ -188,7 +187,7 @@ export default function App() {
 
       const data = await res.json();
       if (!res.ok) {
-        setError(data?.detail ?? "Failed to commit to Algorand.");
+        setError(extractErrorMessage(data, "Failed to commit to Algorand."));
       } else {
         setCommitResult(data);
       }
@@ -219,12 +218,11 @@ export default function App() {
       </header>
 
       <main className="grid">
-        {/* Panel 1: Wallet / Request Permit */}
+        {/* Panel 1: Request Permit */}
         <section className="card">
-          <h2>Wallet / Request Permit</h2>
+          <h2>Request Permit</h2>
           <p className="muted">
             Paste a subject address to request a time-bound compliance permit.
-            Wallet connect coming in a later phase.
           </p>
 
           <label className="label">Subject Address</label>
@@ -286,40 +284,6 @@ export default function App() {
               {status.label}
             </span>
           </div>
-          <h2>Compliance Authorization</h2>
-          {!permit && (
-            <p className="muted">
-              Request a permit to generate a time-bound Proof Bundle (5 minutes).
-            </p>
-          )}
-
-          {permit && (
-            <>
-              <div className="summary">
-                <div className="item">
-                  <span className="check">✔</span> Issuer verified
-                </div>
-                <div className="item">
-                  <span className="check">✔</span> Asset classification:{" "}
-                  <b>{permit.summary.asset_classification}</b>
-                </div>
-                <div className="item">
-                  <span className="check">✔</span> Action: <b>{permit.bundle.action}</b>
-                </div>
-                <div className="item">
-                  <span className="check">✔</span> Custody attestation bound
-                </div>
-                <div className="item">
-                  <span className="check">✔</span> Reserve backing attestation bound
-                </div>
-                <div className="item">
-                  <span className="check">✔</span> Policy: <b>{permit.summary.policy_version}</b>
-                </div>
-                <div className="item">
-                  <span className="check">✔</span> Expires in:{" "}
-                  <b>{remaining > 0 ? formatSeconds(remaining) : "00:00"}</b>
-                </div>
-          <h2>Permit Summary</h2>
           {!permit ? (
             <p className="muted">Request a permit to view the compliance summary.</p>
           ) : (
@@ -411,9 +375,9 @@ export default function App() {
           )}
         </section>
 
-        {/* Panel 4: Verification */}
+        {/* Panel 4: Verify Permit */}
         <section className="card">
-          <h2>Verification</h2>
+          <h2>Verify Permit</h2>
           <p className="muted">
             Verify the permit signature and confirm it has not expired.
           </p>
@@ -445,9 +409,9 @@ export default function App() {
           )}
         </section>
 
-        {/* Panel 5: Algorand Commit */}
+        {/* Panel 5: Commit to Algorand */}
         <section className="card">
-          <h2>Algorand Commit</h2>
+          <h2>Commit to Algorand</h2>
           <p className="muted">
             Commit the proof bundle to the Algorand adapter for on-chain anchoring.
           </p>

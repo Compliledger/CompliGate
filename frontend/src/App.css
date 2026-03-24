@@ -203,13 +203,6 @@ body {
 .textWarn { color: var(--warn); }
 .textBad  { color: var(--bad); }
 
-.item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 14px;
-}
-
 .check {
   display: inline-flex;
   width: 22px;
@@ -295,8 +288,6 @@ pre {
   color: var(--muted);
   font-weight: 700;
 }
-
-.spaceTop { margin-top: 10px; }
 
 .footer {
   margin-top: 14px;
