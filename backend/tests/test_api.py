@@ -21,6 +21,65 @@ def test_permit_returns_bundle_signature_hash():
     assert "bundle_hash" in data
 
 
+def test_permit_default_action_is_transfer():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    bundle = data["bundle"]
+    assert bundle["action"] == "transfer"
+    assert bundle["scope"] == ["transfer"]
+
+
+def test_permit_custom_action():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "action": "payment"})
+    assert response.status_code == 200
+    data = response.json()
+    bundle = data["bundle"]
+    assert bundle["action"] == "payment"
+    assert bundle["scope"] == ["payment"]
+
+
+def test_permit_with_amount():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 500.0})
+    assert response.status_code == 200
+    data = response.json()
+    assert "bundle" in data
+    assert "signature" in data
+    assert "bundle_hash" in data
+
+
+def test_permit_bundle_structure():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    bundle = response.json()["bundle"]
+    assert bundle["subject"] == VALID_SUBJECT
+    assert "bundle_id" in bundle
+    assert "nonce" in bundle
+    assert "exp" in bundle
+    assert "policy_id" in bundle["asset"]
+    assert bundle["asset"]["classification"] == "regulated_stablecoin"
+    assert "max_amount" in bundle["constraints"]
+    assert bundle["constraints"]["allowed_counterparty"] is None
+    assert "attestations" in bundle
+    assert "custody_hash" in bundle["attestations"]
+    assert "reserve_hash" in bundle["attestations"]
+
+
+def test_permit_subject_validation_no_r():
+    response = client.post("/v1/permit", json={"subject": "xInvalidAddress12345678901234"})
+    assert response.status_code == 400
+
+
+def test_permit_subject_validation_too_short():
+    response = client.post("/v1/permit", json={"subject": "rShort"})
+    assert response.status_code == 400
+
+
+def test_permit_subject_validation_too_long():
+    response = client.post("/v1/permit", json={"subject": "r" + "a" * 35})
+    assert response.status_code == 400
+
+
 def test_verify_validates_signature():
     permit_response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
     assert permit_response.status_code == 200

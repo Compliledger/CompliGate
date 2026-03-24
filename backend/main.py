@@ -73,6 +73,8 @@ VERIFY_KEY = SIGNING_KEY.verify_key
 
 class PermitRequest(BaseModel):
     subject: str = Field(..., description="XRPL account address (starts with 'r').")
+    action: str = Field("transfer", description="Action to authorize (e.g. 'transfer').")
+    amount: float | int | None = Field(None, description="Optional transfer amount.")
 
 
 class PermitResponse(BaseModel):
@@ -141,12 +143,18 @@ def create_permit(req: PermitRequest):
 
     bundle = {
         "bundle_id": str(uuid4()),
+        "subject": req.subject,
+        "action": req.action,
         "asset": {
             "issuer": ISSUER_ADDRESS,
             "currency": CURRENCY,
             "classification": "regulated_stablecoin",
+            "policy_id": POLICY_VERSION,
         },
-        "subject": req.subject,
+        "constraints": {
+            "max_amount": 1000,
+            "allowed_counterparty": None,
+        },
         "policy": {
             "version": POLICY_VERSION,
             "jurisdiction": JURISDICTION,
@@ -155,7 +163,7 @@ def create_permit(req: PermitRequest):
             "custody_hash": random_hex(32),
             "reserve_hash": random_hex(32),
         },
-        "scope": ["trustset", "payment"],
+        "scope": [req.action],
         "exp": exp,
         "nonce": str(uuid4()),
     }
