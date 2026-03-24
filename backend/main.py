@@ -25,6 +25,7 @@ CURRENCY = os.getenv("CURRENCY", "RLUSD")
 ISSUER_ADDRESS = os.getenv("ISSUER_ADDRESS", "rEXAMPLE_ISSUER_ADDRESS")
 PRIVATE_KEY_B64 = os.getenv("COMPLIGATE_PRIVATE_KEY_B64", "").strip()
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173")
+ALGORAND_ADAPTER_URL = os.getenv("ALGORAND_ADAPTER_URL", "")
 
 PERMIT_TTL_SECONDS = 300  # 5 minutes
 
