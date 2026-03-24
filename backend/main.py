@@ -28,6 +28,7 @@ PRIVATE_KEY_B64 = os.getenv("COMPLIGATE_PRIVATE_KEY_B64", "").strip()
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173")
 
 PERMIT_TTL_SECONDS = 300  # 5 minutes
+ALGORAND_ADAPTER_URL = os.getenv("ALGORAND_ADAPTER_URL", "")
 
 
 # -----------------------
@@ -134,18 +135,40 @@ def public_key():
     }
 
 
+SUPPORTED_ACTIONS = {"transfer", "payment", "escrow"}
+MAX_AMOUNT = 1000
+
+
 def validate_subject(subject: str) -> None:
     if not isinstance(subject, str):
-        raise HTTPException(status_code=400, detail="subject must be a string")
+        raise HTTPException(status_code=400, detail={"error": "subject must be a string"})
     if not subject.startswith("r"):
-        raise HTTPException(status_code=400, detail="subject must start with 'r'")
+        raise HTTPException(status_code=400, detail={"error": "subject must start with 'r'"})
     if not (25 <= len(subject) <= 35):
-        raise HTTPException(status_code=400, detail="subject length must be 25-35 chars")
+        raise HTTPException(status_code=400, detail={"error": "subject length must be 25-35 chars"})
+
+
+def validate_action(action: str) -> None:
+    if action not in SUPPORTED_ACTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": f"Unsupported action: '{action}'. Must be one of: {sorted(SUPPORTED_ACTIONS)}"},
+        )
+
+
+def validate_amount(amount: float | int | None) -> None:
+    if amount is not None and amount > MAX_AMOUNT:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": f"Amount {amount} exceeds maximum allowed: {MAX_AMOUNT}"},
+        )
 
 
 @app.post("/v1/permit", response_model=PermitResponse)
 def create_permit(req: PermitRequest):
     validate_subject(req.subject)
+    validate_action(req.action)
+    validate_amount(req.amount)
 
     now = int(time.time())
     exp = now + PERMIT_TTL_SECONDS
@@ -225,19 +248,6 @@ def verify_permit(req: VerifyRequest):
     }
 
 
-@app.post("/v1/commit")
-def commit_permit(req: CommitRequest):
-    now = int(time.time())
-    not_expired = now < req.exp
-
-    return {
-        "status": "committed",
-        "bundle_hash": req.bundle_hash,
-        "subject": req.subject,
-        "policy_id": req.policy_id,
-        "action": req.action,
-        "exp": req.exp,
-        "not_expired": not_expired,
 # -----------------------
 # Algorand Adapter
 # -----------------------

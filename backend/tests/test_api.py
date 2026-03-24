@@ -69,16 +69,19 @@ def test_permit_bundle_structure():
 def test_permit_subject_validation_no_r():
     response = client.post("/v1/permit", json={"subject": "xInvalidAddress12345678901234"})
     assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "subject must start with 'r'"
 
 
 def test_permit_subject_validation_too_short():
     response = client.post("/v1/permit", json={"subject": "rShort"})
     assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "subject length must be 25-35 chars"
 
 
 def test_permit_subject_validation_too_long():
     response = client.post("/v1/permit", json={"subject": "r" + "a" * 35})
     assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "subject length must be 25-35 chars"
 
 
 def test_verify_validates_signature():
@@ -222,3 +225,31 @@ def test_verify_response_fields():
     data = verify_response.json()
     assert data["subject"] == VALID_SUBJECT
     assert data["policy_version"] == permit["bundle"]["policy"]["version"]
+
+
+def test_permit_unsupported_action_returns_structured_error():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "action": "burn"})
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "error" in detail
+    assert "Unsupported action" in detail["error"]
+    assert "burn" in detail["error"]
+
+
+def test_permit_amount_exceeds_max_returns_structured_error():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 1001})
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "error" in detail
+    assert "1001" in detail["error"]
+    assert "1000" in detail["error"]
+
+
+def test_permit_amount_at_max_is_accepted():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 1000})
+    assert response.status_code == 200
+
+
+def test_permit_amount_below_max_is_accepted():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 500})
+    assert response.status_code == 200
