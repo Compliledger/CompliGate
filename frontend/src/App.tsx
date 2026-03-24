@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
+const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+
+type PermitValidity = {
+  single_use: boolean;
+};
+
+type PermitConstraints = {
+  max_amount: number;
+  allowed_counterparty?: string | null;
+};
+
 type PermitResponse = {
   summary: {
     issuer_verified: boolean;
@@ -16,6 +27,7 @@ type PermitResponse = {
   expires_at: number;
   expires_in_seconds: number;
   bundle_hash: string;
+  validity: PermitValidity;
 };
 
 type VerifyResponse = {
@@ -23,6 +35,21 @@ type VerifyResponse = {
   not_expired: boolean;
   subject?: string;
   policy_version?: string;
+  action?: string;
+  bundle_hash?: string;
+  constraints?: PermitConstraints;
+};
+
+type CommitResult = {
+  committed: boolean;
+  algorand_tx_id?: string | null;
+  bundle_hash: string;
+};
+
+type PermitRequestBody = {
+  subject: string;
+  action: string;
+  amount?: number;
 };
 
 function formatSeconds(s: number) {
@@ -31,13 +58,26 @@ function formatSeconds(s: number) {
   return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 }
 
+function extractErrorMessage(data: any, fallback: string): string {
+  if (!data) return fallback;
+  const detail = data.detail;
+  if (typeof detail === "string") return detail;
+  if (typeof detail === "object" && detail !== null) {
+    return (detail as Record<string, string>).reason ?? (detail as Record<string, string>).error ?? JSON.stringify(detail);
+  }
+  return fallback;
+}
+
 export default function App() {
   const [subject, setSubject] = useState("");
+  const [action, setAction] = useState("transfer");
+  const [amount, setAmount] = useState("");
   const [permit, setPermit] = useState<PermitResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState<number>(() => Math.floor(Date.now() / 1000));
   const [showTechnical, setShowTechnical] = useState(false);
   const [verifyResult, setVerifyResult] = useState<VerifyResponse | null>(null);
+  const [commitResult, setCommitResult] = useState<CommitResult | null>(null);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
@@ -62,6 +102,7 @@ export default function App() {
     setError(null);
     setPermit(null);
     setVerifyResult(null);
+    setCommitResult(null);
     setShowTechnical(false);
 
     const trimmed = subject.trim();
@@ -70,16 +111,25 @@ export default function App() {
       return;
     }
 
+    const parsedAmount = amount.trim() ? parseFloat(amount.trim()) : undefined;
+    if (parsedAmount !== undefined && isNaN(parsedAmount)) {
+      setError("Amount must be a valid number.");
+      return;
+    }
+
     try {
-      const res = await fetch("http://localhost:8000/v1/permit", {
+      const body: PermitRequestBody = { subject: trimmed, action };
+      if (parsedAmount !== undefined) body.amount = parsedAmount;
+
+      const res = await fetch(`${API_BASE}/v1/permit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject: trimmed }),
+        body: JSON.stringify(body),
       });
 
       const data = await res.json();
       if (!res.ok) {
-        setError(data?.detail ?? "Failed to request permit.");
+        setError(extractErrorMessage(data, "Failed to request permit."));
         return;
       }
       setPermit(data);
@@ -95,7 +145,7 @@ export default function App() {
     setVerifyResult(null);
 
     try {
-      const res = await fetch("http://localhost:8000/v1/verify", {
+      const res = await fetch(`${API_BASE}/v1/verify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bundle: permit.bundle, signature: permit.signature }),
@@ -103,7 +153,7 @@ export default function App() {
 
       const data = await res.json();
       if (!res.ok) {
-        setError(data?.detail ?? "Failed to verify permit.");
+        setError(extractErrorMessage(data, "Failed to verify permit."));
         return;
       }
 
@@ -149,6 +199,26 @@ export default function App() {
             spellCheck={false}
           />
 
+          <label className="label">Action</label>
+          <select
+            className="input"
+            value={action}
+            onChange={(e) => setAction(e.target.value)}
+          >
+            <option value="transfer">transfer</option>
+            <option value="trustset">trustset</option>
+          </select>
+
+          <label className="label">Amount (optional)</label>
+          <input
+            className="input"
+            type="number"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="e.g. 100"
+            min="0"
+          />
+
           <div className="row">
             <button className="btn primary" onClick={requestPermit} disabled={!subject.trim()}>
               Request Compliance Permit
@@ -158,10 +228,11 @@ export default function App() {
               onClick={() => {
                 setPermit(null);
                 setVerifyResult(null);
+                setCommitResult(null);
                 setError(null);
                 setShowTechnical(false);
               }}
-              disabled={!permit && !error}
+              disabled={!permit && !error && !commitResult}
             >
               Clear
             </button>
@@ -190,6 +261,9 @@ export default function App() {
                   <b>{permit.summary.asset_classification}</b>
                 </div>
                 <div className="item">
+                  <span className="check">✔</span> Action: <b>{permit.bundle.action}</b>
+                </div>
+                <div className="item">
                   <span className="check">✔</span> Custody attestation bound
                 </div>
                 <div className="item">
@@ -197,6 +271,10 @@ export default function App() {
                 </div>
                 <div className="item">
                   <span className="check">✔</span> Policy: <b>{permit.summary.policy_version}</b>
+                </div>
+                <div className="item">
+                  <span className="check">✔</span> Expires in:{" "}
+                  <b>{remaining > 0 ? formatSeconds(remaining) : "00:00"}</b>
                 </div>
               </div>
 
