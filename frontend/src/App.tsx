@@ -3,6 +3,22 @@ import "./App.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
+type PermitBundle = {
+  bundle_id: string;
+  subject: string;
+  action: string;
+  exp: number;
+  asset: {
+    issuer: string;
+    currency: string;
+    classification: string;
+    policy_id: string;
+  };
+  constraints: Record<string, unknown>;
+  policy: Record<string, unknown>;
+  attestations: Record<string, unknown>;
+  scope: string[];
+  nonce: string;
 type PermitValidity = {
   single_use: boolean;
 };
@@ -21,7 +37,7 @@ type PermitResponse = {
     policy_version: string;
     expires_in_seconds: number;
   };
-  bundle: Record<string, unknown>;
+  bundle: PermitBundle;
   signature: string;
   signed_at: number;
   expires_at: number;
@@ -47,8 +63,14 @@ type PermitRequestBody = {
 };
 
 type CommitResponse = {
-  status: string;
-  tx_id?: string;
+  committed: boolean;
+  algorand_tx_id?: string;
+  bundle_hash?: string;
+};
+
+type AdapterHealth = {
+  adapter_configured: boolean;
+  reachable: boolean;
 };
 
 function formatSeconds(s: number) {
@@ -75,6 +97,16 @@ function extractErrorMessage(data: any, fallback: string): string {
   return fallback;
 }
 
+function adapterConfiguredLabel(health: AdapterHealth | null): string {
+  if (!health) return "…";
+  return health.adapter_configured ? "Configured" : "Not Configured";
+}
+
+function adapterReachableLabel(health: AdapterHealth | null): string {
+  if (!health) return "…";
+  return health.reachable ? "Reachable" : "Unreachable";
+}
+
 export default function App() {
   const [subject, setSubject] = useState("");
   const [action, setAction] = useState("transfer");
@@ -84,11 +116,23 @@ export default function App() {
   const [now, setNow] = useState<number>(() => Math.floor(Date.now() / 1000));
   const [verifyResult, setVerifyResult] = useState<VerifyResponse | null>(null);
   const [commitResult, setCommitResult] = useState<CommitResponse | null>(null);
+  const [showTechnical, setShowTechnical] = useState(false);
   const [committing, setCommitting] = useState(false);
+  const [adapterHealth, setAdapterHealth] = useState<AdapterHealth | null>(null);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
     return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/v1/adapter-health`)
+      .then((r) => r.json())
+      .then((d: AdapterHealth) => setAdapterHealth(d))
+      .catch((err) => {
+        console.error("Failed to fetch adapter health:", err);
+        setAdapterHealth({ adapter_configured: false, reachable: false });
+      });
   }, []);
 
   const remaining = useMemo(() => {
@@ -178,7 +222,13 @@ export default function App() {
       const res = await fetch(`${API_BASE}/v1/commit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bundle: permit.bundle, signature: permit.signature }),
+        body: JSON.stringify({
+          bundle_hash: permit.bundle_hash,
+          subject: permit.bundle.subject,
+          policy_id: permit.bundle.asset.policy_id,
+          exp: permit.bundle.exp,
+          action: permit.bundle.action,
+        }),
       });
 
       const data = await res.json();
@@ -210,6 +260,18 @@ export default function App() {
           )}
         </div>
       </header>
+
+      <div className="adapterBar">
+        <span className="adapterBarLabel">Algorand Adapter</span>
+        <span className={`badge ${adapterHealth?.adapter_configured ? "good" : "bad"}`}>
+          <span className="badgeDot" />
+          {adapterConfiguredLabel(adapterHealth)}
+        </span>
+        <span className={`badge ${adapterHealth?.reachable ? "good" : "bad"}`}>
+          <span className="badgeDot" />
+          {adapterReachableLabel(adapterHealth)}
+        </span>
+      </div>
 
       <main className="grid">
         {/* Panel 1: Wallet / Request Permit */}
@@ -424,9 +486,13 @@ export default function App() {
 
           {commitResult && (
             <div className="alert good">
-              Committed — status: <b>{commitResult.status}</b>
-              {commitResult.tx_id && (
-                <>&nbsp;|&nbsp;tx_id: <b>{commitResult.tx_id}</b></>
+              <span className="pill good" style={{ marginRight: "0.5rem" }}>⚓ Anchored</span>
+              Committed: <b>{String(commitResult.committed)}</b>
+              {commitResult.algorand_tx_id && (
+                <>&nbsp;|&nbsp;Algorand TX: <b>{commitResult.algorand_tx_id}</b></>
+              )}
+              {commitResult.bundle_hash && (
+                <><br />Bundle Hash: <b style={{ wordBreak: "break-all" }}>{commitResult.bundle_hash}</b></>
               )}
             </div>
           )}
