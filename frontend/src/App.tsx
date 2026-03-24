@@ -56,12 +56,6 @@ type VerifyResponse = {
   constraints?: PermitConstraints;
 };
 
-type CommitResult = {
-  committed: boolean;
-  algorand_tx_id?: string | null;
-  bundle_hash: string;
-};
-
 type PermitRequestBody = {
   subject: string;
   action: string;
@@ -147,11 +141,12 @@ export default function App() {
   }, [permit, now]);
 
   const status = useMemo(() => {
+    if (commitResult) return { label: "Anchored", kind: "anchored" as const };
     if (!permit) return { label: "No Permit", kind: "neutral" as const };
     if (remaining <= 0) return { label: "Expired", kind: "bad" as const };
     if (remaining < 60) return { label: "Expiring Soon", kind: "warn" as const };
     return { label: "Active", kind: "good" as const };
-  }, [permit, remaining]);
+  }, [permit, remaining, commitResult]);
 
   const permitActive = permit && remaining > 0;
 
@@ -160,7 +155,6 @@ export default function App() {
     setPermit(null);
     setVerifyResult(null);
     setCommitResult(null);
-    setShowTechnical(false);
 
     const trimmed = subject.trim();
     if (!trimmed) {
@@ -261,10 +255,8 @@ export default function App() {
         <div className={`pill ${status.kind}`}>
           <span className="dot" />
           {status.label}
-          {permit && (
-            <span className="pillRight">
-              {remaining > 0 ? formatSeconds(remaining) : "00:00"}
-            </span>
+          {permit && remaining > 0 && !commitResult && (
+            <span className="pillRight">{formatSeconds(remaining)}</span>
           )}
         </div>
       </header>
@@ -349,6 +341,7 @@ export default function App() {
               {status.label}
             </span>
           </div>
+
           {!permit ? (
             <p className="muted">Request a permit to view the compliance summary.</p>
           ) : (
