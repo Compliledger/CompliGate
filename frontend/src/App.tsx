@@ -19,6 +19,13 @@ type PermitBundle = {
   attestations: Record<string, unknown>;
   scope: string[];
   nonce: string;
+type PermitValidity = {
+  single_use: boolean;
+};
+
+type PermitConstraints = {
+  max_amount: number;
+  allowed_counterparty?: string | null;
 };
 
 type PermitResponse = {
@@ -36,6 +43,7 @@ type PermitResponse = {
   expires_at: number;
   expires_in_seconds: number;
   bundle_hash: string;
+  validity: PermitValidity;
 };
 
 type VerifyResponse = {
@@ -43,6 +51,21 @@ type VerifyResponse = {
   not_expired: boolean;
   subject?: string;
   policy_version?: string;
+  action?: string;
+  bundle_hash?: string;
+  constraints?: PermitConstraints;
+};
+
+type CommitResult = {
+  committed: boolean;
+  algorand_tx_id?: string | null;
+  bundle_hash: string;
+};
+
+type PermitRequestBody = {
+  subject: string;
+  action: string;
+  amount?: number;
 };
 
 type CommitResponse = {
@@ -57,12 +80,31 @@ function formatSeconds(s: number) {
   return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 }
 
+function checkClass(valid: boolean) {
+  return valid ? "check" : "check checkFail";
+}
+
+function checkSymbol(valid: boolean) {
+  return valid ? "✔" : "✘";
+function extractErrorMessage(data: any, fallback: string): string {
+  if (!data) return fallback;
+  const detail = data.detail;
+  if (typeof detail === "string") return detail;
+  if (typeof detail === "object" && detail !== null) {
+    return (detail as Record<string, string>).reason ?? (detail as Record<string, string>).error ?? JSON.stringify(detail);
+  }
+  return fallback;
+}
+
 export default function App() {
   const [subject, setSubject] = useState("");
+  const [action, setAction] = useState("transfer");
+  const [amount, setAmount] = useState("");
   const [permit, setPermit] = useState<PermitResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState<number>(() => Math.floor(Date.now() / 1000));
   const [verifyResult, setVerifyResult] = useState<VerifyResponse | null>(null);
+  const [commitResult, setCommitResult] = useState<CommitResult | null>(null);
   const [commitResult, setCommitResult] = useState<CommitResponse | null>(null);
   const [committing, setCommitting] = useState(false);
 
@@ -90,6 +132,7 @@ export default function App() {
     setPermit(null);
     setVerifyResult(null);
     setCommitResult(null);
+    setShowTechnical(false);
 
     const trimmed = subject.trim();
     if (!trimmed) {
@@ -97,16 +140,25 @@ export default function App() {
       return;
     }
 
+    const parsedAmount = amount.trim() ? parseFloat(amount.trim()) : undefined;
+    if (parsedAmount !== undefined && isNaN(parsedAmount)) {
+      setError("Amount must be a valid number.");
+      return;
+    }
+
     try {
+      const body: PermitRequestBody = { subject: trimmed, action };
+      if (parsedAmount !== undefined) body.amount = parsedAmount;
+
       const res = await fetch(`${API_BASE}/v1/permit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject: trimmed }),
+        body: JSON.stringify(body),
       });
 
       const data = await res.json();
       if (!res.ok) {
-        setError(data?.detail ?? "Failed to request permit.");
+        setError(extractErrorMessage(data, "Failed to request permit."));
         return;
       }
       setPermit(data);
@@ -129,7 +181,7 @@ export default function App() {
 
       const data = await res.json();
       if (!res.ok) {
-        setError(data?.detail ?? "Failed to verify permit.");
+        setError(extractErrorMessage(data, "Failed to verify permit."));
         return;
       }
       setVerifyResult(data);
@@ -207,6 +259,26 @@ export default function App() {
             spellCheck={false}
           />
 
+          <label className="label">Action</label>
+          <select
+            className="input"
+            value={action}
+            onChange={(e) => setAction(e.target.value)}
+          >
+            <option value="transfer">transfer</option>
+            <option value="trustset">trustset</option>
+          </select>
+
+          <label className="label">Amount (optional)</label>
+          <input
+            className="input"
+            type="number"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="e.g. 100"
+            min="0"
+          />
+
           <div className="row">
             <button className="btn primary" onClick={requestPermit} disabled={!subject.trim()}>
               Request Permit
@@ -219,7 +291,7 @@ export default function App() {
                 setCommitResult(null);
                 setError(null);
               }}
-              disabled={!permit && !error}
+              disabled={!permit && !error && !commitResult}
             >
               Clear
             </button>
@@ -230,31 +302,113 @@ export default function App() {
 
         {/* Panel 2: Permit Summary */}
         <section className="card">
+          <div className="summaryHeader">
+            <h2>Permit Summary</h2>
+            <span className={`badge ${status.kind}`}>
+              <span className="badgeDot" />
+              {status.label}
+            </span>
+          </div>
+          <h2>Compliance Authorization</h2>
+          {!permit && (
+            <p className="muted">
+              Request a permit to generate a time-bound Proof Bundle (5 minutes).
+            </p>
+          )}
+
+          {permit && (
+            <>
+              <div className="summary">
+                <div className="item">
+                  <span className="check">✔</span> Issuer verified
+                </div>
+                <div className="item">
+                  <span className="check">✔</span> Asset classification:{" "}
+                  <b>{permit.summary.asset_classification}</b>
+                </div>
+                <div className="item">
+                  <span className="check">✔</span> Action: <b>{permit.bundle.action}</b>
+                </div>
+                <div className="item">
+                  <span className="check">✔</span> Custody attestation bound
+                </div>
+                <div className="item">
+                  <span className="check">✔</span> Reserve backing attestation bound
+                </div>
+                <div className="item">
+                  <span className="check">✔</span> Policy: <b>{permit.summary.policy_version}</b>
+                </div>
+                <div className="item">
+                  <span className="check">✔</span> Expires in:{" "}
+                  <b>{remaining > 0 ? formatSeconds(remaining) : "00:00"}</b>
+                </div>
           <h2>Permit Summary</h2>
           {!permit ? (
             <p className="muted">Request a permit to view the compliance summary.</p>
           ) : (
             <div className="summary">
-              <div className="item">
-                <span className="check">✔</span> Issuer verified
+              <div className="summaryRow">
+                <span className={checkClass(permit.summary.issuer_verified)}>
+                  {checkSymbol(permit.summary.issuer_verified)}
+                </span>
+                <span className="summaryLabel">Issuer verified</span>
+                <span className="summaryValue">
+                  {permit.summary.issuer_verified ? "Yes" : "No"}
+                </span>
               </div>
-              <div className="item">
-                <span className="check">✔</span> Asset:{" "}
-                <b>{permit.summary.asset_classification}</b>
+              <div className="summaryRow">
+                <span className="check">✔</span>
+                <span className="summaryLabel">Asset classification</span>
+                <span className="summaryValue">{permit.summary.asset_classification}</span>
               </div>
-              <div className="item">
-                <span className="check">✔</span> Custody attestation bound
+              <div className="summaryRow">
+                <span className={checkClass(permit.summary.custody_attestation_bound)}>
+                  {checkSymbol(permit.summary.custody_attestation_bound)}
+                </span>
+                <span className="summaryLabel">Custody attestation</span>
+                <span className="summaryValue">
+                  {permit.summary.custody_attestation_bound ? "Bound" : "Unbound"}
+                </span>
               </div>
-              <div className="item">
-                <span className="check">✔</span> Reserve attestation bound
+              <div className="summaryRow">
+                <span className={checkClass(permit.summary.reserve_attestation_bound)}>
+                  {checkSymbol(permit.summary.reserve_attestation_bound)}
+                </span>
+                <span className="summaryLabel">Reserve attestation</span>
+                <span className="summaryValue">
+                  {permit.summary.reserve_attestation_bound ? "Bound" : "Unbound"}
+                </span>
               </div>
-              <div className="item">
-                <span className="check">✔</span> Policy:{" "}
-                <b>{permit.summary.policy_version}</b>
+              <div className="summaryRow">
+                <span className="check">✔</span>
+                <span className="summaryLabel">Policy version</span>
+                <span className="summaryValue">{permit.summary.policy_version}</span>
               </div>
-              {!permitActive && (
-                <div className="alert warn">Permit expired. Request a new permit.</div>
-              )}
+              <div className="summaryRow">
+                <span
+                  className={`check${
+                    remaining <= 0
+                      ? " checkFail"
+                      : remaining < 60
+                      ? " checkWarn"
+                      : ""
+                  }`}
+                >
+                  {remaining > 0 ? "⏱" : "✘"}
+                </span>
+                <span className="summaryLabel">Expires in</span>
+                <span
+                  className={`summaryValue${
+                    remaining <= 0
+                      ? " textBad"
+                      : remaining < 60
+                      ? " textWarn"
+                      : ""
+                  }`}
+                >
+                  {remaining > 0 ? formatSeconds(remaining) : "Expired"}
+                </span>
+              </div>
             </div>
           )}
         </section>
@@ -299,9 +453,17 @@ export default function App() {
                 verifyResult.signature_valid && verifyResult.not_expired ? "good" : "bad"
               }`}
             >
-              Signature valid: <b>{String(verifyResult.signature_valid)}</b>
-              &nbsp;|&nbsp;
-              Not expired: <b>{String(verifyResult.not_expired)}</b>
+              <div><span className="muted">Signature valid:</span> <b>{String(verifyResult.signature_valid)}</b></div>
+              <div><span className="muted">Not expired:</span> <b>{String(verifyResult.not_expired)}</b></div>
+              {verifyResult.action && (
+                <div><span className="muted">Action:</span> <b>{verifyResult.action}</b></div>
+              )}
+              {verifyResult.policy_version && (
+                <div><span className="muted">Policy version:</span> <b>{verifyResult.policy_version}</b></div>
+              )}
+              {verifyResult.bundle_hash && (
+                <div><span className="muted">Bundle hash:</span> <b style={{ wordBreak: "break-all" }}>{verifyResult.bundle_hash}</b></div>
+              )}
             </div>
           )}
         </section>
