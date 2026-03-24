@@ -180,3 +180,45 @@ def test_commit_tx_id_is_none_when_missing_from_adapter():
     assert response.status_code == 200
     assert response.json()["algorand_tx_id"] is None
 
+def test_verify_rejects_bad_signature():
+    permit_response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert permit_response.status_code == 200
+    bundle = permit_response.json()["bundle"]
+
+    verify_response = client.post(
+        "/v1/verify",
+        json={"bundle": bundle, "signature": "aW52YWxpZHNpZ25hdHVyZQ=="},
+    )
+    assert verify_response.status_code == 200
+    assert verify_response.json()["signature_valid"] is False
+
+
+def test_verify_rejects_tampered_bundle():
+    permit_response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert permit_response.status_code == 200
+    permit = permit_response.json()
+
+    tampered_bundle = dict(permit["bundle"])
+    tampered_bundle["subject"] = "rTamperedAddress1234567890123"
+
+    verify_response = client.post(
+        "/v1/verify",
+        json={"bundle": tampered_bundle, "signature": permit["signature"]},
+    )
+    assert verify_response.status_code == 200
+    assert verify_response.json()["signature_valid"] is False
+
+
+def test_verify_response_fields():
+    permit_response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert permit_response.status_code == 200
+    permit = permit_response.json()
+
+    verify_response = client.post(
+        "/v1/verify",
+        json={"bundle": permit["bundle"], "signature": permit["signature"]},
+    )
+    assert verify_response.status_code == 200
+    data = verify_response.json()
+    assert data["subject"] == VALID_SUBJECT
+    assert data["policy_version"] == permit["bundle"]["policy"]["version"]

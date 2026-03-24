@@ -326,7 +326,7 @@ def verify_permit(req: VerifyRequest):
         sig_bytes = base64.b64decode(req.signature)
         VERIFY_KEY.verify(canonical, sig_bytes)
         signature_valid = True
-    except (BadSignatureError, Exception):
+    except Exception:
         signature_valid = False
 
     now = int(time.time())
