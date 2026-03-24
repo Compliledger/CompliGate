@@ -344,3 +344,47 @@ def test_commit_failed_is_logged(caplog):
 
     messages = [r.message for r in caplog.records]
     assert any(m.startswith("commit_failed") and "reason=" in m for m in messages)
+
+
+def test_verify_expired_bundle_returns_not_expired_false():
+    permit_response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert permit_response.status_code == 200
+    permit = permit_response.json()
+
+    expired_bundle = dict(permit["bundle"])
+    expired_bundle["exp"] = 1  # Unix timestamp in the far past
+
+    verify_response = client.post(
+        "/v1/verify",
+        json={"bundle": expired_bundle, "signature": permit["signature"]},
+    )
+    assert verify_response.status_code == 200
+    data = verify_response.json()
+    assert data["not_expired"] is False
+
+
+def test_commit_success_monkeypatch(monkeypatch):
+    mock_result = {"tx_id": "ALGO_TX_MONKEYPATCH"}
+    captured_calls = []
+
+    def mock_post(url, json=None, timeout=None):
+        captured_calls.append({"url": url, "json": json})
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = mock_result
+        mock_resp.raise_for_status.return_value = None
+        return mock_resp
+
+    monkeypatch.setattr("main.http_requests.post", mock_post)
+    monkeypatch.setattr("main.ALGORAND_ADAPTER_URL", "http://adapter:8080")
+
+    response = client.post("/v1/commit", json=COMMIT_PAYLOAD)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["committed"] is True
+    assert data["algorand_tx_id"] == "ALGO_TX_MONKEYPATCH"
+    assert data["bundle_hash"] == COMMIT_PAYLOAD["bundle_hash"]
+
+    assert len(captured_calls) == 1
+    assert captured_calls[0]["url"] == "http://adapter:8080/v1/commit"
+    assert captured_calls[0]["json"]["bundle_hash"] == COMMIT_PAYLOAD["bundle_hash"]
+    assert captured_calls[0]["json"]["subject"] == COMMIT_PAYLOAD["subject"]
