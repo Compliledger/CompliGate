@@ -265,6 +265,9 @@ def verify_permit(req: VerifyRequest):
         "not_expired": not_expired,
         "subject": req.bundle.get("subject"),
         "policy_version": req.bundle.get("policy", {}).get("version"),
+        "action": req.bundle.get("action"),
+        "bundle_hash": proof_hash(req.bundle),
+        "constraints": req.bundle.get("constraints", {}),
     }
 
 

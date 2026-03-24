@@ -268,6 +268,9 @@ def test_verify_response_fields():
     data = verify_response.json()
     assert data["subject"] == VALID_SUBJECT
     assert data["policy_version"] == permit["bundle"]["policy"]["version"]
+    assert data["action"] == permit["bundle"]["action"]
+    assert data["bundle_hash"] == permit["bundle_hash"]
+    assert data["constraints"] == permit["bundle"]["constraints"]
 
 
 def test_permit_unsupported_action_returns_structured_error():
