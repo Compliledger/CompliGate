@@ -38,6 +38,14 @@ function formatSeconds(s: number) {
   return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 }
 
+function checkClass(valid: boolean) {
+  return valid ? "check" : "check checkFail";
+}
+
+function checkSymbol(valid: boolean) {
+  return valid ? "✔" : "✘";
+}
+
 export default function App() {
   const [subject, setSubject] = useState("");
   const [permit, setPermit] = useState<PermitResponse | null>(null);
@@ -205,31 +213,79 @@ export default function App() {
 
         {/* Panel 2: Permit Summary */}
         <section className="card">
-          <h2>Permit Summary</h2>
+          <div className="summaryHeader">
+            <h2>Permit Summary</h2>
+            <span className={`badge ${status.kind}`}>
+              <span className="badgeDot" />
+              {status.label}
+            </span>
+          </div>
           {!permit ? (
             <p className="muted">Request a permit to view the compliance summary.</p>
           ) : (
             <div className="summary">
-              <div className="item">
-                <span className="check">✔</span> Issuer verified
+              <div className="summaryRow">
+                <span className={checkClass(permit.summary.issuer_verified)}>
+                  {checkSymbol(permit.summary.issuer_verified)}
+                </span>
+                <span className="summaryLabel">Issuer verified</span>
+                <span className="summaryValue">
+                  {permit.summary.issuer_verified ? "Yes" : "No"}
+                </span>
               </div>
-              <div className="item">
-                <span className="check">✔</span> Asset:{" "}
-                <b>{permit.summary.asset_classification}</b>
+              <div className="summaryRow">
+                <span className="check">✔</span>
+                <span className="summaryLabel">Asset classification</span>
+                <span className="summaryValue">{permit.summary.asset_classification}</span>
               </div>
-              <div className="item">
-                <span className="check">✔</span> Custody attestation bound
+              <div className="summaryRow">
+                <span className={checkClass(permit.summary.custody_attestation_bound)}>
+                  {checkSymbol(permit.summary.custody_attestation_bound)}
+                </span>
+                <span className="summaryLabel">Custody attestation</span>
+                <span className="summaryValue">
+                  {permit.summary.custody_attestation_bound ? "Bound" : "Unbound"}
+                </span>
               </div>
-              <div className="item">
-                <span className="check">✔</span> Reserve attestation bound
+              <div className="summaryRow">
+                <span className={checkClass(permit.summary.reserve_attestation_bound)}>
+                  {checkSymbol(permit.summary.reserve_attestation_bound)}
+                </span>
+                <span className="summaryLabel">Reserve attestation</span>
+                <span className="summaryValue">
+                  {permit.summary.reserve_attestation_bound ? "Bound" : "Unbound"}
+                </span>
               </div>
-              <div className="item">
-                <span className="check">✔</span> Policy:{" "}
-                <b>{permit.summary.policy_version}</b>
+              <div className="summaryRow">
+                <span className="check">✔</span>
+                <span className="summaryLabel">Policy version</span>
+                <span className="summaryValue">{permit.summary.policy_version}</span>
               </div>
-              {!permitActive && (
-                <div className="alert warn">Permit expired. Request a new permit.</div>
-              )}
+              <div className="summaryRow">
+                <span
+                  className={`check${
+                    remaining <= 0
+                      ? " checkFail"
+                      : remaining < 60
+                      ? " checkWarn"
+                      : ""
+                  }`}
+                >
+                  {remaining > 0 ? "⏱" : "✘"}
+                </span>
+                <span className="summaryLabel">Expires in</span>
+                <span
+                  className={`summaryValue${
+                    remaining <= 0
+                      ? " textBad"
+                      : remaining < 60
+                      ? " textWarn"
+                      : ""
+                  }`}
+                >
+                  {remaining > 0 ? formatSeconds(remaining) : "Expired"}
+                </span>
+              </div>
             </div>
           )}
         </section>
