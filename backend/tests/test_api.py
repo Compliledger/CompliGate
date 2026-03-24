@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
+import logging
 from main import app
 
 client = TestClient(app)
@@ -289,3 +290,53 @@ def test_permit_amount_at_max_is_accepted():
 def test_permit_amount_below_max_is_accepted():
     response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 500})
     assert response.status_code == 200
+
+
+# -----------------------
+# Logging tests
+# -----------------------
+
+def test_permit_issued_is_logged(caplog):
+    with caplog.at_level(logging.INFO, logger="main"):
+        client.post("/v1/permit", json={"subject": VALID_SUBJECT, "action": "transfer"})
+    messages = [r.message for r in caplog.records]
+    assert any(m.startswith("permit_issued") and "subject=" in m and "action=" in m and "exp=" in m for m in messages)
+
+
+def test_permit_verified_is_logged(caplog):
+    permit = client.post("/v1/permit", json={"subject": VALID_SUBJECT}).json()
+    with caplog.at_level(logging.INFO, logger="main"):
+        client.post("/v1/verify", json={"bundle": permit["bundle"], "signature": permit["signature"]})
+    messages = [r.message for r in caplog.records]
+    assert any(
+        m.startswith("permit_verified")
+        and "signature_valid=True" in m
+        and "not_expired=True" in m
+        for m in messages
+    )
+
+
+def test_commit_requested_and_success_are_logged(caplog):
+    mock_result = {"tx_id": "ALGO_TX_LOG_TEST"}
+    with patch("main.http_requests.post") as mock_post:
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = mock_result
+        mock_resp.raise_for_status.return_value = None
+        mock_post.return_value = mock_resp
+
+        with patch("main.ALGORAND_ADAPTER_URL", "http://adapter:8080"):
+            with caplog.at_level(logging.INFO, logger="main"):
+                client.post("/v1/commit", json=COMMIT_PAYLOAD)
+
+    messages = [r.message for r in caplog.records]
+    assert any(m.startswith("commit_requested") and "bundle_hash=" in m for m in messages)
+    assert any(m.startswith("commit_success") and "tx_id=" in m for m in messages)
+
+
+def test_commit_failed_is_logged(caplog):
+    with patch("main.ALGORAND_ADAPTER_URL", ""):
+        with caplog.at_level(logging.ERROR, logger="main"):
+            client.post("/v1/commit", json=COMMIT_PAYLOAD)
+
+    messages = [r.message for r in caplog.records]
+    assert any(m.startswith("commit_failed") and "reason=" in m for m in messages)

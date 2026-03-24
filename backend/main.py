@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import time
 import hashlib
@@ -17,6 +18,9 @@ from nacl.signing import SigningKey
 from nacl.encoding import RawEncoder
 
 load_dotenv()
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
 
 APP_NAME = "CompliGate Backend"
 
@@ -239,6 +243,7 @@ def create_permit(req: PermitRequest):
         "expires_in_seconds": PERMIT_TTL_SECONDS,
     }
 
+    logger.info("permit_issued subject=%s action=%s exp=%d", req.subject, req.action, exp)
     return PermitResponse(
         summary=summary,
         bundle=bundle,
@@ -263,6 +268,14 @@ def verify_permit(req: VerifyRequest):
     now = int(time.time())
     exp = req.bundle.get("exp", 0)
     not_expired = now < exp
+
+    subject = req.bundle.get("subject")
+    logger.info(
+        "permit_verified subject=%s signature_valid=%s not_expired=%s",
+        subject,
+        signature_valid,
+        not_expired,
+    )
 
     return {
         "signature_valid": signature_valid,
@@ -311,7 +324,13 @@ def commit_bundle(req: CommitRequest):
         "exp": req.exp,
         "action": req.action,
     }
-    result = call_algorand_adapter(payload)
+    logger.info("commit_requested bundle_hash=%s", req.bundle_hash)
+    try:
+        result = call_algorand_adapter(payload)
+    except HTTPException as exc:
+        logger.error("commit_failed reason=%s", exc.detail)
+        raise
+    logger.info("commit_success tx_id=%s", result.get("tx_id"))
     return {
         "committed": True,
         "algorand_tx_id": result.get("tx_id"),
