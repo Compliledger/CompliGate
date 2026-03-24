@@ -383,6 +383,46 @@ def test_commit_requested_and_success_are_logged(caplog):
     assert any(m.startswith("commit_success") and "tx_id=" in m for m in messages)
 
 
+def test_adapter_health_not_configured():
+    with patch("main.ALGORAND_ADAPTER_URL", ""):
+        response = client.get("/v1/adapter-health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["adapter_configured"] is False
+    assert data["reachable"] is False
+
+
+def test_adapter_health_reachable():
+    with patch("main.http_requests.get") as mock_get:
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        with patch("main.ALGORAND_ADAPTER_URL", "http://adapter:8080"):
+            response = client.get("/v1/adapter-health")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["adapter_configured"] is True
+    assert data["reachable"] is True
+    mock_get.assert_called_once_with("http://adapter:8080/health", timeout=5)
+
+
+def test_adapter_health_unreachable():
+    import requests as req_lib
+
+    with patch("main.http_requests.get") as mock_get:
+        mock_get.side_effect = req_lib.RequestException("connection refused")
+
+        with patch("main.ALGORAND_ADAPTER_URL", "http://adapter:8080"):
+            response = client.get("/v1/adapter-health")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["adapter_configured"] is True
+    assert data["reachable"] is False
+
+
 def test_commit_failed_is_logged(caplog):
     with patch("main.ALGORAND_ADAPTER_URL", ""):
         with caplog.at_level(logging.ERROR, logger="main"):

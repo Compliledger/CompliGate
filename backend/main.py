@@ -301,6 +301,20 @@ def call_algorand_adapter(payload: dict) -> dict:
         ) from exc
 
 
+@app.get("/v1/adapter-health")
+def adapter_health():
+    adapter_url = ALGORAND_ADAPTER_URL
+    if not adapter_url:
+        return {"adapter_configured": False, "reachable": False}
+    try:
+        resp = http_requests.get(f"{adapter_url}/health", timeout=5)
+        resp.raise_for_status()
+        reachable = True
+    except http_requests.RequestException:
+        reachable = False
+    return {"adapter_configured": True, "reachable": reachable}
+
+
 @app.post("/v1/commit")
 def commit_bundle(req: CommitRequest):
     validate_subject(req.subject)

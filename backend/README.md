@@ -57,6 +57,7 @@ It consumes validated inputs provided by upstream CompliLedger components and re
 | `POST` | `/v1/permit` | Issues a signed Proof Bundle for the given subject and action |
 | `POST` | `/v1/verify` | Verifies a Proof Bundle signature and checks expiry |
 | `POST` | `/v1/commit` | Records a permit commitment; forwards `bundle_hash` to the Algorand adapter for on-chain anchoring |
+| `GET` | `/v1/adapter-health` | Returns whether the Algorand adapter is configured and reachable |
 
 **POST /v1/permit** — request body:
 ```json
