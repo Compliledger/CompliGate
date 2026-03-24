@@ -27,6 +27,7 @@ ISSUER_ADDRESS = os.getenv("ISSUER_ADDRESS", "rEXAMPLE_ISSUER_ADDRESS")
 PRIVATE_KEY_B64 = os.getenv("COMPLIGATE_PRIVATE_KEY_B64", "").strip()
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173")
 
+ALGORAND_ADAPTER_URL = os.getenv("ALGORAND_ADAPTER_URL", "")
 PERMIT_TTL_SECONDS = 300  # 5 minutes
 ALGORAND_ADAPTER_URL = os.getenv("ALGORAND_ADAPTER_URL", "")
 
@@ -73,10 +74,15 @@ VERIFY_KEY = SIGNING_KEY.verify_key
 # Models
 # -----------------------
 
+SUPPORTED_ACTIONS = {"transfer", "trustset"}
+MAX_AMOUNT = 1000
+
+
 class PermitRequest(BaseModel):
     subject: str = Field(..., description="XRPL account address (starts with 'r').")
-    action: str = Field("transfer", description="Action to authorize (e.g. 'transfer').")
+    action: str = Field("transfer", description="Action to authorize ('transfer' or 'trustset').")
     amount: float | int | None = Field(None, description="Optional transfer amount.")
+    counterparty: str | None = Field(None, description="Optional counterparty address.")
 
 
 class PermitResponse(BaseModel):
@@ -170,6 +176,24 @@ def create_permit(req: PermitRequest):
     validate_action(req.action)
     validate_amount(req.amount)
 
+    if req.action not in SUPPORTED_ACTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "unsupported_action",
+                "reason": f"action '{req.action}' is not supported; allowed: {sorted(SUPPORTED_ACTIONS)}",
+            },
+        )
+
+    if req.amount is not None and req.amount > MAX_AMOUNT:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "transaction_not_allowed",
+                "reason": "amount exceeds policy maximum",
+            },
+        )
+
     now = int(time.time())
     exp = now + PERMIT_TTL_SECONDS
 
@@ -184,8 +208,8 @@ def create_permit(req: PermitRequest):
             "policy_id": POLICY_VERSION,
         },
         "constraints": {
-            "max_amount": 1000,
-            "allowed_counterparty": None,
+            "max_amount": MAX_AMOUNT,
+            "allowed_counterparty": req.counterparty,
         },
         "policy": {
             "version": POLICY_VERSION,
@@ -246,6 +270,8 @@ def verify_permit(req: VerifyRequest):
         "subject": req.bundle.get("subject"),
         "policy_version": req.bundle.get("policy", {}).get("version"),
     }
+
+
 
 
 # -----------------------

@@ -32,12 +32,44 @@ def test_permit_default_action_is_transfer():
 
 
 def test_permit_custom_action():
-    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "action": "payment"})
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "action": "trustset"})
     assert response.status_code == 200
     data = response.json()
     bundle = data["bundle"]
-    assert bundle["action"] == "payment"
-    assert bundle["scope"] == ["payment"]
+    assert bundle["action"] == "trustset"
+    assert bundle["scope"] == ["trustset"]
+
+
+def test_permit_unsupported_action_returns_400():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "action": "payment"})
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["error"] == "unsupported_action"
+    assert "reason" in detail
+
+
+def test_permit_amount_exceeds_max_returns_400():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 1001})
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["error"] == "transaction_not_allowed"
+    assert detail["reason"] == "amount exceeds policy maximum"
+
+
+def test_permit_amount_at_max_is_allowed():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 1000})
+    assert response.status_code == 200
+
+
+def test_permit_counterparty_in_constraints():
+    counterparty = "rCounterparty1234567890123456789"
+    response = client.post(
+        "/v1/permit",
+        json={"subject": VALID_SUBJECT, "counterparty": counterparty},
+    )
+    assert response.status_code == 200
+    bundle = response.json()["bundle"]
+    assert bundle["constraints"]["allowed_counterparty"] == counterparty
 
 
 def test_permit_with_amount():
