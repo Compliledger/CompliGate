@@ -234,6 +234,41 @@ def test_commit_tx_id_is_none_when_missing_from_adapter():
     assert response.status_code == 200
     assert response.json()["algorand_tx_id"] is None
 
+
+def test_commit_rejects_empty_bundle_hash():
+    payload = {**COMMIT_PAYLOAD, "bundle_hash": ""}
+    response = client.post("/v1/commit", json=payload)
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["error"] == "invalid_bundle_hash"
+    assert detail["reason"] == "bundle_hash is required"
+
+
+def test_commit_rejects_empty_policy_id():
+    payload = {**COMMIT_PAYLOAD, "policy_id": ""}
+    response = client.post("/v1/commit", json=payload)
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["error"] == "invalid_policy_id"
+    assert detail["reason"] == "policy_id is required"
+
+
+def test_commit_rejects_invalid_subject():
+    payload = {**COMMIT_PAYLOAD, "subject": "invalid"}
+    response = client.post("/v1/commit", json=payload)
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["error"] == "invalid_subject"
+
+
+def test_commit_rejects_invalid_action():
+    payload = {**COMMIT_PAYLOAD, "action": "unknown_action"}
+    response = client.post("/v1/commit", json=payload)
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["error"] == "unsupported_action"
+
+
 def test_verify_rejects_bad_signature():
     permit_response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
     assert permit_response.status_code == 200
