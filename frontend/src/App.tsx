@@ -56,6 +56,11 @@ type VerifyResponse = {
   constraints?: PermitConstraints;
 };
 
+type CommitResponse = {
+  status: string;
+  tx_id?: string;
+};
+
 type PermitRequestBody = {
   subject: string;
   action: string;
@@ -87,12 +92,18 @@ function checkSymbol(valid: boolean) {
   return valid ? "✔" : "✘";
 }
 
+function extractErrorMessage(data: unknown, fallback: string): string {
 function extractErrorMessage(data: any, fallback: string): string {
   if (!data) return fallback;
-  const detail = data.detail;
+  const d = data as Record<string, unknown>;
+  const detail = d.detail;
   if (typeof detail === "string") return detail;
   if (typeof detail === "object" && detail !== null) {
-    return (detail as Record<string, string>).reason ?? (detail as Record<string, string>).error ?? JSON.stringify(detail);
+    return (
+      (detail as Record<string, string>).reason ??
+      (detail as Record<string, string>).error ??
+      JSON.stringify(detail)
+    );
   }
   return fallback;
 }
@@ -233,7 +244,7 @@ export default function App() {
 
       const data = await res.json();
       if (!res.ok) {
-        setError(data?.detail ?? "Failed to commit to Algorand.");
+        setError(extractErrorMessage(data, "Failed to commit to Algorand."));
       } else {
         setCommitResult(data);
       }
@@ -274,12 +285,11 @@ export default function App() {
       </div>
 
       <main className="grid">
-        {/* Panel 1: Wallet / Request Permit */}
+        {/* Panel 1: Request Permit */}
         <section className="card">
-          <h2>Wallet / Request Permit</h2>
+          <h2>Request Permit</h2>
           <p className="muted">
             Paste a subject address to request a time-bound compliance permit.
-            Wallet connect coming in a later phase.
           </p>
 
           <label className="label">Subject Address</label>
@@ -433,9 +443,9 @@ export default function App() {
           )}
         </section>
 
-        {/* Panel 4: Verification */}
+        {/* Panel 4: Verify Permit */}
         <section className="card">
-          <h2>Verification</h2>
+          <h2>Verify Permit</h2>
           <p className="muted">
             Verify the permit signature and confirm it has not expired.
           </p>
@@ -467,9 +477,9 @@ export default function App() {
           )}
         </section>
 
-        {/* Panel 5: Algorand Commit */}
+        {/* Panel 5: Commit to Algorand */}
         <section className="card">
-          <h2>Algorand Commit</h2>
+          <h2>Commit to Algorand</h2>
           <p className="muted">
             Commit the proof bundle to the Algorand adapter for on-chain anchoring.
           </p>
