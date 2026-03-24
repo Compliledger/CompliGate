@@ -57,6 +57,11 @@ type CommitResponse = {
   tx_id?: string;
 };
 
+type AdapterHealth = {
+  adapter_configured: boolean;
+  reachable: boolean;
+};
+
 function formatSeconds(s: number) {
   const mm = Math.floor(s / 60);
   const ss = s % 60;
@@ -69,6 +74,8 @@ function checkClass(valid: boolean) {
 
 function checkSymbol(valid: boolean) {
   return valid ? "✔" : "✘";
+}
+
 function extractErrorMessage(data: any, fallback: string): string {
   if (!data) return fallback;
   const detail = data.detail;
@@ -79,6 +86,16 @@ function extractErrorMessage(data: any, fallback: string): string {
   return fallback;
 }
 
+function adapterConfiguredLabel(health: AdapterHealth | null): string {
+  if (!health) return "…";
+  return health.adapter_configured ? "Configured" : "Not Configured";
+}
+
+function adapterReachableLabel(health: AdapterHealth | null): string {
+  if (!health) return "…";
+  return health.reachable ? "Reachable" : "Unreachable";
+}
+
 export default function App() {
   const [subject, setSubject] = useState("");
   const [action, setAction] = useState("transfer");
@@ -87,13 +104,24 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState<number>(() => Math.floor(Date.now() / 1000));
   const [verifyResult, setVerifyResult] = useState<VerifyResponse | null>(null);
-  const [commitResult, setCommitResult] = useState<CommitResult | null>(null);
   const [commitResult, setCommitResult] = useState<CommitResponse | null>(null);
+  const [showTechnical, setShowTechnical] = useState(false);
   const [committing, setCommitting] = useState(false);
+  const [adapterHealth, setAdapterHealth] = useState<AdapterHealth | null>(null);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
     return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/v1/adapter-health`)
+      .then((r) => r.json())
+      .then((d: AdapterHealth) => setAdapterHealth(d))
+      .catch((err) => {
+        console.error("Failed to fetch adapter health:", err);
+        setAdapterHealth({ adapter_configured: false, reachable: false });
+      });
   }, []);
 
   const remaining = useMemo(() => {
@@ -218,6 +246,18 @@ export default function App() {
         </div>
       </header>
 
+      <div className="adapterBar">
+        <span className="adapterBarLabel">Algorand Adapter</span>
+        <span className={`badge ${adapterHealth?.adapter_configured ? "good" : "bad"}`}>
+          <span className="badgeDot" />
+          {adapterConfiguredLabel(adapterHealth)}
+        </span>
+        <span className={`badge ${adapterHealth?.reachable ? "good" : "bad"}`}>
+          <span className="badgeDot" />
+          {adapterReachableLabel(adapterHealth)}
+        </span>
+      </div>
+
       <main className="grid">
         {/* Panel 1: Wallet / Request Permit */}
         <section className="card">
@@ -286,40 +326,6 @@ export default function App() {
               {status.label}
             </span>
           </div>
-          <h2>Compliance Authorization</h2>
-          {!permit && (
-            <p className="muted">
-              Request a permit to generate a time-bound Proof Bundle (5 minutes).
-            </p>
-          )}
-
-          {permit && (
-            <>
-              <div className="summary">
-                <div className="item">
-                  <span className="check">✔</span> Issuer verified
-                </div>
-                <div className="item">
-                  <span className="check">✔</span> Asset classification:{" "}
-                  <b>{permit.summary.asset_classification}</b>
-                </div>
-                <div className="item">
-                  <span className="check">✔</span> Action: <b>{permit.bundle.action}</b>
-                </div>
-                <div className="item">
-                  <span className="check">✔</span> Custody attestation bound
-                </div>
-                <div className="item">
-                  <span className="check">✔</span> Reserve backing attestation bound
-                </div>
-                <div className="item">
-                  <span className="check">✔</span> Policy: <b>{permit.summary.policy_version}</b>
-                </div>
-                <div className="item">
-                  <span className="check">✔</span> Expires in:{" "}
-                  <b>{remaining > 0 ? formatSeconds(remaining) : "00:00"}</b>
-                </div>
-          <h2>Permit Summary</h2>
           {!permit ? (
             <p className="muted">Request a permit to view the compliance summary.</p>
           ) : (

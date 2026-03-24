@@ -298,6 +298,20 @@ pre {
 
 .spaceTop { margin-top: 10px; }
 
+.adapterBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.adapterBarLabel {
+  color: var(--muted);
+  font-size: 12px;
+  margin-right: 2px;
+}
+
 .footer {
   margin-top: 14px;
   text-align: center;
