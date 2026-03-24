@@ -25,6 +25,8 @@ type VerifyResponse = {
   not_expired: boolean;
   subject?: string;
   policy_version?: string;
+  action?: string;
+  bundle_hash?: string;
 };
 
 type CommitResponse = {
@@ -274,9 +276,17 @@ export default function App() {
                 verifyResult.signature_valid && verifyResult.not_expired ? "good" : "bad"
               }`}
             >
-              Signature valid: <b>{String(verifyResult.signature_valid)}</b>
-              &nbsp;|&nbsp;
-              Not expired: <b>{String(verifyResult.not_expired)}</b>
+              <div><span className="muted">Signature valid:</span> <b>{String(verifyResult.signature_valid)}</b></div>
+              <div><span className="muted">Not expired:</span> <b>{String(verifyResult.not_expired)}</b></div>
+              {verifyResult.action && (
+                <div><span className="muted">Action:</span> <b>{verifyResult.action}</b></div>
+              )}
+              {verifyResult.policy_version && (
+                <div><span className="muted">Policy version:</span> <b>{verifyResult.policy_version}</b></div>
+              )}
+              {verifyResult.bundle_hash && (
+                <div><span className="muted">Bundle hash:</span> <b style={{ wordBreak: "break-all" }}>{verifyResult.bundle_hash}</b></div>
+              )}
             </div>
           )}
         </section>
