@@ -3,6 +3,24 @@ import "./App.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
+type PermitBundle = {
+  bundle_id: string;
+  subject: string;
+  action: string;
+  exp: number;
+  asset: {
+    issuer: string;
+    currency: string;
+    classification: string;
+    policy_id: string;
+  };
+  constraints: Record<string, unknown>;
+  policy: Record<string, unknown>;
+  attestations: Record<string, unknown>;
+  scope: string[];
+  nonce: string;
+};
+
 type PermitResponse = {
   summary: {
     issuer_verified: boolean;
@@ -12,7 +30,7 @@ type PermitResponse = {
     policy_version: string;
     expires_in_seconds: number;
   };
-  bundle: Record<string, unknown>;
+  bundle: PermitBundle;
   signature: string;
   signed_at: number;
   expires_at: number;
@@ -28,8 +46,9 @@ type VerifyResponse = {
 };
 
 type CommitResponse = {
-  status: string;
-  tx_id?: string;
+  committed: boolean;
+  algorand_tx_id?: string;
+  bundle_hash?: string;
 };
 
 function formatSeconds(s: number) {
@@ -129,7 +148,13 @@ export default function App() {
       const res = await fetch(`${API_BASE}/v1/commit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bundle: permit.bundle, signature: permit.signature }),
+        body: JSON.stringify({
+          bundle_hash: permit.bundle_hash,
+          subject: permit.bundle.subject,
+          policy_id: permit.bundle.asset.policy_id,
+          exp: permit.bundle.exp,
+          action: permit.bundle.action,
+        }),
       });
 
       const data = await res.json();
@@ -300,9 +325,13 @@ export default function App() {
 
           {commitResult && (
             <div className="alert good">
-              Committed — status: <b>{commitResult.status}</b>
-              {commitResult.tx_id && (
-                <>&nbsp;|&nbsp;tx_id: <b>{commitResult.tx_id}</b></>
+              <span className="pill good" style={{ marginRight: "0.5rem" }}>⚓ Anchored</span>
+              Committed: <b>{String(commitResult.committed)}</b>
+              {commitResult.algorand_tx_id && (
+                <>&nbsp;|&nbsp;Algorand TX: <b>{commitResult.algorand_tx_id}</b></>
+              )}
+              {commitResult.bundle_hash && (
+                <><br />Bundle Hash: <b style={{ wordBreak: "break-all" }}>{commitResult.bundle_hash}</b></>
               )}
             </div>
           )}
