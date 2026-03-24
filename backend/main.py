@@ -287,7 +287,10 @@ def call_algorand_adapter(payload: dict) -> dict:
     """
     adapter_url = ALGORAND_ADAPTER_URL
     if not adapter_url:
-        raise HTTPException(status_code=502, detail="ALGORAND_ADAPTER_URL is not configured")
+        raise HTTPException(
+            status_code=502,
+            detail={"error": "adapter_commit_failed", "reason": "ALGORAND_ADAPTER_URL is not configured"},
+        )
     try:
         resp = http_requests.post(f"{adapter_url}/v1/commit", json=payload, timeout=10)
         resp.raise_for_status()
@@ -295,7 +298,7 @@ def call_algorand_adapter(payload: dict) -> dict:
     except http_requests.RequestException as exc:
         raise HTTPException(
             status_code=502,
-            detail=f"Algorand adapter call failed: {exc}",
+            detail={"error": "adapter_commit_failed", "reason": str(exc)},
         ) from exc
 
 
