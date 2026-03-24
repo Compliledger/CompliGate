@@ -298,6 +298,18 @@ def call_algorand_adapter(payload: dict) -> dict:
 
 @app.post("/v1/commit")
 def commit_bundle(req: CommitRequest):
+    validate_subject(req.subject)
+    validate_action(req.action)
+    if not req.bundle_hash:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_bundle_hash", "reason": "bundle_hash is required"},
+        )
+    if not req.policy_id:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_policy_id", "reason": "policy_id is required"},
+        )
     payload = {
         "bundle_hash": req.bundle_hash,
         "subject": req.subject,
