@@ -13,7 +13,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from nacl.signing import SigningKey
 from nacl.encoding import RawEncoder
-from nacl.exceptions import BadSignatureError
 
 load_dotenv()
 
@@ -25,7 +24,6 @@ CURRENCY = os.getenv("CURRENCY", "RLUSD")
 ISSUER_ADDRESS = os.getenv("ISSUER_ADDRESS", "rEXAMPLE_ISSUER_ADDRESS")
 PRIVATE_KEY_B64 = os.getenv("COMPLIGATE_PRIVATE_KEY_B64", "").strip()
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173")
-ALGORAND_ADAPTER_URL = os.getenv("ALGORAND_ADAPTER_URL", "")
 
 PERMIT_TTL_SECONDS = 300  # 5 minutes
 
@@ -91,6 +89,14 @@ class PermitResponse(BaseModel):
 class VerifyRequest(BaseModel):
     bundle: dict
     signature: str
+
+
+class CommitRequest(BaseModel):
+    bundle_hash: str
+    subject: str
+    policy_id: str
+    exp: int
+    action: str
 
 
 # -----------------------
@@ -194,120 +200,6 @@ def create_permit(req: PermitRequest):
         bundle_hash=bundle_hash,
     )
 
-# -----------------------
-# XRPL (MVP) Endpoints
-# -----------------------
-FEATURE_XRPL = os.getenv("FEATURE_XRPL", "false").lower() == "true"
-
-if FEATURE_XRPL:
-    from xrpl.clients import JsonRpcClient
-    from xrpl.wallet import Wallet
-    from xrpl.models.transactions import TrustSet, Payment, Memo
-    from xrpl.models.amounts import IssuedCurrencyAmount
-    from xrpl.transaction import autofill_and_sign, submit_and_wait
-
-
-    XRPL_NETWORK = os.getenv("XRPL_NETWORK", "testnet").lower()
-    XRPL_SENDER_SEED = os.getenv("XRPL_SENDER_SEED", "").strip()
-
-    XRPL_URLS = {
-        "testnet": "https://s.altnet.rippletest.net:51234",
-        "mainnet": "https://s1.ripple.com:51234",
-    }
-
-    xrpl_client = JsonRpcClient(XRPL_URLS.get(XRPL_NETWORK, XRPL_URLS["testnet"]))
-
-
-    class TrustlineRequest(BaseModel):
-        subject: str
-        issuer: str
-        currency: str
-        limit: str = "1000000"
-        bundle_hash: str
-
-
-    @app.post("/v1/xrpl/trustline")
-    def xrpl_create_trustline(req: TrustlineRequest):
-        if not XRPL_SENDER_SEED:
-            raise HTTPException(status_code=400, detail="XRPL_SENDER_SEED is not set")
-
-        validate_subject(req.subject)
-
-        wallet = Wallet(seed=XRPL_SENDER_SEED, sequence=0)
-
-        memo = Memo(
-            memo_type="COMPLIGATE",
-            memo_data=req.bundle_hash,
-        )
-
-        tx = TrustSet(
-            account=wallet.classic_address,
-            limit_amount=IssuedCurrencyAmount(
-                currency=req.currency,
-                issuer=req.issuer,
-                value=req.limit,
-            ),
-            memos=[memo],
-        )
-
-        signed = autofill_and_sign(tx, xrpl_client, wallet)
-        result = submit_and_wait(signed, xrpl_client)
-
-        return {
-            "status": "submitted",
-            "account": wallet.classic_address,
-            "tx_hash": result.result.get("hash"),
-            "engine_result": result.result.get("engine_result"),
-            "memo_bundle_hash": req.bundle_hash,
-        }
-
-
-    class PaymentRequest(BaseModel):
-        destination: str
-        issuer: str
-        currency: str
-        amount: str
-        bundle_hash: str
-
-
-    @app.post("/v1/xrpl/payment")
-    def xrpl_send_payment(req: PaymentRequest):
-        if not XRPL_SENDER_SEED:
-            raise HTTPException(status_code=400, detail="XRPL_SENDER_SEED is not set")
-
-        validate_subject(req.destination)
-
-        wallet = Wallet(seed=XRPL_SENDER_SEED, sequence=0)
-
-        memo = Memo(
-            memo_type="COMPLIGATE",
-            memo_data=req.bundle_hash,
-        )
-
-        amt = IssuedCurrencyAmount(
-            currency=req.currency,
-            issuer=req.issuer,
-            value=req.amount,
-        )
-
-        tx = Payment(
-            account=wallet.classic_address,
-            destination=req.destination,
-            amount=amt,
-            memos=[memo],
-        )
-
-        signed = autofill_and_sign(tx, xrpl_client, wallet)
-        result = submit_and_wait(signed, xrpl_client)
-
-        return {
-            "status": "submitted",
-            "account": wallet.classic_address,
-            "destination": req.destination,
-            "tx_hash": result.result.get("hash"),
-            "engine_result": result.result.get("engine_result"),
-            "memo_bundle_hash": req.bundle_hash,
-        }
 
 @app.post("/v1/verify")
 def verify_permit(req: VerifyRequest):
@@ -328,4 +220,20 @@ def verify_permit(req: VerifyRequest):
         "not_expired": not_expired,
         "subject": req.bundle.get("subject"),
         "policy_version": req.bundle.get("policy", {}).get("version"),
+    }
+
+
+@app.post("/v1/commit")
+def commit_permit(req: CommitRequest):
+    now = int(time.time())
+    not_expired = now < req.exp
+
+    return {
+        "status": "committed",
+        "bundle_hash": req.bundle_hash,
+        "subject": req.subject,
+        "policy_id": req.policy_id,
+        "action": req.action,
+        "exp": req.exp,
+        "not_expired": not_expired,
     }
