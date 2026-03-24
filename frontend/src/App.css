@@ -54,8 +54,13 @@ body {
   gap: 14px;
 }
 
+.spanFull {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 860px) {
   .grid { grid-template-columns: 1fr; }
+  .spanFull { grid-column: 1; }
 }
 
 .card {
@@ -161,6 +166,11 @@ body {
 .alert.bad {
   border-color: rgba(235, 87, 87, 0.5);
   background: rgba(235, 87, 87, 0.14);
+}
+
+.alert.good {
+  border-color: rgba(39, 174, 96, 0.5);
+  background: rgba(39, 174, 96, 0.14);
 }
 
 .alert.warn {
