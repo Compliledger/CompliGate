@@ -96,6 +96,7 @@ class PermitResponse(BaseModel):
     expires_at: int
     expires_in_seconds: int
     bundle_hash: str
+    validity: dict
 
 
 class VerifyRequest(BaseModel):
@@ -235,6 +236,7 @@ def create_permit(req: PermitRequest):
         expires_at=exp,
         expires_in_seconds=PERMIT_TTL_SECONDS,
         bundle_hash=bundle_hash,
+        validity={"single_use": False},
     )
 
 

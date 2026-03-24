@@ -23,6 +23,14 @@ def test_permit_returns_bundle_signature_hash():
     assert "bundle_hash" in data
 
 
+def test_permit_validity_field():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    assert "validity" in data
+    assert data["validity"] == {"single_use": False}
+
+
 def test_permit_default_action_is_transfer():
     response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
     assert response.status_code == 200
