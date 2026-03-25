@@ -38,6 +38,8 @@ type PermitResponse = {
   bundle_hash: string;
   validity: PermitValidity;
   proof_artifact?: ProofArtifact;
+  decision_result?: string;
+  reason_codes?: string[];
 };
 
 type VerifyResponse = {
@@ -48,6 +50,8 @@ type VerifyResponse = {
   action?: string;
   bundle_hash?: string;
   constraints?: PermitConstraints;
+  decision_result?: string;
+  reason_codes?: string[];
 };
 
 type CommitResponse = {
@@ -490,6 +494,64 @@ export default function App() {
           )}
 
           {verifyError && <div className="alert bad">{verifyError}</div>}
+          {verifyResult && (() => {
+            const passed = verifyResult.signature_valid && verifyResult.not_expired;
+            const decisionResult =
+              verifyResult.decision_result ?? permit?.proof_artifact?.decision_result;
+            const reasonCodes =
+              verifyResult.reason_codes ?? permit?.proof_artifact?.reason_codes;
+            return (
+              <div className="verifyResult">
+                <div className={`verifyHeader ${passed ? "good" : "bad"}`}>
+                  <span className={`verifyIcon ${passed ? "good" : "bad"}`}>
+                    {passed ? "✔" : "✘"}
+                  </span>
+                  {passed ? "PASS" : "FAIL"}
+                </div>
+                <div className="verifyRows">
+                  <div className="verifyRow">
+                    <span className={checkClass(verifyResult.signature_valid)}>
+                      {checkSymbol(verifyResult.signature_valid)}
+                    </span>
+                    <span className="summaryLabel">Signature valid</span>
+                    <span className="summaryValue">{String(verifyResult.signature_valid)}</span>
+                  </div>
+                  <div className="verifyRow">
+                    <span className={checkClass(verifyResult.not_expired)}>
+                      {checkSymbol(verifyResult.not_expired)}
+                    </span>
+                    <span className="summaryLabel">Not expired</span>
+                    <span className="summaryValue">{String(verifyResult.not_expired)}</span>
+                  </div>
+                  {decisionResult && (
+                    <div className="verifyRow">
+                      <span className={checkClass(decisionResult === "PERMIT")}>
+                        {checkSymbol(decisionResult === "PERMIT")}
+                      </span>
+                      <span className="summaryLabel">Decision result</span>
+                      <span
+                        className={`summaryValue${
+                          decisionResult === "PERMIT" ? " textGood" : " textBad"
+                        }`}
+                      >
+                        {decisionResult}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                {reasonCodes && reasonCodes.length > 0 && (
+                  <div className="reasonCodes">
+                    <div className="reasonCodesTitle">Reason codes</div>
+                    <div className="reasonCodesList">
+                      {reasonCodes.map((rc) => (
+                        <span key={rc} className="reasonCode">{rc}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </section>
 
         {/* Panel 5: Algorand Commit */}
