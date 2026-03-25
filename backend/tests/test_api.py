@@ -170,7 +170,8 @@ def test_commit_returns_committed_response():
     assert response.status_code == 200
     data = response.json()
     assert data["committed"] is True
-    assert data["algorand_tx_id"] == "ALGO_TX_001"
+    assert "anchor_metadata" in data
+    assert data["anchor_metadata"]["tx_id"] == "ALGO_TX_001"
     assert data["bundle_hash"] == COMMIT_PAYLOAD["bundle_hash"]
     assert data["adapter_response"] == mock_result
 
@@ -233,7 +234,7 @@ def test_commit_tx_id_is_none_when_missing_from_adapter():
             response = client.post("/v1/commit", json=COMMIT_PAYLOAD)
 
     assert response.status_code == 200
-    assert response.json()["algorand_tx_id"] is None
+    assert response.json()["anchor_metadata"]["tx_id"] is None
 
 
 def test_commit_rejects_empty_bundle_hash():
@@ -468,7 +469,8 @@ def test_commit_success_monkeypatch(monkeypatch):
     assert response.status_code == 200
     data = response.json()
     assert data["committed"] is True
-    assert data["algorand_tx_id"] == "ALGO_TX_MONKEYPATCH"
+    assert "anchor_metadata" in data
+    assert data["anchor_metadata"]["tx_id"] == "ALGO_TX_MONKEYPATCH"
     assert data["bundle_hash"] == COMMIT_PAYLOAD["bundle_hash"]
 
     assert len(captured_calls) == 1
