@@ -552,7 +552,7 @@ export default function App() {
                 <div><span className="muted">Policy version:</span> <b>{verifyResult.policy_version}</b></div>
               )}
               {verifyResult.bundle_hash && (
-                <div><span className="muted">Bundle hash:</span> <b style={{ wordBreak: "break-all" }}>{verifyResult.bundle_hash}</b></div>
+                <div><span className="muted">Bundle hash:</span> <b className="breakAll">{verifyResult.bundle_hash}</b></div>
               )}
             </div>
           )}
@@ -577,13 +577,13 @@ export default function App() {
 
           {commitResult && (
             <div className="alert good">
-              <span className="pill anchored pillInlineMargin">⚓ Anchored</span>
-              Committed: <b>{String(commitResult.committed)}</b>
+              <div><span className="pill anchored">⚓ Anchored</span></div>
+              <div><span className="muted">Committed:</span> <b>{String(commitResult.committed)}</b></div>
               {commitResult.algorand_tx_id && (
-                <>&nbsp;|&nbsp;Algorand TX: <b>{commitResult.algorand_tx_id}</b></>
+                <div><span className="muted">Algorand TX:</span> <b>{commitResult.algorand_tx_id}</b></div>
               )}
               {commitResult.bundle_hash && (
-                <><br />Bundle Hash: <b style={{ wordBreak: "break-all" }}>{commitResult.bundle_hash}</b></>
+                <div><span className="muted">Bundle Hash:</span> <b className="breakAll">{commitResult.bundle_hash}</b></div>
               )}
             </div>
           )}

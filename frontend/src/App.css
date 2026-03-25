@@ -14,7 +14,6 @@
   --border: rgba(255, 255, 255, 0.07);
   --border-hover: rgba(255, 255, 255, 0.16);
   --shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
-  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 * { box-sizing: border-box; }
@@ -108,7 +107,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 18px;
   box-shadow: var(--shadow);
-  padding: 22px 22px 20px;
+  padding: 24px;
   transition: border-color 0.2s;
 }
 
@@ -120,7 +119,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 0 0 10px;
+  margin: 0 0 12px;
   font-size: 15px;
   font-weight: 700;
   letter-spacing: 0.1px;
@@ -316,11 +315,6 @@ body {
   background: rgba(39, 174, 96, 0.1);
 }
 
-.alert.warn {
-  border-color: rgba(242, 201, 76, 0.55);
-  background: rgba(242, 201, 76, 0.1);
-}
-
 /* ── Code block (Panel 3) ── */
 
 .codeBlock {
@@ -458,8 +452,6 @@ pre {
 .badge.bad .badgeDot      { background: var(--bad); }
 .badge.anchored .badgeDot { background: var(--anchored); }
 
-.pillInlineMargin { margin-right: 0.5rem; }
-
 /* ── Expiry progress bar (Panel 2) ── */
 
 .expiryBarWrap {
@@ -479,6 +471,10 @@ pre {
 
 .expiryBarFill.expiryWarn    { background: var(--warn); }
 .expiryBarFill.expiryExpired { background: var(--bad); }
+
+/* ── Utilities ── */
+
+.breakAll { word-break: break-all; }
 
 /* ── Footer ── */
 
