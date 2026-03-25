@@ -460,6 +460,26 @@ pre {
 
 .pillInlineMargin { margin-right: 0.5rem; }
 
+/* ── Expiry progress bar (Panel 2) ── */
+
+.expiryBarWrap {
+  height: 5px;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 14px;
+}
+
+.expiryBarFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--good);
+  transition: width 0.9s linear, background 0.4s ease;
+}
+
+.expiryBarFill.expiryWarn    { background: var(--warn); }
+.expiryBarFill.expiryExpired { background: var(--bad); }
+
 /* ── Footer ── */
 
 .footer {
