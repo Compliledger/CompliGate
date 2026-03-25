@@ -36,18 +36,6 @@ export type PermitValidity = {
   single_use: boolean;
 };
 
-export type ProofArtifact = {
-  module: string;
-  entity_id: string;
-  rule_version_used: string;
-  decision_result: string;
-  evaluation_context: Record<string, unknown>;
-  reason_codes: string[];
-  timestamp: number;
-  bundle_hash: string;
-  anchor_metadata: Record<string, unknown>;
-};
-
 export type PermitResponse = {
   summary: {
     issuer_verified: boolean;
