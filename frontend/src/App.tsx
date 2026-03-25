@@ -442,21 +442,25 @@ export default function App() {
                     <span className="summaryLabel">Not expired</span>
                     <span className="summaryValue">{String(verifyResult.not_expired)}</span>
                   </div>
-                  {decisionResult && (
-                    <div className="verifyRow">
-                      <span className={checkClass(decisionResult === "PERMIT")}>
-                        {checkSymbol(decisionResult === "PERMIT")}
-                      </span>
-                      <span className="summaryLabel">Decision result</span>
-                      <span
-                        className={`summaryValue${
-                          decisionResult === "PERMIT" ? " textGood" : " textBad"
-                        }`}
-                      >
-                        {decisionResult}
-                      </span>
-                    </div>
-                  )}
+                  {decisionResult && (() => {
+                    const decision = decisionResult.toLowerCase();
+                    const isPermit = decision === "permit" || decision === "allow";
+                    return (
+                      <div className="verifyRow">
+                        <span className={checkClass(isPermit)}>
+                          {checkSymbol(isPermit)}
+                        </span>
+                        <span className="summaryLabel">Decision result</span>
+                        <span
+                          className={`summaryValue${
+                            isPermit ? " textGood" : " textBad"
+                          }`}
+                        >
+                          {decisionResult}
+                        </span>
+                      </div>
+                    );
+                  })()}
                   {verifyResult.bundle_hash && (
                     <div className="verifyRow">
                       <span className="check">✔</span>
