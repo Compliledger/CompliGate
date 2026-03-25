@@ -140,10 +140,11 @@ VERIFY_KEY = SIGNING_KEY.verify_key
 
 SUPPORTED_ACTIONS = {"transfer", "trustset"}
 MAX_AMOUNT = 1000
+REASON_CODES = ["kyc_verified", "policy_compliant", "amount_within_limits"]
 
 
 class PermitRequest(BaseModel):
-    subject: str = Field(..., description="XRPL account address (starts with 'r').")
+    subject: str = Field(..., description="Subject identifier (e.g. account address).")
     action: str = Field("transfer", description="Action to authorize ('transfer' or 'trustset').")
     amount: float | int | None = Field(None, description="Optional transfer amount.")
     counterparty: str | None = Field(None, description="Optional counterparty address.")
@@ -289,7 +290,7 @@ def create_permit(req: PermitRequest):
         "expires_in_seconds": PERMIT_TTL_SECONDS,
     }
 
-    reason_codes = ["kyc_verified", "policy_compliant", "amount_within_limits"]  # MVP defaults
+    reason_codes = REASON_CODES
     proof_artifact = build_proof_artifact(
         module="CompliGate",
         entity_id=bundle["bundle_id"],
@@ -419,7 +420,7 @@ def create_proof_artifact(req: PermitRequest):
         "rule_version_used": POLICY_VERSION,
         "decision_result": "permit",
         "evaluation_context": evaluation_context,
-        "reason_codes": ["kyc_verified", "policy_compliant", "amount_within_limits"],  # MVP defaults
+        "reason_codes": REASON_CODES,
         "timestamp": now,
         "anchor_metadata": {"chain": "algorand", "committed": False},
     }
@@ -475,6 +476,7 @@ def commit_bundle(req: CommitRequest):
     return {
         "committed": True,
         "bundle_hash": req.bundle_hash,
+        "algorand_tx_id": result.get("tx_id"),
         "anchor_metadata": anchor_metadata,
         "adapter_response": result,
     }
