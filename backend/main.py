@@ -97,6 +97,8 @@ class PermitResponse(BaseModel):
     expires_in_seconds: int
     bundle_hash: str
     validity: dict
+    decision_result: str
+    reason_codes: list[str]
 
 
 class VerifyRequest(BaseModel):
@@ -176,11 +178,78 @@ def validate_amount(amount: float | int | None) -> None:
         )
 
 
+# -----------------------
+# Evaluation Stages
+# -----------------------
+
+def evaluate_governance() -> dict:
+    """Return current governance context."""
+    return {
+        "policy_version": POLICY_VERSION,
+        "jurisdiction": JURISDICTION,
+        "state_status": "active",
+        "state_ref": "gov_demo_001",
+    }
+
+
+def evaluate_eligibility() -> dict:
+    """Return participant and asset eligibility."""
+    return {
+        "participant_eligible": True,
+        "asset_admitted": True,
+        "admission_ref": "admission_demo_001",
+    }
+
+
+def evaluate_constraints(
+    action: str,
+    amount: float | int | None,
+    counterparty: str | None,  # reserved for future counterparty validation
+) -> list[str]:
+    """Enforce policy constraints. Returns list of passing reason codes.
+
+    :raises HTTPException 400: If action is unsupported or amount exceeds the policy maximum.
+    """
+    if action not in SUPPORTED_ACTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "unsupported_action",
+                "reason": f"action '{action}' is not supported; allowed: {sorted(SUPPORTED_ACTIONS)}",
+            },
+        )
+    if amount is not None and amount > MAX_AMOUNT:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "transaction_not_allowed",
+                "reason": "amount exceeds policy maximum",
+            },
+        )
+    reason_codes: list[str] = []
+    if amount is not None:
+        reason_codes.append("AMOUNT_WITHIN_LIMIT")
+    return reason_codes
+
+
 @app.post("/v1/permit", response_model=PermitResponse)
 def create_permit(req: PermitRequest):
     validate_subject(req.subject)
-    validate_action(req.action)
-    validate_amount(req.amount)
+
+    gov = evaluate_governance()
+    elig = evaluate_eligibility()
+    constraint_codes = evaluate_constraints(req.action, req.amount, req.counterparty)
+
+    reason_codes: list[str] = []
+    if gov["state_status"] == "active":
+        reason_codes.append("POLICY_ACTIVE")
+    if elig["participant_eligible"]:
+        reason_codes.append("PARTICIPANT_ELIGIBLE")
+    if elig["asset_admitted"]:
+        reason_codes.append("ASSET_ADMITTED")
+    reason_codes.extend(constraint_codes)
+
+    decision_result = "allow"
 
     now = int(time.time())
     exp = now + PERMIT_TTL_SECONDS
@@ -237,6 +306,8 @@ def create_permit(req: PermitRequest):
         expires_in_seconds=PERMIT_TTL_SECONDS,
         bundle_hash=bundle_hash,
         validity={"single_use": False},
+        decision_result=decision_result,
+        reason_codes=reason_codes,
     )
 
 

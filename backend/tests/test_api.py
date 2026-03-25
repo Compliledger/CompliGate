@@ -1,7 +1,8 @@
+import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 import logging
-from main import app
+from main import app, evaluate_governance, evaluate_eligibility, evaluate_constraints
 
 client = TestClient(app)
 
@@ -474,3 +475,77 @@ def test_commit_success_monkeypatch(monkeypatch):
     assert captured_calls[0]["url"] == "http://adapter:8080/v1/commit"
     assert captured_calls[0]["json"]["bundle_hash"] == COMMIT_PAYLOAD["bundle_hash"]
     assert captured_calls[0]["json"]["subject"] == COMMIT_PAYLOAD["subject"]
+
+
+# -----------------------
+# Evaluation stage tests
+# -----------------------
+
+def test_evaluate_governance_returns_expected_structure():
+    result = evaluate_governance()
+    assert "policy_version" in result
+    assert "jurisdiction" in result
+    assert result["state_status"] == "active"
+    assert result["state_ref"] == "gov_demo_001"
+
+
+def test_evaluate_eligibility_returns_expected_structure():
+    result = evaluate_eligibility()
+    assert result["participant_eligible"] is True
+    assert result["asset_admitted"] is True
+    assert result["admission_ref"] == "admission_demo_001"
+
+
+def test_evaluate_constraints_valid_action_no_amount():
+    codes = evaluate_constraints("transfer", None, None)
+    assert "AMOUNT_WITHIN_LIMIT" not in codes
+
+
+def test_evaluate_constraints_valid_action_with_amount():
+    codes = evaluate_constraints("trustset", 500, None)
+    assert "AMOUNT_WITHIN_LIMIT" in codes
+
+
+def test_evaluate_constraints_invalid_action_raises():
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc_info:
+        evaluate_constraints("payment", None, None)
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["error"] == "unsupported_action"
+
+
+def test_evaluate_constraints_amount_exceeds_max_raises():
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc_info:
+        evaluate_constraints("transfer", 1001, None)
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["error"] == "transaction_not_allowed"
+
+
+def test_permit_decision_result_is_allow():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    assert response.json()["decision_result"] == "allow"
+
+
+def test_permit_reason_codes_include_governance_and_eligibility():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    codes = response.json()["reason_codes"]
+    assert "POLICY_ACTIVE" in codes
+    assert "PARTICIPANT_ELIGIBLE" in codes
+    assert "ASSET_ADMITTED" in codes
+
+
+def test_permit_reason_codes_include_amount_within_limit_when_amount_provided():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 500})
+    assert response.status_code == 200
+    codes = response.json()["reason_codes"]
+    assert "AMOUNT_WITHIN_LIMIT" in codes
+
+
+def test_permit_reason_codes_no_amount_within_limit_when_no_amount():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    codes = response.json()["reason_codes"]
+    assert "AMOUNT_WITHIN_LIMIT" not in codes
