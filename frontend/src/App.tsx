@@ -499,6 +499,10 @@ export default function App() {
                 <div><span className="muted">Policy version:</span> <b>{verifyResult.policy_version}</b></div>
               )}
               {verifyResult.bundle_hash && (
+                <div><span className="muted">Bundle hash:</span> <b className="breakAll">{verifyResult.bundle_hash}</b></div>
+              )}
+            </div>
+          )}
                 <div><span className="muted">Bundle hash:</span> <b style={{ wordBreak: "break-all" }}>{verifyResult.bundle_hash}</b></div>
               )}
             </div>
@@ -583,6 +587,15 @@ export default function App() {
           </div>
 
           {commitResult && (
+            <div className="alert good">
+              <div><span className="pill anchored">⚓ Anchored</span></div>
+              <div><span className="muted">Committed:</span> <b>{String(commitResult.committed)}</b></div>
+              {commitResult.algorand_tx_id && (
+                <div><span className="muted">Algorand TX:</span> <b>{commitResult.algorand_tx_id}</b></div>
+              )}
+              {commitResult.bundle_hash && (
+                <div><span className="muted">Bundle Hash:</span> <b className="breakAll">{commitResult.bundle_hash}</b></div>
+              )}
             <div className="commitResult">
               <div className="commitResultHeader">
                 <span className="badge anchored">
