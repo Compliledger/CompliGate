@@ -474,3 +474,118 @@ def test_commit_success_monkeypatch(monkeypatch):
     assert captured_calls[0]["url"] == "http://adapter:8080/v1/commit"
     assert captured_calls[0]["json"]["bundle_hash"] == COMMIT_PAYLOAD["bundle_hash"]
     assert captured_calls[0]["json"]["subject"] == COMMIT_PAYLOAD["subject"]
+
+
+# -----------------------
+# Proof Artifact tests
+# -----------------------
+
+PROOF_ARTIFACT_FIELDS = [
+    "module",
+    "entity_id",
+    "rule_version_used",
+    "decision_result",
+    "evaluation_context",
+    "reason_codes",
+    "timestamp",
+    "bundle_hash",
+    "anchor_metadata",
+]
+
+
+def test_proof_artifact_returns_200():
+    response = client.post("/v1/proof-artifact", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+
+
+def test_proof_artifact_has_all_required_fields():
+    response = client.post("/v1/proof-artifact", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    for field in PROOF_ARTIFACT_FIELDS:
+        assert field in data, f"Missing field: {field}"
+
+
+def test_proof_artifact_entity_id_matches_subject():
+    response = client.post("/v1/proof-artifact", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["entity_id"] == VALID_SUBJECT
+
+
+def test_proof_artifact_decision_result_is_permit():
+    response = client.post("/v1/proof-artifact", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    assert response.json()["decision_result"] == "permit"
+
+
+def test_proof_artifact_rule_version_is_set():
+    from main import POLICY_VERSION
+
+    response = client.post("/v1/proof-artifact", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    assert response.json()["rule_version_used"] == POLICY_VERSION
+
+
+def test_proof_artifact_bundle_hash_is_set():
+    import re
+
+    response = client.post("/v1/proof-artifact", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    bundle_hash = response.json()["bundle_hash"]
+    # SHA-256 produces a 64-character lowercase hex string
+    assert re.fullmatch(r"[0-9a-f]{64}", bundle_hash), f"Unexpected bundle_hash format: {bundle_hash}"
+
+
+def test_proof_artifact_reason_codes_is_list():
+    response = client.post("/v1/proof-artifact", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    assert isinstance(response.json()["reason_codes"], list)
+
+
+def test_proof_artifact_evaluation_context_contains_action():
+    response = client.post(
+        "/v1/proof-artifact",
+        json={"subject": VALID_SUBJECT, "action": "trustset"},
+    )
+    assert response.status_code == 200
+    ctx = response.json()["evaluation_context"]
+    assert ctx["action"] == "trustset"
+
+
+def test_proof_artifact_validates_subject():
+    response = client.post("/v1/proof-artifact", json={"subject": "invalid"})
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "invalid_subject"
+
+
+def test_proof_artifact_validates_action():
+    response = client.post(
+        "/v1/proof-artifact",
+        json={"subject": VALID_SUBJECT, "action": "burn"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "unsupported_action"
+
+
+def test_proof_artifact_validates_amount():
+    response = client.post(
+        "/v1/proof-artifact",
+        json={"subject": VALID_SUBJECT, "amount": 9999},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "transaction_not_allowed"
+
+
+def test_proof_artifact_anchor_metadata_present():
+    response = client.post("/v1/proof-artifact", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    anchor = response.json()["anchor_metadata"]
+    assert isinstance(anchor, dict)
+    assert "chain" in anchor
+
+
+def test_proof_artifact_timestamp_is_integer():
+    response = client.post("/v1/proof-artifact", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    assert isinstance(response.json()["timestamp"], int)

@@ -36,6 +36,54 @@ PERMIT_TTL_SECONDS = 300  # 5 minutes
 
 
 # -----------------------
+# proofbundle integration
+# -----------------------
+
+try:
+    from proofbundle import ProofArtifact, build_proof_artifact  # type: ignore[import]
+    _PROOFBUNDLE_AVAILABLE = True
+except ImportError:
+    _PROOFBUNDLE_AVAILABLE = False
+
+    class ProofArtifact(BaseModel):  # type: ignore[no-redef]
+        """Fallback proof artifact schema (used when proofbundle is not installed)."""
+
+        module: str
+        entity_id: str
+        rule_version_used: str
+        decision_result: str
+        evaluation_context: dict
+        reason_codes: list[str]
+        timestamp: int
+        bundle_hash: str
+        anchor_metadata: dict
+
+    def build_proof_artifact(  # type: ignore[misc]  # ProofArtifact is conditionally defined above
+        *,
+        module: str,
+        entity_id: str,
+        rule_version_used: str,
+        decision_result: str,
+        evaluation_context: dict,
+        reason_codes: list[str],
+        timestamp: int,
+        bundle_hash: str,
+        anchor_metadata: dict,
+    ) -> "ProofArtifact":
+        return ProofArtifact(
+            module=module,
+            entity_id=entity_id,
+            rule_version_used=rule_version_used,
+            decision_result=decision_result,
+            evaluation_context=evaluation_context,
+            reason_codes=reason_codes,
+            timestamp=timestamp,
+            bundle_hash=bundle_hash,
+            anchor_metadata=anchor_metadata,
+        )
+
+
+# -----------------------
 # Utility Functions
 # -----------------------
 
@@ -313,6 +361,45 @@ def adapter_health():
     except http_requests.RequestException:
         reachable = False
     return {"adapter_configured": True, "reachable": reachable}
+
+
+@app.post("/v1/proof-artifact", response_model=ProofArtifact)
+def create_proof_artifact(req: PermitRequest):
+    validate_subject(req.subject)
+    validate_action(req.action)
+    validate_amount(req.amount)
+
+    now = int(time.time())
+
+    evaluation_context = {
+        "action": req.action,
+        "jurisdiction": JURISDICTION,
+        "currency": CURRENCY,
+        "issuer": ISSUER_ADDRESS,
+        "amount": req.amount,
+        "counterparty": req.counterparty,
+    }
+
+    core = {
+        "module": APP_NAME,
+        "entity_id": req.subject,
+        "rule_version_used": POLICY_VERSION,
+        "decision_result": "permit",
+        "evaluation_context": evaluation_context,
+        "reason_codes": ["kyc_verified", "policy_compliant", "amount_within_limits"],  # MVP defaults
+        "timestamp": now,
+        "anchor_metadata": {"chain": "algorand", "committed": False},
+    }
+
+    artifact_hash = proof_hash(core)
+
+    logger.info(
+        "proof_artifact_generated entity_id=%s rule_version=%s bundle_hash=%s",
+        req.subject,
+        POLICY_VERSION,
+        artifact_hash,
+    )
+    return build_proof_artifact(**core, bundle_hash=artifact_hash)
 
 
 @app.post("/v1/commit")
