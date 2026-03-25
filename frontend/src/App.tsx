@@ -19,6 +19,8 @@ type PermitBundle = {
   attestations: Record<string, unknown>;
   scope: string[];
   nonce: string;
+};
+
 type PermitValidity = {
   single_use: boolean;
 };
@@ -57,20 +59,15 @@ type VerifyResponse = {
 };
 
 type CommitResponse = {
-  status: string;
-  tx_id?: string;
+  committed: boolean;
+  algorand_tx_id?: string;
+  bundle_hash?: string;
 };
 
 type PermitRequestBody = {
   subject: string;
   action: string;
   amount?: number;
-};
-
-type CommitResponse = {
-  committed: boolean;
-  algorand_tx_id?: string;
-  bundle_hash?: string;
 };
 
 type AdapterHealth = {
@@ -93,7 +90,6 @@ function checkSymbol(valid: boolean) {
 }
 
 function extractErrorMessage(data: unknown, fallback: string): string {
-function extractErrorMessage(data: any, fallback: string): string {
   if (!data) return fallback;
   const d = data as Record<string, unknown>;
   const detail = d.detail;
@@ -127,7 +123,6 @@ export default function App() {
   const [now, setNow] = useState<number>(() => Math.floor(Date.now() / 1000));
   const [verifyResult, setVerifyResult] = useState<VerifyResponse | null>(null);
   const [commitResult, setCommitResult] = useState<CommitResponse | null>(null);
-  const [showTechnical, setShowTechnical] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [adapterHealth, setAdapterHealth] = useState<AdapterHealth | null>(null);
 
