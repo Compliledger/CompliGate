@@ -687,3 +687,74 @@ def test_permit_proof_artifact_timestamp_is_integer():
     response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
     assert response.status_code == 200
     assert isinstance(response.json()["proof_artifact"]["timestamp"], int)
+
+
+# -----------------------
+# enrich_proof_artifact_with_anchor tests
+# -----------------------
+
+def _make_proof_artifact():
+    """Build a ProofArtifact via the permit endpoint for use in helper tests."""
+    from main import build_proof_artifact
+
+    return build_proof_artifact(
+        module="CompliGate",
+        entity_id="rN7n3473SaZBCG4dFL83w7PB5XDnEHyMQX",
+        rule_version_used="RLUSD_US_v1",
+        decision_result="allow",
+        evaluation_context={"action": "transfer"},
+        reason_codes=["kyc_verified"],
+        timestamp=1700000000,
+        bundle_hash="abc123",
+        anchor_metadata={},
+    )
+
+
+def test_enrich_proof_artifact_updates_anchor_metadata():
+    from main import enrich_proof_artifact_with_anchor
+
+    artifact = _make_proof_artifact()
+    anchor = {"network": "algorand_testnet", "tx_id": "TX123", "anchored_at": 1700000001}
+    enriched = enrich_proof_artifact_with_anchor(artifact, anchor)
+    assert enriched.anchor_metadata == anchor
+
+
+def test_enrich_proof_artifact_does_not_modify_original():
+    from main import enrich_proof_artifact_with_anchor
+
+    artifact = _make_proof_artifact()
+    original_anchor = dict(artifact.anchor_metadata)
+    enrich_proof_artifact_with_anchor(artifact, {"tx_id": "TX999"})
+    assert artifact.anchor_metadata == original_anchor
+
+
+def test_enrich_proof_artifact_returns_new_instance():
+    from main import enrich_proof_artifact_with_anchor
+
+    artifact = _make_proof_artifact()
+    enriched = enrich_proof_artifact_with_anchor(artifact, {"tx_id": "TX456"})
+    assert enriched is not artifact
+
+
+def test_enrich_proof_artifact_preserves_other_fields():
+    from main import enrich_proof_artifact_with_anchor
+
+    artifact = _make_proof_artifact()
+    anchor = {"tx_id": "TX789"}
+    enriched = enrich_proof_artifact_with_anchor(artifact, anchor)
+    assert enriched.module == artifact.module
+    assert enriched.entity_id == artifact.entity_id
+    assert enriched.rule_version_used == artifact.rule_version_used
+    assert enriched.decision_result == artifact.decision_result
+    assert enriched.evaluation_context == artifact.evaluation_context
+    assert enriched.reason_codes == artifact.reason_codes
+    assert enriched.timestamp == artifact.timestamp
+    assert enriched.bundle_hash == artifact.bundle_hash
+
+
+def test_enrich_proof_artifact_accepts_empty_anchor_metadata():
+    from main import enrich_proof_artifact_with_anchor
+
+    artifact = _make_proof_artifact()
+    enriched = enrich_proof_artifact_with_anchor(artifact, {})
+    assert enriched.anchor_metadata == {}

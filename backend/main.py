@@ -101,6 +101,19 @@ def random_hex(n_bytes: int = 32) -> str:
     return "0x" + os.urandom(n_bytes).hex()
 
 
+def enrich_proof_artifact_with_anchor(
+    proof_artifact: "ProofArtifact",
+    anchor_metadata: dict,
+) -> "ProofArtifact":
+    """Return a copy of *proof_artifact* with *anchor_metadata* replaced.
+
+    The original artifact is not modified.  Call this after a successful
+    POST /v1/commit to attach the on-chain anchor details to an existing
+    proof artifact before returning it to the frontend.
+    """
+    return proof_artifact.model_copy(update={"anchor_metadata": anchor_metadata})
+
+
 def load_or_create_signing_key() -> SigningKey:
     """
     If COMPLIGATE_PRIVATE_KEY_B64 is set, use it.
