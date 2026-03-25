@@ -9,39 +9,6 @@ type PermitConstraints = {
   allowed_counterparty?: string | null;
 };
 
-type ProofArtifact = {
-  module: string;
-  entity_id: string;
-  rule_version_used: string;
-  decision_result: string;
-  evaluation_context: Record<string, unknown>;
-  reason_codes: string[];
-  timestamp: number;
-  bundle_hash: string;
-  anchor_metadata: Record<string, unknown>;
-};
-
-type PermitResponse = {
-  summary: {
-    issuer_verified: boolean;
-    asset_classification: string;
-    custody_attestation_bound: boolean;
-    reserve_attestation_bound: boolean;
-    policy_version: string;
-    expires_in_seconds: number;
-  };
-  bundle: PermitBundle;
-  signature: string;
-  signed_at: number;
-  expires_at: number;
-  expires_in_seconds: number;
-  bundle_hash: string;
-  validity: PermitValidity;
-  proof_artifact?: ProofArtifact;
-  decision_result?: string;
-  reason_codes?: string[];
-};
-
 type VerifyResponse = {
   signature_valid: boolean;
   not_expired: boolean;
