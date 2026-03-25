@@ -1,12 +1,43 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import RequestPermitPanel, { type PermitResponse } from "./RequestPermitPanel";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 
 type PermitConstraints = {
   max_amount: number;
   allowed_counterparty?: string | null;
+};
+
+type ProofArtifact = {
+  module: string;
+  entity_id: string;
+  rule_version_used: string;
+  decision_result: string;
+  evaluation_context: Record<string, unknown>;
+  reason_codes: string[];
+  timestamp: number;
+  bundle_hash: string;
+  anchor_metadata: Record<string, unknown>;
+};
+
+type PermitResponse = {
+  summary: {
+    issuer_verified: boolean;
+    asset_classification: string;
+    custody_attestation_bound: boolean;
+    reserve_attestation_bound: boolean;
+    policy_version: string;
+    expires_in_seconds: number;
+  };
+  bundle: PermitBundle;
+  signature: string;
+  signed_at: number;
+  expires_at: number;
+  expires_in_seconds: number;
+  bundle_hash: string;
+  validity: PermitValidity;
+  proof_artifact?: ProofArtifact;
 };
 
 type VerifyResponse = {
@@ -82,6 +113,14 @@ export default function App() {
   const [commitError, setCommitError] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
   const [adapterHealth, setAdapterHealth] = useState<AdapterHealth | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
@@ -112,6 +151,50 @@ export default function App() {
   }, [permit, remaining, commitResult]);
 
   const permitActive = permit && remaining > 0;
+
+  const expiryPercent = useMemo(() => {
+    if (!permit || remaining <= 0 || permit.expires_in_seconds <= 0) return 0;
+    return Math.min(100, (remaining / permit.expires_in_seconds) * 100);
+  }, [permit, remaining]);
+
+  async function requestPermit() {
+    setError(null);
+    setPermit(null);
+    setVerifyResult(null);
+    setCommitResult(null);
+
+    const trimmed = subject.trim();
+    if (!trimmed) {
+      setError("Enter an address to request a permit.");
+      return;
+    }
+
+    const parsedAmount = amount.trim() ? parseFloat(amount.trim()) : undefined;
+    if (parsedAmount !== undefined && isNaN(parsedAmount)) {
+      setError("Amount must be a valid number.");
+      return;
+    }
+
+    try {
+      const body: PermitRequestBody = { subject: trimmed, action };
+      if (parsedAmount !== undefined) body.amount = parsedAmount;
+
+      const res = await fetch(`${API_BASE}/v1/permit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(extractErrorMessage(data, "Failed to request permit."));
+        return;
+      }
+      setPermit(data);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Network error calling backend.");
+    }
+  }
 
   async function verifyPermit() {
     if (!permit) return;
@@ -165,6 +248,20 @@ export default function App() {
       setCommitError(e instanceof Error ? e.message : "Network error calling commit endpoint.");
     } finally {
       setCommitting(false);
+    }
+  }
+
+  async function copyToClipboard(text: string, key: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(key);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(
+        () => setCopied((prev) => (prev === key ? null : prev)),
+        2000
+      );
+    } catch {
+      // silent fail — clipboard API unavailable
     }
   }
 
@@ -231,70 +328,85 @@ export default function App() {
           {!permit ? (
             <p className="muted">Request a permit to view the compliance summary.</p>
           ) : (
-            <div className="summary">
-              <div className="summaryRow">
-                <span className={checkClass(permit.summary.issuer_verified)}>
-                  {checkSymbol(permit.summary.issuer_verified)}
-                </span>
-                <span className="summaryLabel">Issuer verified</span>
-                <span className="summaryValue">
-                  {permit.summary.issuer_verified ? "Yes" : "No"}
-                </span>
+            <>
+              <div className="summary">
+                <div className="summaryRow">
+                  <span className={checkClass(permit.summary.issuer_verified)}>
+                    {checkSymbol(permit.summary.issuer_verified)}
+                  </span>
+                  <span className="summaryLabel">Issuer verified</span>
+                  <span className="summaryValue">
+                    {permit.summary.issuer_verified ? "Yes" : "No"}
+                  </span>
+                </div>
+                <div className="summaryRow">
+                  <span className="check">✔</span>
+                  <span className="summaryLabel">Asset classification</span>
+                  <span className="summaryValue">{permit.summary.asset_classification}</span>
+                </div>
+                <div className="summaryRow">
+                  <span className={checkClass(permit.summary.custody_attestation_bound)}>
+                    {checkSymbol(permit.summary.custody_attestation_bound)}
+                  </span>
+                  <span className="summaryLabel">Custody attestation</span>
+                  <span className="summaryValue">
+                    {permit.summary.custody_attestation_bound ? "Bound" : "Unbound"}
+                  </span>
+                </div>
+                <div className="summaryRow">
+                  <span className={checkClass(permit.summary.reserve_attestation_bound)}>
+                    {checkSymbol(permit.summary.reserve_attestation_bound)}
+                  </span>
+                  <span className="summaryLabel">Reserve attestation</span>
+                  <span className="summaryValue">
+                    {permit.summary.reserve_attestation_bound ? "Bound" : "Unbound"}
+                  </span>
+                </div>
+                <div className="summaryRow">
+                  <span className="check">✔</span>
+                  <span className="summaryLabel">Policy version</span>
+                  <span className="summaryValue">{permit.summary.policy_version}</span>
+                </div>
+                <div className="summaryRow">
+                  <span
+                    className={`check${
+                      remaining <= 0
+                        ? " checkFail"
+                        : remaining < 60
+                        ? " checkWarn"
+                        : ""
+                    }`}
+                  >
+                    {remaining > 0 ? "⏱" : "✘"}
+                  </span>
+                  <span className="summaryLabel">Expires in</span>
+                  <span
+                    className={`summaryValue${
+                      remaining <= 0
+                        ? " textBad"
+                        : remaining < 60
+                        ? " textWarn"
+                        : ""
+                    }`}
+                  >
+                    {remaining > 0 ? formatSeconds(remaining) : "Expired"}
+                  </span>
+                </div>
               </div>
-              <div className="summaryRow">
-                <span className="check">✔</span>
-                <span className="summaryLabel">Asset classification</span>
-                <span className="summaryValue">{permit.summary.asset_classification}</span>
-              </div>
-              <div className="summaryRow">
-                <span className={checkClass(permit.summary.custody_attestation_bound)}>
-                  {checkSymbol(permit.summary.custody_attestation_bound)}
-                </span>
-                <span className="summaryLabel">Custody attestation</span>
-                <span className="summaryValue">
-                  {permit.summary.custody_attestation_bound ? "Bound" : "Unbound"}
-                </span>
-              </div>
-              <div className="summaryRow">
-                <span className={checkClass(permit.summary.reserve_attestation_bound)}>
-                  {checkSymbol(permit.summary.reserve_attestation_bound)}
-                </span>
-                <span className="summaryLabel">Reserve attestation</span>
-                <span className="summaryValue">
-                  {permit.summary.reserve_attestation_bound ? "Bound" : "Unbound"}
-                </span>
-              </div>
-              <div className="summaryRow">
-                <span className="check">✔</span>
-                <span className="summaryLabel">Policy version</span>
-                <span className="summaryValue">{permit.summary.policy_version}</span>
-              </div>
-              <div className="summaryRow">
-                <span
-                  className={`check${
+
+              <div className="expiryBarWrap">
+                <div
+                  className={`expiryBarFill${
                     remaining <= 0
-                      ? " checkFail"
+                      ? " expiryExpired"
                       : remaining < 60
-                      ? " checkWarn"
+                      ? " expiryWarn"
                       : ""
                   }`}
-                >
-                  {remaining > 0 ? "⏱" : "✘"}
-                </span>
-                <span className="summaryLabel">Expires in</span>
-                <span
-                  className={`summaryValue${
-                    remaining <= 0
-                      ? " textBad"
-                      : remaining < 60
-                      ? " textWarn"
-                      : ""
-                  }`}
-                >
-                  {remaining > 0 ? formatSeconds(remaining) : "Expired"}
-                </span>
+                  style={{ width: `${expiryPercent}%` }}
+                />
               </div>
-            </div>
+            </>
           )}
         </section>
 
@@ -307,14 +419,39 @@ export default function App() {
             </p>
           ) : (
             <div className="codeBlock">
-              <div className="codeTitle">Bundle Hash (SHA-256)</div>
+              <div className="codeTitleRow">
+                <div className="codeTitle">Bundle Hash (SHA-256)</div>
+                <button
+                  className="copyBtn"
+                  onClick={() => copyToClipboard(permit.bundle_hash, "bundle_hash")}
+                  title="Copy bundle hash"
+                >
+                  {copied === "bundle_hash" ? "✔ Copied" : "Copy"}
+                </button>
+              </div>
               <pre>{permit.bundle_hash}</pre>
 
-              <div className="codeTitle">Proof Bundle</div>
+              <div className="codeTitle">Proof Bundle (raw JSON)</div>
               <pre>{JSON.stringify(permit.bundle, null, 2)}</pre>
 
-              <div className="codeTitle">Signature</div>
+              <div className="codeTitleRow">
+                <div className="codeTitle">Signature</div>
+                <button
+                  className="copyBtn"
+                  onClick={() => copyToClipboard(permit.signature, "signature")}
+                  title="Copy signature"
+                >
+                  {copied === "signature" ? "✔ Copied" : "Copy"}
+                </button>
+              </div>
               <pre>{permit.signature}</pre>
+
+              {permit.proof_artifact && (
+                <>
+                  <div className="codeTitle">Proof Artifact</div>
+                  <pre>{JSON.stringify(permit.proof_artifact, null, 2)}</pre>
+                </>
+              )}
             </div>
           )}
         </section>

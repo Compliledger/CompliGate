@@ -344,6 +344,36 @@ body {
 
 .codeTitle:first-child { margin-top: 0; }
 
+.codeTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 10px 0 4px;
+}
+
+.codeTitleRow:first-child { margin-top: 0; }
+
+.codeTitleRow .codeTitle { margin: 0; }
+
+.copyBtn {
+  padding: 2px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: rgba(47, 128, 237, 0.12);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.copyBtn:hover {
+  background: rgba(47, 128, 237, 0.22);
+  border-color: rgba(47, 128, 237, 0.55);
+}
+
 pre {
   margin: 0;
   white-space: pre-wrap;
@@ -429,6 +459,26 @@ pre {
 .badge.anchored .badgeDot { background: var(--anchored); }
 
 .pillInlineMargin { margin-right: 0.5rem; }
+
+/* ── Expiry progress bar (Panel 2) ── */
+
+.expiryBarWrap {
+  height: 5px;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 14px;
+}
+
+.expiryBarFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--good);
+  transition: width 0.9s linear, background 0.4s ease;
+}
+
+.expiryBarFill.expiryWarn    { background: var(--warn); }
+.expiryBarFill.expiryExpired { background: var(--bad); }
 
 /* ── Footer ── */
 
