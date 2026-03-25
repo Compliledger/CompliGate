@@ -1,51 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
+import RequestPermitPanel, { type PermitResponse } from "./RequestPermitPanel";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
-
-type PermitBundle = {
-  bundle_id: string;
-  subject: string;
-  action: string;
-  exp: number;
-  asset: {
-    issuer: string;
-    currency: string;
-    classification: string;
-    policy_id: string;
-  };
-  constraints: Record<string, unknown>;
-  policy: Record<string, unknown>;
-  attestations: Record<string, unknown>;
-  scope: string[];
-  nonce: string;
-};
-
-type PermitValidity = {
-  single_use: boolean;
-};
 
 type PermitConstraints = {
   max_amount: number;
   allowed_counterparty?: string | null;
-};
-
-type PermitResponse = {
-  summary: {
-    issuer_verified: boolean;
-    asset_classification: string;
-    custody_attestation_bound: boolean;
-    reserve_attestation_bound: boolean;
-    policy_version: string;
-    expires_in_seconds: number;
-  };
-  bundle: PermitBundle;
-  signature: string;
-  signed_at: number;
-  expires_at: number;
-  expires_in_seconds: number;
-  bundle_hash: string;
-  validity: PermitValidity;
 };
 
 type VerifyResponse = {
@@ -62,12 +23,6 @@ type CommitResponse = {
   committed: boolean;
   algorand_tx_id?: string;
   bundle_hash?: string;
-};
-
-type PermitRequestBody = {
-  subject: string;
-  action: string;
-  amount?: number;
 };
 
 type AdapterHealth = {
@@ -119,14 +74,12 @@ function PanelNumber({ n }: { n: number }) {
 }
 
 export default function App() {
-  const [subject, setSubject] = useState("");
-  const [action, setAction] = useState("transfer");
-  const [amount, setAmount] = useState("");
   const [permit, setPermit] = useState<PermitResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState<number>(() => Math.floor(Date.now() / 1000));
   const [verifyResult, setVerifyResult] = useState<VerifyResponse | null>(null);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
   const [commitResult, setCommitResult] = useState<CommitResponse | null>(null);
+  const [commitError, setCommitError] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
   const [adapterHealth, setAdapterHealth] = useState<AdapterHealth | null>(null);
 
@@ -160,48 +113,9 @@ export default function App() {
 
   const permitActive = permit && remaining > 0;
 
-  async function requestPermit() {
-    setError(null);
-    setPermit(null);
-    setVerifyResult(null);
-    setCommitResult(null);
-
-    const trimmed = subject.trim();
-    if (!trimmed) {
-      setError("Enter an address to request a permit.");
-      return;
-    }
-
-    const parsedAmount = amount.trim() ? parseFloat(amount.trim()) : undefined;
-    if (parsedAmount !== undefined && isNaN(parsedAmount)) {
-      setError("Amount must be a valid number.");
-      return;
-    }
-
-    try {
-      const body: PermitRequestBody = { subject: trimmed, action };
-      if (parsedAmount !== undefined) body.amount = parsedAmount;
-
-      const res = await fetch(`${API_BASE}/v1/permit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setError(extractErrorMessage(data, "Failed to request permit."));
-        return;
-      }
-      setPermit(data);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Network error calling backend.");
-    }
-  }
-
   async function verifyPermit() {
     if (!permit) return;
-    setError(null);
+    setVerifyError(null);
     setVerifyResult(null);
 
     try {
@@ -213,18 +127,18 @@ export default function App() {
 
       const data = await res.json();
       if (!res.ok) {
-        setError(extractErrorMessage(data, "Failed to verify permit."));
+        setVerifyError(extractErrorMessage(data, "Failed to verify permit."));
         return;
       }
       setVerifyResult(data);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Network error calling verify endpoint.");
+      setVerifyError(e instanceof Error ? e.message : "Network error calling verify endpoint.");
     }
   }
 
   async function commitToAlgorand() {
     if (!permit) return;
-    setError(null);
+    setCommitError(null);
     setCommitResult(null);
     setCommitting(true);
 
@@ -243,12 +157,12 @@ export default function App() {
 
       const data = await res.json();
       if (!res.ok) {
-        setError(extractErrorMessage(data, "Failed to commit to Algorand."));
+        setCommitError(extractErrorMessage(data, "Failed to commit to Algorand."));
       } else {
         setCommitResult(data);
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Network error calling commit endpoint.");
+      setCommitError(e instanceof Error ? e.message : "Network error calling commit endpoint.");
     } finally {
       setCommitting(false);
     }
@@ -287,61 +201,22 @@ export default function App() {
 
       <main className="grid">
         {/* Panel 1: Request Permit */}
-        <section className="card">
-          <h2><PanelNumber n={1} />Request Permit</h2>
-          <p className="muted">
-            Paste a subject address to request a time-bound compliance permit.
-          </p>
-
-          <label className="label">Subject Address</label>
-          <input
-            className="input"
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            placeholder="r..."
-            spellCheck={false}
-          />
-
-          <label className="label">Action</label>
-          <select
-            className="input"
-            value={action}
-            onChange={(e) => setAction(e.target.value)}
-          >
-            <option value="transfer">transfer</option>
-            <option value="trustset">trustset</option>
-          </select>
-
-          <label className="label">Amount (optional)</label>
-          <input
-            className="input"
-            type="number"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="e.g. 100"
-            min="0"
-          />
-
-          <div className="row">
-            <button className="btn primary" onClick={requestPermit} disabled={!subject.trim()}>
-              Request Permit
-            </button>
-            <button
-              className="btn"
-              onClick={() => {
-                setPermit(null);
-                setVerifyResult(null);
-                setCommitResult(null);
-                setError(null);
-              }}
-              disabled={!permit && !error && !commitResult}
-            >
-              Clear
-            </button>
-          </div>
-
-          {error && <div className="alert bad">{error}</div>}
-        </section>
+        <RequestPermitPanel
+          onPermit={(p) => {
+            setPermit(p);
+            setVerifyResult(null);
+            setVerifyError(null);
+            setCommitResult(null);
+            setCommitError(null);
+          }}
+          onClear={() => {
+            setPermit(null);
+            setVerifyResult(null);
+            setVerifyError(null);
+            setCommitResult(null);
+            setCommitError(null);
+          }}
+        />
 
         {/* Panel 2: Permit Summary */}
         <section className="card">
@@ -476,6 +351,8 @@ export default function App() {
               )}
             </div>
           )}
+
+          {verifyError && <div className="alert bad">{verifyError}</div>}
         </section>
 
         {/* Panel 5: Algorand Commit */}
@@ -507,6 +384,8 @@ export default function App() {
               )}
             </div>
           )}
+
+          {commitError && <div className="alert bad">{commitError}</div>}
         </section>
       </main>
 
