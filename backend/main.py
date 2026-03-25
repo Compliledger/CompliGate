@@ -145,6 +145,7 @@ class PermitResponse(BaseModel):
     expires_in_seconds: int
     bundle_hash: str
     validity: dict
+    proof_artifact: ProofArtifact
 
 
 class VerifyRequest(BaseModel):
@@ -275,6 +276,24 @@ def create_permit(req: PermitRequest):
         "expires_in_seconds": PERMIT_TTL_SECONDS,
     }
 
+    reason_codes = ["kyc_verified", "policy_compliant", "amount_within_limits"]  # MVP defaults
+    proof_artifact = build_proof_artifact(
+        module="CompliGate",
+        entity_id=bundle["bundle_id"],
+        rule_version_used=bundle["policy"]["version"],
+        decision_result="allow",
+        evaluation_context={
+            "subject": bundle["subject"],
+            "action": bundle["action"],
+            "asset": bundle["asset"]["currency"],
+            "policy_id": bundle["asset"]["policy_id"],
+        },
+        reason_codes=reason_codes,
+        timestamp=now,
+        bundle_hash=bundle_hash,
+        anchor_metadata={},
+    )
+
     logger.info("permit_issued subject=%s action=%s exp=%d", req.subject, req.action, exp)
     return PermitResponse(
         summary=summary,
@@ -285,6 +304,7 @@ def create_permit(req: PermitRequest):
         expires_in_seconds=PERMIT_TTL_SECONDS,
         bundle_hash=bundle_hash,
         validity={"single_use": False},
+        proof_artifact=proof_artifact,
     )
 
 
