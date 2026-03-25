@@ -1,29 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
+import RequestPermitPanel, { type PermitResponse } from "./RequestPermitPanel";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
-
-type PermitBundle = {
-  bundle_id: string;
-  subject: string;
-  action: string;
-  exp: number;
-  asset: {
-    issuer: string;
-    currency: string;
-    classification: string;
-    policy_id: string;
-  };
-  constraints: Record<string, unknown>;
-  policy: Record<string, unknown>;
-  attestations: Record<string, unknown>;
-  scope: string[];
-  nonce: string;
-};
-
-type PermitValidity = {
-  single_use: boolean;
-};
 
 type PermitConstraints = {
   max_amount: number;
@@ -81,12 +60,6 @@ type CommitResponse = {
   bundle_hash?: string;
 };
 
-type PermitRequestBody = {
-  subject: string;
-  action: string;
-  amount?: number;
-};
-
 type AdapterHealth = {
   adapter_configured: boolean;
   reachable: boolean;
@@ -136,14 +109,12 @@ function PanelNumber({ n }: { n: number }) {
 }
 
 export default function App() {
-  const [subject, setSubject] = useState("");
-  const [action, setAction] = useState("transfer");
-  const [amount, setAmount] = useState("");
   const [permit, setPermit] = useState<PermitResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState<number>(() => Math.floor(Date.now() / 1000));
   const [verifyResult, setVerifyResult] = useState<VerifyResponse | null>(null);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
   const [commitResult, setCommitResult] = useState<CommitResponse | null>(null);
+  const [commitError, setCommitError] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
   const [adapterHealth, setAdapterHealth] = useState<AdapterHealth | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -231,7 +202,7 @@ export default function App() {
 
   async function verifyPermit() {
     if (!permit) return;
-    setError(null);
+    setVerifyError(null);
     setVerifyResult(null);
 
     try {
@@ -243,18 +214,18 @@ export default function App() {
 
       const data = await res.json();
       if (!res.ok) {
-        setError(extractErrorMessage(data, "Failed to verify permit."));
+        setVerifyError(extractErrorMessage(data, "Failed to verify permit."));
         return;
       }
       setVerifyResult(data);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Network error calling verify endpoint.");
+      setVerifyError(e instanceof Error ? e.message : "Network error calling verify endpoint.");
     }
   }
 
   async function commitToAlgorand() {
     if (!permit) return;
-    setError(null);
+    setCommitError(null);
     setCommitResult(null);
     setCommitting(true);
 
@@ -273,12 +244,12 @@ export default function App() {
 
       const data = await res.json();
       if (!res.ok) {
-        setError(extractErrorMessage(data, "Failed to commit to Algorand."));
+        setCommitError(extractErrorMessage(data, "Failed to commit to Algorand."));
       } else {
         setCommitResult(data);
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Network error calling commit endpoint.");
+      setCommitError(e instanceof Error ? e.message : "Network error calling commit endpoint.");
     } finally {
       setCommitting(false);
     }
@@ -331,61 +302,22 @@ export default function App() {
 
       <main className="grid">
         {/* Panel 1: Request Permit */}
-        <section className="card">
-          <h2><PanelNumber n={1} />Request Permit</h2>
-          <p className="muted">
-            Paste a subject address to request a time-bound compliance permit.
-          </p>
-
-          <label className="label">Subject Address</label>
-          <input
-            className="input"
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            placeholder="r..."
-            spellCheck={false}
-          />
-
-          <label className="label">Action</label>
-          <select
-            className="input"
-            value={action}
-            onChange={(e) => setAction(e.target.value)}
-          >
-            <option value="transfer">transfer</option>
-            <option value="trustset">trustset</option>
-          </select>
-
-          <label className="label">Amount (optional)</label>
-          <input
-            className="input"
-            type="number"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="e.g. 100"
-            min="0"
-          />
-
-          <div className="row">
-            <button className="btn primary" onClick={requestPermit} disabled={!subject.trim()}>
-              Request Permit
-            </button>
-            <button
-              className="btn"
-              onClick={() => {
-                setPermit(null);
-                setVerifyResult(null);
-                setCommitResult(null);
-                setError(null);
-              }}
-              disabled={!permit && !error && !commitResult}
-            >
-              Clear
-            </button>
-          </div>
-
-          {error && <div className="alert bad">{error}</div>}
-        </section>
+        <RequestPermitPanel
+          onPermit={(p) => {
+            setPermit(p);
+            setVerifyResult(null);
+            setVerifyError(null);
+            setCommitResult(null);
+            setCommitError(null);
+          }}
+          onClear={() => {
+            setPermit(null);
+            setVerifyResult(null);
+            setVerifyError(null);
+            setCommitResult(null);
+            setCommitError(null);
+          }}
+        />
 
         {/* Panel 2: Permit Summary */}
         <section className="card">
@@ -541,6 +473,27 @@ export default function App() {
             </button>
           </div>
 
+          {verifyResult && (
+            <div
+              className={`alert ${
+                verifyResult.signature_valid && verifyResult.not_expired ? "good" : "bad"
+              }`}
+            >
+              <div><span className="muted">Signature valid:</span> <b>{String(verifyResult.signature_valid)}</b></div>
+              <div><span className="muted">Not expired:</span> <b>{String(verifyResult.not_expired)}</b></div>
+              {verifyResult.action && (
+                <div><span className="muted">Action:</span> <b>{verifyResult.action}</b></div>
+              )}
+              {verifyResult.policy_version && (
+                <div><span className="muted">Policy version:</span> <b>{verifyResult.policy_version}</b></div>
+              )}
+              {verifyResult.bundle_hash && (
+                <div><span className="muted">Bundle hash:</span> <b style={{ wordBreak: "break-all" }}>{verifyResult.bundle_hash}</b></div>
+              )}
+            </div>
+          )}
+
+          {verifyError && <div className="alert bad">{verifyError}</div>}
           {verifyResult && (() => {
             const passed = verifyResult.signature_valid && verifyResult.not_expired;
             const decisionResult =
@@ -630,6 +583,8 @@ export default function App() {
               )}
             </div>
           )}
+
+          {commitError && <div className="alert bad">{commitError}</div>}
         </section>
       </main>
 
