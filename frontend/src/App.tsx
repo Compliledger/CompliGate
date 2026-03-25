@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
@@ -30,6 +30,18 @@ type PermitConstraints = {
   allowed_counterparty?: string | null;
 };
 
+type ProofArtifact = {
+  module: string;
+  entity_id: string;
+  rule_version_used: string;
+  decision_result: string;
+  evaluation_context: Record<string, unknown>;
+  reason_codes: string[];
+  timestamp: number;
+  bundle_hash: string;
+  anchor_metadata: Record<string, unknown>;
+};
+
 type PermitResponse = {
   summary: {
     issuer_verified: boolean;
@@ -46,6 +58,7 @@ type PermitResponse = {
   expires_in_seconds: number;
   bundle_hash: string;
   validity: PermitValidity;
+  proof_artifact?: ProofArtifact;
 };
 
 type VerifyResponse = {
@@ -129,6 +142,14 @@ export default function App() {
   const [commitResult, setCommitResult] = useState<CommitResponse | null>(null);
   const [committing, setCommitting] = useState(false);
   const [adapterHealth, setAdapterHealth] = useState<AdapterHealth | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
@@ -251,6 +272,20 @@ export default function App() {
       setError(e instanceof Error ? e.message : "Network error calling commit endpoint.");
     } finally {
       setCommitting(false);
+    }
+  }
+
+  async function copyToClipboard(text: string, key: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(key);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(
+        () => setCopied((prev) => (prev === key ? null : prev)),
+        2000
+      );
+    } catch {
+      // silent fail — clipboard API unavailable
     }
   }
 
@@ -432,14 +467,39 @@ export default function App() {
             </p>
           ) : (
             <div className="codeBlock">
-              <div className="codeTitle">Bundle Hash (SHA-256)</div>
+              <div className="codeTitleRow">
+                <div className="codeTitle">Bundle Hash (SHA-256)</div>
+                <button
+                  className="copyBtn"
+                  onClick={() => copyToClipboard(permit.bundle_hash, "bundle_hash")}
+                  title="Copy bundle hash"
+                >
+                  {copied === "bundle_hash" ? "✔ Copied" : "Copy"}
+                </button>
+              </div>
               <pre>{permit.bundle_hash}</pre>
 
-              <div className="codeTitle">Proof Bundle</div>
+              <div className="codeTitle">Proof Bundle (raw JSON)</div>
               <pre>{JSON.stringify(permit.bundle, null, 2)}</pre>
 
-              <div className="codeTitle">Signature</div>
+              <div className="codeTitleRow">
+                <div className="codeTitle">Signature</div>
+                <button
+                  className="copyBtn"
+                  onClick={() => copyToClipboard(permit.signature, "signature")}
+                  title="Copy signature"
+                >
+                  {copied === "signature" ? "✔ Copied" : "Copy"}
+                </button>
+              </div>
               <pre>{permit.signature}</pre>
+
+              {permit.proof_artifact && (
+                <>
+                  <div className="codeTitle">Proof Artifact</div>
+                  <pre>{JSON.stringify(permit.proof_artifact, null, 2)}</pre>
+                </>
+              )}
             </div>
           )}
         </section>
