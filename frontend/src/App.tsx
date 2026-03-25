@@ -71,10 +71,21 @@ type VerifyResponse = {
   constraints?: PermitConstraints;
 };
 
+type AnchorMetadata = {
+  network?: string;
+  tx_id?: string;
+  confirmed_round?: number;
+  app_id?: number;
+  method?: string;
+  contract_version?: string;
+  anchored_at?: number;
+};
+
 type CommitResponse = {
   committed: boolean;
   algorand_tx_id?: string;
   bundle_hash?: string;
+  anchor_metadata?: AnchorMetadata;
 };
 
 type PermitRequestBody = {
@@ -576,15 +587,67 @@ export default function App() {
           </div>
 
           {commitResult && (
-            <div className="alert good">
-              <span className="pill anchored pillInlineMargin">⚓ Anchored</span>
-              Committed: <b>{String(commitResult.committed)}</b>
-              {commitResult.algorand_tx_id && (
-                <>&nbsp;|&nbsp;Algorand TX: <b>{commitResult.algorand_tx_id}</b></>
-              )}
-              {commitResult.bundle_hash && (
-                <><br />Bundle Hash: <b style={{ wordBreak: "break-all" }}>{commitResult.bundle_hash}</b></>
-              )}
+            <div className="commitResult">
+              <div className="commitResultHeader">
+                <span className="badge anchored">
+                  <span className="badgeDot" />
+                  ⚓ Anchored
+                </span>
+              </div>
+
+              <div className="commitRows">
+                <div className="commitRow">
+                  <span className="commitLabel">Committed</span>
+                  <span className={`commitValue${commitResult.committed ? " textGood" : " textBad"}`}>
+                    {String(commitResult.committed)}
+                  </span>
+                </div>
+
+                {(commitResult.anchor_metadata?.tx_id ?? commitResult.algorand_tx_id) && (
+                  <div className="commitRow">
+                    <span className="commitLabel">TX ID</span>
+                    <span className="commitValue commitValueMono" style={{ wordBreak: "break-all" }}>
+                      {commitResult.anchor_metadata?.tx_id ?? commitResult.algorand_tx_id}
+                    </span>
+                  </div>
+                )}
+
+                {commitResult.anchor_metadata && (
+                  <>
+                    {commitResult.anchor_metadata.network && (
+                      <div className="commitRow">
+                        <span className="commitLabel">Network</span>
+                        <span className="commitValue">{commitResult.anchor_metadata.network}</span>
+                      </div>
+                    )}
+                    {commitResult.anchor_metadata.confirmed_round != null && (
+                      <div className="commitRow">
+                        <span className="commitLabel">Confirmed Round</span>
+                        <span className="commitValue">{commitResult.anchor_metadata.confirmed_round}</span>
+                      </div>
+                    )}
+                    {commitResult.anchor_metadata.app_id != null && (
+                      <div className="commitRow">
+                        <span className="commitLabel">App ID</span>
+                        <span className="commitValue">{commitResult.anchor_metadata.app_id}</span>
+                      </div>
+                    )}
+                    {commitResult.anchor_metadata.anchored_at != null && (
+                      <div className="commitRow">
+                        <span className="commitLabel">Anchored At</span>
+                        <span className="commitValue">
+                          {new Date(commitResult.anchor_metadata.anchored_at * 1000).toISOString()}
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="commitMetaBlock">
+                      <div className="codeTitle">Anchor Metadata</div>
+                      <pre>{JSON.stringify(commitResult.anchor_metadata, null, 2)}</pre>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           )}
         </section>
