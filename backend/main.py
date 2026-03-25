@@ -36,6 +36,54 @@ PERMIT_TTL_SECONDS = 300  # 5 minutes
 
 
 # -----------------------
+# proofbundle integration
+# -----------------------
+
+try:
+    from proofbundle import ProofArtifact, build_proof_artifact  # type: ignore[import]
+    _PROOFBUNDLE_AVAILABLE = True
+except ImportError:
+    _PROOFBUNDLE_AVAILABLE = False
+
+    class ProofArtifact(BaseModel):  # type: ignore[no-redef]
+        """Fallback proof artifact schema (used when proofbundle is not installed)."""
+
+        module: str
+        entity_id: str
+        rule_version_used: str
+        decision_result: str
+        evaluation_context: dict
+        reason_codes: list[str]
+        timestamp: int
+        bundle_hash: str
+        anchor_metadata: dict
+
+    def build_proof_artifact(  # type: ignore[misc]  # ProofArtifact is conditionally defined above
+        *,
+        module: str,
+        entity_id: str,
+        rule_version_used: str,
+        decision_result: str,
+        evaluation_context: dict,
+        reason_codes: list[str],
+        timestamp: int,
+        bundle_hash: str,
+        anchor_metadata: dict,
+    ) -> "ProofArtifact":
+        return ProofArtifact(
+            module=module,
+            entity_id=entity_id,
+            rule_version_used=rule_version_used,
+            decision_result=decision_result,
+            evaluation_context=evaluation_context,
+            reason_codes=reason_codes,
+            timestamp=timestamp,
+            bundle_hash=bundle_hash,
+            anchor_metadata=anchor_metadata,
+        )
+
+
+# -----------------------
 # Utility Functions
 # -----------------------
 
@@ -99,6 +147,7 @@ class PermitResponse(BaseModel):
     validity: dict
     decision_result: str
     reason_codes: list[str]
+    proof_artifact: ProofArtifact
 
 
 class VerifyRequest(BaseModel):
@@ -296,6 +345,24 @@ def create_permit(req: PermitRequest):
         "expires_in_seconds": PERMIT_TTL_SECONDS,
     }
 
+    reason_codes = ["kyc_verified", "policy_compliant", "amount_within_limits"]  # MVP defaults
+    proof_artifact = build_proof_artifact(
+        module="CompliGate",
+        entity_id=bundle["bundle_id"],
+        rule_version_used=bundle["policy"]["version"],
+        decision_result="allow",
+        evaluation_context={
+            "subject": bundle["subject"],
+            "action": bundle["action"],
+            "asset": bundle["asset"]["currency"],
+            "policy_id": bundle["asset"]["policy_id"],
+        },
+        reason_codes=reason_codes,
+        timestamp=now,
+        bundle_hash=bundle_hash,
+        anchor_metadata={},
+    )
+
     logger.info("permit_issued subject=%s action=%s exp=%d", req.subject, req.action, exp)
     return PermitResponse(
         summary=summary,
@@ -308,6 +375,7 @@ def create_permit(req: PermitRequest):
         validity={"single_use": False},
         decision_result=decision_result,
         reason_codes=reason_codes,
+        proof_artifact=proof_artifact,
     )
 
 
@@ -386,6 +454,45 @@ def adapter_health():
     return {"adapter_configured": True, "reachable": reachable}
 
 
+@app.post("/v1/proof-artifact", response_model=ProofArtifact)
+def create_proof_artifact(req: PermitRequest):
+    validate_subject(req.subject)
+    validate_action(req.action)
+    validate_amount(req.amount)
+
+    now = int(time.time())
+
+    evaluation_context = {
+        "action": req.action,
+        "jurisdiction": JURISDICTION,
+        "currency": CURRENCY,
+        "issuer": ISSUER_ADDRESS,
+        "amount": req.amount,
+        "counterparty": req.counterparty,
+    }
+
+    core = {
+        "module": APP_NAME,
+        "entity_id": req.subject,
+        "rule_version_used": POLICY_VERSION,
+        "decision_result": "permit",
+        "evaluation_context": evaluation_context,
+        "reason_codes": ["kyc_verified", "policy_compliant", "amount_within_limits"],  # MVP defaults
+        "timestamp": now,
+        "anchor_metadata": {"chain": "algorand", "committed": False},
+    }
+
+    artifact_hash = proof_hash(core)
+
+    logger.info(
+        "proof_artifact_generated entity_id=%s rule_version=%s bundle_hash=%s",
+        req.subject,
+        POLICY_VERSION,
+        artifact_hash,
+    )
+    return build_proof_artifact(**core, bundle_hash=artifact_hash)
+
+
 @app.post("/v1/commit")
 def commit_bundle(req: CommitRequest):
     validate_subject(req.subject)
@@ -414,9 +521,18 @@ def commit_bundle(req: CommitRequest):
         logger.error("commit_failed reason=%s", exc.detail)
         raise
     logger.info("commit_success tx_id=%s", result.get("tx_id"))
+    anchor_metadata = {
+        "network": "algorand_testnet",
+        "tx_id": result.get("tx_id"),
+        "confirmed_round": result.get("confirmed_round"),
+        "app_id": result.get("app_id"),
+        "method": "commit_permit",
+        "contract_version": "v1",
+        "anchored_at": int(time.time()),
+    }
     return {
         "committed": True,
-        "algorand_tx_id": result.get("tx_id"),
         "bundle_hash": req.bundle_hash,
+        "anchor_metadata": anchor_metadata,
         "adapter_response": result,
     }

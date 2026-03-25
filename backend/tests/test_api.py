@@ -549,3 +549,213 @@ def test_permit_reason_codes_no_amount_within_limit_when_no_amount():
     assert response.status_code == 200
     codes = response.json()["reason_codes"]
     assert "AMOUNT_WITHIN_LIMIT" not in codes
+# Proof Artifact tests
+# -----------------------
+
+PROOF_ARTIFACT_FIELDS = [
+    "module",
+    "entity_id",
+    "rule_version_used",
+    "decision_result",
+    "evaluation_context",
+    "reason_codes",
+    "timestamp",
+    "bundle_hash",
+    "anchor_metadata",
+]
+
+
+def test_proof_artifact_returns_200():
+    response = client.post("/v1/proof-artifact", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+
+
+def test_proof_artifact_has_all_required_fields():
+    response = client.post("/v1/proof-artifact", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    for field in PROOF_ARTIFACT_FIELDS:
+        assert field in data, f"Missing field: {field}"
+
+
+def test_proof_artifact_entity_id_matches_subject():
+    response = client.post("/v1/proof-artifact", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["entity_id"] == VALID_SUBJECT
+
+
+def test_proof_artifact_decision_result_is_permit():
+    response = client.post("/v1/proof-artifact", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    assert response.json()["decision_result"] == "permit"
+
+
+def test_proof_artifact_rule_version_is_set():
+    from main import POLICY_VERSION
+
+    response = client.post("/v1/proof-artifact", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    assert response.json()["rule_version_used"] == POLICY_VERSION
+
+
+def test_proof_artifact_bundle_hash_is_set():
+    import re
+
+    response = client.post("/v1/proof-artifact", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    bundle_hash = response.json()["bundle_hash"]
+    # SHA-256 produces a 64-character lowercase hex string
+    assert re.fullmatch(r"[0-9a-f]{64}", bundle_hash), f"Unexpected bundle_hash format: {bundle_hash}"
+
+
+def test_proof_artifact_reason_codes_is_list():
+    response = client.post("/v1/proof-artifact", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    assert isinstance(response.json()["reason_codes"], list)
+
+
+def test_proof_artifact_evaluation_context_contains_action():
+    response = client.post(
+        "/v1/proof-artifact",
+        json={"subject": VALID_SUBJECT, "action": "trustset"},
+    )
+    assert response.status_code == 200
+    ctx = response.json()["evaluation_context"]
+    assert ctx["action"] == "trustset"
+
+
+def test_proof_artifact_validates_subject():
+    response = client.post("/v1/proof-artifact", json={"subject": "invalid"})
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "invalid_subject"
+
+
+def test_proof_artifact_validates_action():
+    response = client.post(
+        "/v1/proof-artifact",
+        json={"subject": VALID_SUBJECT, "action": "burn"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "unsupported_action"
+
+
+def test_proof_artifact_validates_amount():
+    response = client.post(
+        "/v1/proof-artifact",
+        json={"subject": VALID_SUBJECT, "amount": 9999},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "transaction_not_allowed"
+
+
+def test_proof_artifact_anchor_metadata_present():
+    response = client.post("/v1/proof-artifact", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    anchor = response.json()["anchor_metadata"]
+    assert isinstance(anchor, dict)
+    assert "chain" in anchor
+
+
+def test_proof_artifact_timestamp_is_integer():
+    response = client.post("/v1/proof-artifact", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    assert isinstance(response.json()["timestamp"], int)
+
+
+# -----------------------
+# Permit proof_artifact tests
+# -----------------------
+
+PERMIT_PROOF_ARTIFACT_FIELDS = [
+    "module",
+    "entity_id",
+    "rule_version_used",
+    "decision_result",
+    "evaluation_context",
+    "reason_codes",
+    "timestamp",
+    "bundle_hash",
+    "anchor_metadata",
+]
+
+
+def test_permit_includes_proof_artifact():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    assert "proof_artifact" in response.json()
+
+
+def test_permit_proof_artifact_has_all_required_fields():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    proof = response.json()["proof_artifact"]
+    for field in PERMIT_PROOF_ARTIFACT_FIELDS:
+        assert field in proof, f"Missing field: {field}"
+
+
+def test_permit_proof_artifact_module_is_compligate():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    assert response.json()["proof_artifact"]["module"] == "CompliGate"
+
+
+def test_permit_proof_artifact_entity_id_matches_bundle_id():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["proof_artifact"]["entity_id"] == data["bundle"]["bundle_id"]
+
+
+def test_permit_proof_artifact_rule_version_matches_policy_version():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["proof_artifact"]["rule_version_used"] == data["bundle"]["policy"]["version"]
+
+
+def test_permit_proof_artifact_decision_result_is_allow():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    assert response.json()["proof_artifact"]["decision_result"] == "allow"
+
+
+def test_permit_proof_artifact_evaluation_context():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    ctx = data["proof_artifact"]["evaluation_context"]
+    bundle = data["bundle"]
+    assert ctx["subject"] == bundle["subject"]
+    assert ctx["action"] == bundle["action"]
+    assert ctx["asset"] == bundle["asset"]["currency"]
+    assert ctx["policy_id"] == bundle["asset"]["policy_id"]
+
+
+def test_permit_proof_artifact_reason_codes_is_list():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    assert isinstance(response.json()["proof_artifact"]["reason_codes"], list)
+
+
+def test_permit_proof_artifact_bundle_hash_matches_permit():
+    import re
+
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    bundle_hash = data["proof_artifact"]["bundle_hash"]
+    assert bundle_hash == data["bundle_hash"]
+    assert re.fullmatch(r"[0-9a-f]{64}", bundle_hash), f"Unexpected bundle_hash format: {bundle_hash}"
+
+
+def test_permit_proof_artifact_anchor_metadata_is_empty_dict():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    assert response.json()["proof_artifact"]["anchor_metadata"] == {}
+
+
+def test_permit_proof_artifact_timestamp_is_integer():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    assert isinstance(response.json()["proof_artifact"]["timestamp"], int)
