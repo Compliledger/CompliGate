@@ -430,9 +430,18 @@ def commit_bundle(req: CommitRequest):
         logger.error("commit_failed reason=%s", exc.detail)
         raise
     logger.info("commit_success tx_id=%s", result.get("tx_id"))
+    anchor_metadata = {
+        "network": "algorand_testnet",
+        "tx_id": result.get("tx_id"),
+        "confirmed_round": result.get("confirmed_round"),
+        "app_id": result.get("app_id"),
+        "method": "commit_permit",
+        "contract_version": "v1",
+        "anchored_at": int(time.time()),
+    }
     return {
         "committed": True,
-        "algorand_tx_id": result.get("tx_id"),
         "bundle_hash": req.bundle_hash,
+        "anchor_metadata": anchor_metadata,
         "adapter_response": result,
     }
