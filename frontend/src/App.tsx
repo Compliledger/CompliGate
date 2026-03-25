@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
-import RequestPermitPanel, { type PermitBundle, type PermitValidity } from "./RequestPermitPanel";
+import RequestPermitPanel, { type PermitResponse } from "./RequestPermitPanel";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 
