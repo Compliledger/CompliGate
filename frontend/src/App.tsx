@@ -105,13 +105,17 @@ function extractErrorMessage(data: unknown, fallback: string): string {
 }
 
 function adapterConfiguredLabel(health: AdapterHealth | null): string {
-  if (!health) return "…";
+  if (!health) return "Checking...";
   return health.adapter_configured ? "Configured" : "Not Configured";
 }
 
 function adapterReachableLabel(health: AdapterHealth | null): string {
-  if (!health) return "…";
+  if (!health) return "Checking...";
   return health.reachable ? "Reachable" : "Unreachable";
+}
+
+function PanelNumber({ n }: { n: number }) {
+  return <span className="panelNumber">{n}</span>;
 }
 
 export default function App() {
@@ -254,8 +258,10 @@ export default function App() {
     <div className="page">
       <header className="header">
         <div className="brand">
-          <div className="title">CompliGate</div>
-          <div className="subtitle">Compliance authorization infrastructure (MVP)</div>
+          <div className="title">
+            <span className="titleAccent">Compli</span>Gate
+          </div>
+          <div className="subtitle">Compliance authorization infrastructure · MVP</div>
         </div>
 
         <div className={`pill ${status.kind}`}>
@@ -282,7 +288,7 @@ export default function App() {
       <main className="grid">
         {/* Panel 1: Request Permit */}
         <section className="card">
-          <h2>Request Permit</h2>
+          <h2><PanelNumber n={1} />Request Permit</h2>
           <p className="muted">
             Paste a subject address to request a time-bound compliance permit.
           </p>
@@ -340,7 +346,7 @@ export default function App() {
         {/* Panel 2: Permit Summary */}
         <section className="card">
           <div className="summaryHeader">
-            <h2>Permit Summary</h2>
+            <h2><PanelNumber n={2} />Permit Summary</h2>
             <span className={`badge ${status.kind}`}>
               <span className="badgeDot" />
               {status.label}
@@ -419,7 +425,7 @@ export default function App() {
 
         {/* Panel 3: Technical Proof */}
         <section className="card spanFull">
-          <h2>Technical Proof</h2>
+          <h2><PanelNumber n={3} />Technical Proof</h2>
           {!permit ? (
             <p className="muted">
               Proof bundle details will appear here after a permit is issued.
@@ -438,9 +444,9 @@ export default function App() {
           )}
         </section>
 
-        {/* Panel 4: Verify Permit */}
+        {/* Panel 4: Verification */}
         <section className="card">
-          <h2>Verify Permit</h2>
+          <h2><PanelNumber n={4} />Verification</h2>
           <p className="muted">
             Verify the permit signature and confirm it has not expired.
           </p>
@@ -472,9 +478,9 @@ export default function App() {
           )}
         </section>
 
-        {/* Panel 5: Commit to Algorand */}
+        {/* Panel 5: Algorand Commit */}
         <section className="card">
-          <h2>Commit to Algorand</h2>
+          <h2><PanelNumber n={5} />Algorand Commit</h2>
           <p className="muted">
             Commit the proof bundle to the Algorand adapter for on-chain anchoring.
           </p>
@@ -491,7 +497,7 @@ export default function App() {
 
           {commitResult && (
             <div className="alert good">
-              <span className="pill good" style={{ marginRight: "0.5rem" }}>⚓ Anchored</span>
+              <span className="pill anchored pillInlineMargin">⚓ Anchored</span>
               Committed: <b>{String(commitResult.committed)}</b>
               {commitResult.algorand_tx_id && (
                 <>&nbsp;|&nbsp;Algorand TX: <b>{commitResult.algorand_tx_id}</b></>
