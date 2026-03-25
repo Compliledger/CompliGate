@@ -480,6 +480,61 @@ pre {
 .expiryBarFill.expiryWarn    { background: var(--warn); }
 .expiryBarFill.expiryExpired { background: var(--bad); }
 
+/* ── Commit result (Panel 5) ── */
+
+.commitResult {
+  margin-top: 14px;
+  border: 1px solid rgba(59, 158, 202, 0.45);
+  background: rgba(59, 158, 202, 0.07);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.commitResultHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(59, 158, 202, 0.2);
+  background: rgba(59, 158, 202, 0.08);
+}
+
+.commitRows {
+  padding: 4px 0;
+}
+
+.commitRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  padding: 8px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.commitRow:last-child { border-bottom: none; }
+
+.commitLabel {
+  flex-shrink: 0;
+  width: 130px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  padding-top: 1px;
+}
+
+.commitValue {
+  flex: 1;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.commitValueMono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 500;
 /* ── Verification result (Panel 4) ── */
 
 .verifyResult {
@@ -582,6 +637,13 @@ pre {
 }
 
 .textGood { color: var(--good); }
+
+.commitMetaBlock {
+  padding: 10px 14px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.commitMetaBlock .codeTitle { margin-top: 0; }
 
 /* ── Footer ── */
 
