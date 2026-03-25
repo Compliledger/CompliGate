@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
-import RequestPermitPanel, { type PermitResponse } from "./RequestPermitPanel";
+import RequestPermitPanel, { type PermitBundle, type PermitValidity } from "./RequestPermitPanel";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 
@@ -171,45 +171,6 @@ export default function App() {
     if (!permit || remaining <= 0 || permit.expires_in_seconds <= 0) return 0;
     return Math.min(100, (remaining / permit.expires_in_seconds) * 100);
   }, [permit, remaining]);
-
-  async function requestPermit() {
-    setError(null);
-    setPermit(null);
-    setVerifyResult(null);
-    setCommitResult(null);
-
-    const trimmed = subject.trim();
-    if (!trimmed) {
-      setError("Enter an address to request a permit.");
-      return;
-    }
-
-    const parsedAmount = amount.trim() ? parseFloat(amount.trim()) : undefined;
-    if (parsedAmount !== undefined && isNaN(parsedAmount)) {
-      setError("Amount must be a valid number.");
-      return;
-    }
-
-    try {
-      const body: PermitRequestBody = { subject: trimmed, action };
-      if (parsedAmount !== undefined) body.amount = parsedAmount;
-
-      const res = await fetch(`${API_BASE}/v1/permit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setError(extractErrorMessage(data, "Failed to request permit."));
-        return;
-      }
-      setPermit(data);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Network error calling backend.");
-    }
-  }
 
   async function verifyPermit() {
     if (!permit) return;
@@ -484,30 +445,6 @@ export default function App() {
             </button>
           </div>
 
-          {verifyResult && (
-            <div
-              className={`alert ${
-                verifyResult.signature_valid && verifyResult.not_expired ? "good" : "bad"
-              }`}
-            >
-              <div><span className="muted">Signature valid:</span> <b>{String(verifyResult.signature_valid)}</b></div>
-              <div><span className="muted">Not expired:</span> <b>{String(verifyResult.not_expired)}</b></div>
-              {verifyResult.action && (
-                <div><span className="muted">Action:</span> <b>{verifyResult.action}</b></div>
-              )}
-              {verifyResult.policy_version && (
-                <div><span className="muted">Policy version:</span> <b>{verifyResult.policy_version}</b></div>
-              )}
-              {verifyResult.bundle_hash && (
-                <div><span className="muted">Bundle hash:</span> <b className="breakAll">{verifyResult.bundle_hash}</b></div>
-              )}
-            </div>
-          )}
-                <div><span className="muted">Bundle hash:</span> <b style={{ wordBreak: "break-all" }}>{verifyResult.bundle_hash}</b></div>
-              )}
-            </div>
-          )}
-
           {verifyError && <div className="alert bad">{verifyError}</div>}
           {verifyResult && (() => {
             const passed = verifyResult.signature_valid && verifyResult.not_expired;
@@ -553,6 +490,13 @@ export default function App() {
                       </span>
                     </div>
                   )}
+                  {verifyResult.bundle_hash && (
+                    <div className="verifyRow">
+                      <span className="check">✔</span>
+                      <span className="summaryLabel">Bundle hash</span>
+                      <span className="summaryValue breakAll">{verifyResult.bundle_hash}</span>
+                    </div>
+                  )}
                 </div>
                 {reasonCodes && reasonCodes.length > 0 && (
                   <div className="reasonCodes">
@@ -587,15 +531,6 @@ export default function App() {
           </div>
 
           {commitResult && (
-            <div className="alert good">
-              <div><span className="pill anchored">⚓ Anchored</span></div>
-              <div><span className="muted">Committed:</span> <b>{String(commitResult.committed)}</b></div>
-              {commitResult.algorand_tx_id && (
-                <div><span className="muted">Algorand TX:</span> <b>{commitResult.algorand_tx_id}</b></div>
-              )}
-              {commitResult.bundle_hash && (
-                <div><span className="muted">Bundle Hash:</span> <b className="breakAll">{commitResult.bundle_hash}</b></div>
-              )}
             <div className="commitResult">
               <div className="commitResultHeader">
                 <span className="badge anchored">
