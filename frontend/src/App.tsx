@@ -509,7 +509,7 @@ export default function App() {
             <button
               className="btn primary"
               onClick={commitToAlgorand}
-              disabled={!permitActive || committing}
+              disabled={!permit || committing}
             >
               {committing ? "Committing…" : "Commit to Algorand"}
             </button>
