@@ -461,6 +461,20 @@ export default function App() {
                       </div>
                     );
                   })()}
+                  {verifyResult.action && (
+                    <div className="verifyRow">
+                      <span className="check">✔</span>
+                      <span className="summaryLabel">Action</span>
+                      <span className="summaryValue">{verifyResult.action}</span>
+                    </div>
+                  )}
+                  {verifyResult.policy_version && (
+                    <div className="verifyRow">
+                      <span className="check">✔</span>
+                      <span className="summaryLabel">Policy version</span>
+                      <span className="summaryValue">{verifyResult.policy_version}</span>
+                    </div>
+                  )}
                   {verifyResult.bundle_hash && (
                     <div className="verifyRow">
                       <span className="check">✔</span>
