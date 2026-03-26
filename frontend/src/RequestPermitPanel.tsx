@@ -14,6 +14,11 @@ export type ProofArtifact = {
   anchor_metadata: Record<string, unknown>;
 };
 
+export type PermitPolicy = {
+  version: string;
+  jurisdiction: string;
+};
+
 export type PermitBundle = {
   bundle_id: string;
   subject: string;
@@ -26,7 +31,7 @@ export type PermitBundle = {
     policy_id: string;
   };
   constraints: Record<string, unknown>;
-  policy: Record<string, unknown>;
+  policy: PermitPolicy;
   attestations: Record<string, unknown>;
   scope: string[];
   nonce: string;
