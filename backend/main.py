@@ -360,7 +360,6 @@ def create_permit(req: PermitRequest):
         "expires_in_seconds": PERMIT_TTL_SECONDS,
     }
 
-    reason_codes = REASON_CODES
     proof_artifact = build_proof_artifact(
         module="CompliGate",
         entity_id=bundle["bundle_id"],
