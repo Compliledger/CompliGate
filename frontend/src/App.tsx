@@ -391,7 +391,16 @@ export default function App() {
 
               {permit.proof_artifact && (
                 <>
-                  <div className="codeTitle">Proof Artifact</div>
+                  <div className="codeTitleRow">
+                    <div className="codeTitle">Proof Artifact</div>
+                    <button
+                      className="copyBtn"
+                      onClick={() => copyToClipboard(JSON.stringify(permit.proof_artifact, null, 2), "proof_artifact")}
+                      title="Copy proof artifact"
+                    >
+                      {copied === "proof_artifact" ? "✔ Copied" : "Copy"}
+                    </button>
+                  </div>
                   <pre>{JSON.stringify(permit.proof_artifact, null, 2)}</pre>
                 </>
               )}
