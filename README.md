@@ -23,3 +23,35 @@ uvicorn main:app --reload --port 8000
 ```
 
 The API will be available at `http://localhost:8000`. Interactive docs at `http://localhost:8000/docs`.
+
+## Frontend
+
+### Prerequisites
+
+Node.js 18+ and npm.
+
+### Development
+
+```bash
+cd frontend
+cp .env.example .env          # set VITE_API_BASE to the backend URL
+npm install
+npm run dev                   # http://localhost:5173
+```
+
+### Production build
+
+```bash
+cd frontend
+npm install
+VITE_API_BASE=https://your-api.example.com npm run build
+# Serve the dist/ directory with any static-file host (Nginx, S3, Vercel, etc.)
+```
+
+**Required environment variable:**
+
+| Variable | Description |
+|---|---|
+| `VITE_API_BASE` | URL of the CompliGate backend (e.g. `https://api.example.com`). If not set, falls back to `http://localhost:8000`. |
+
+> **Note:** `VITE_API_BASE` is baked into the JS bundle at build time by Vite. Set it before running `npm run build`.

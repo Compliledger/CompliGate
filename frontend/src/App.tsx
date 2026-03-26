@@ -1,13 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
-import RequestPermitPanel, { type PermitResponse } from "./RequestPermitPanel";
+import RequestPermitPanel, { type PermitResponse, type PermitConstraints } from "./RequestPermitPanel";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
-
-type PermitConstraints = {
-  max_amount: number;
-  allowed_counterparty?: string | null;
-};
+const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+const FETCH_TIMEOUT_MS = 15_000;
 
 type VerifyResponse = {
   signature_valid: boolean;
@@ -110,13 +106,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    fetch(`${API_BASE}/v1/adapter-health`)
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    fetch(`${API_BASE}/v1/adapter-health`, { signal: controller.signal })
       .then((r) => r.json())
       .then((d: AdapterHealth) => setAdapterHealth(d))
       .catch((err) => {
         console.error("Failed to fetch adapter health:", err);
         setAdapterHealth({ adapter_configured: false, reachable: false });
-      });
+      })
+      .finally(() => clearTimeout(timeout));
   }, []);
 
   const remaining = useMemo(() => {
@@ -132,8 +131,6 @@ export default function App() {
     return { label: "Active", kind: "good" as const };
   }, [permit, remaining, commitResult]);
 
-  const permitActive = permit && remaining > 0;
-
   const expiryPercent = useMemo(() => {
     if (!permit || remaining <= 0 || permit.expires_in_seconds <= 0) return 0;
     return Math.min(100, (remaining / permit.expires_in_seconds) * 100);
@@ -144,11 +141,14 @@ export default function App() {
     setVerifyError(null);
     setVerifyResult(null);
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
       const res = await fetch(`${API_BASE}/v1/verify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bundle: permit.bundle, signature: permit.signature }),
+        signal: controller.signal,
       });
 
       const data = await res.json();
@@ -156,9 +156,24 @@ export default function App() {
         setVerifyError(extractErrorMessage(data, "Failed to verify permit."));
         return;
       }
-      setVerifyResult(data);
+      if (
+        !data ||
+        typeof data !== "object" ||
+        typeof (data as Record<string, unknown>).signature_valid !== "boolean" ||
+        typeof (data as Record<string, unknown>).not_expired !== "boolean"
+      ) {
+        setVerifyError("Unexpected response from server.");
+        return;
+      }
+      setVerifyResult(data as VerifyResponse);
     } catch (e: unknown) {
-      setVerifyError(e instanceof Error ? e.message : "Network error calling verify endpoint.");
+      if (e instanceof Error && e.name === "AbortError") {
+        setVerifyError("Request timed out. Please try again.");
+      } else {
+        setVerifyError(e instanceof Error ? e.message : "Network error calling verify endpoint.");
+      }
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -168,6 +183,8 @@ export default function App() {
     setCommitResult(null);
     setCommitting(true);
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
       const res = await fetch(`${API_BASE}/v1/commit`, {
         method: "POST",
@@ -179,17 +196,29 @@ export default function App() {
           exp: permit.bundle.exp,
           action: permit.bundle.action,
         }),
+        signal: controller.signal,
       });
 
       const data = await res.json();
       if (!res.ok) {
         setCommitError(extractErrorMessage(data, "Failed to commit to Algorand."));
+      } else if (
+        !data ||
+        typeof data !== "object" ||
+        typeof (data as Record<string, unknown>).committed !== "boolean"
+      ) {
+        setCommitError("Unexpected response from server.");
       } else {
-        setCommitResult(data);
+        setCommitResult(data as CommitResponse);
       }
     } catch (e: unknown) {
-      setCommitError(e instanceof Error ? e.message : "Network error calling commit endpoint.");
+      if (e instanceof Error && e.name === "AbortError") {
+        setCommitError("Request timed out. Please try again.");
+      } else {
+        setCommitError(e instanceof Error ? e.message : "Network error calling commit endpoint.");
+      }
     } finally {
+      clearTimeout(timeout);
       setCommitting(false);
     }
   }
