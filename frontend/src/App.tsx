@@ -229,11 +229,11 @@ export default function App() {
 
       <div className="adapterBar">
         <span className="adapterBarLabel">Algorand Adapter</span>
-        <span className={`badge ${adapterHealth?.adapter_configured ? "good" : "bad"}`}>
+        <span className={`badge ${adapterHealth === null ? "neutral" : adapterHealth.adapter_configured ? "good" : "bad"}`}>
           <span className="badgeDot" />
           {adapterConfiguredLabel(adapterHealth)}
         </span>
-        <span className={`badge ${adapterHealth?.reachable ? "good" : "bad"}`}>
+        <span className={`badge ${adapterHealth === null ? "neutral" : adapterHealth.reachable ? "good" : "bad"}`}>
           <span className="badgeDot" />
           {adapterReachableLabel(adapterHealth)}
         </span>
