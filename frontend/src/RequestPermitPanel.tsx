@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type KeyboardEvent } from "react";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
@@ -17,6 +17,9 @@ export type ProofArtifact = {
 export type PermitPolicy = {
   version: string;
   jurisdiction: string;
+export type PermitConstraints = {
+  max_amount: number;
+  allowed_counterparty?: string | null;
 };
 
 export type PermitBundle = {
@@ -32,6 +35,8 @@ export type PermitBundle = {
   };
   constraints: Record<string, unknown>;
   policy: PermitPolicy;
+  constraints: PermitConstraints;
+  policy: Record<string, unknown>;
   attestations: Record<string, unknown>;
   scope: string[];
   nonce: string;
@@ -148,7 +153,7 @@ export default function RequestPermitPanel({ onPermit, onClear }: Props) {
     }
   }
 
-  function handleKeyDown(e: React.KeyboardEvent) {
+  function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Enter" && !loading && subject.trim()) {
       requestPermit();
     }
