@@ -32,7 +32,8 @@ PRIVATE_KEY_B64 = os.getenv("COMPLIGATE_PRIVATE_KEY_B64", "").strip()
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173")
 
 ALGORAND_ADAPTER_URL = os.getenv("ALGORAND_ADAPTER_URL", "")
-PERMIT_TTL_SECONDS = 300  # 5 minutes
+ALGORAND_NETWORK = os.getenv("ALGORAND_NETWORK", "algorand_testnet")
+PERMIT_TTL_SECONDS = int(os.getenv("PERMIT_TTL_SECONDS", "300"))
 
 
 # -----------------------
@@ -536,7 +537,7 @@ def commit_bundle(req: CommitRequest):
         raise
     logger.info("commit_success tx_id=%s", result.get("tx_id"))
     anchor_metadata = {
-        "network": "algorand_testnet",
+        "network": ALGORAND_NETWORK,
         "tx_id": result.get("tx_id"),
         "confirmed_round": result.get("confirmed_round"),
         "app_id": result.get("app_id"),
