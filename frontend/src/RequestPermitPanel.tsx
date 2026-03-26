@@ -17,6 +17,8 @@ export type ProofArtifact = {
 export type PermitPolicy = {
   version: string;
   jurisdiction: string;
+};
+
 export type PermitConstraints = {
   max_amount: number;
   allowed_counterparty?: string | null;
@@ -33,10 +35,8 @@ export type PermitBundle = {
     classification: string;
     policy_id: string;
   };
-  constraints: Record<string, unknown>;
-  policy: PermitPolicy;
   constraints: PermitConstraints;
-  policy: Record<string, unknown>;
+  policy: PermitPolicy;
   attestations: Record<string, unknown>;
   scope: string[];
   nonce: string;
