@@ -1,0 +1,15 @@
+.env
+.env.*
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+tests/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.gitignore
+README.md
+railway.toml
