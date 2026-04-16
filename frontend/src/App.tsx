@@ -821,36 +821,89 @@ export default function App() {
           </div>
 
           {settlementResult && (
-            <div className="commitResult">
-              <div className="commitResultHeader">
-                <span className={`badge ${settlementPassed ? "anchored" : "bad"}`}>
-                  <span className="badgeDot" />
-                  {settlementPassed ? "✔ Settlement Verified" : "✘ Settlement Failed"}
+            <div className="verifyResult">
+              <div className={`verifyHeader ${settlementPassed ? "good" : "bad"}`}>
+                <span className={`verifyIcon ${settlementPassed ? "good" : "bad"}`}>
+                  {settlementPassed ? "✔" : "✘"}
                 </span>
+                {settlementPassed ? "PASS" : "FAIL"}
               </div>
 
-              <div className="commitRows">
-                <div className="commitRow">
-                  <span className="commitLabel">Decision Result</span>
-                  <span className="commitValue">{settlementResult.decision_result}</span>
+              <div className="verifyRows">
+                <div className="verifyRow">
+                  <span className={checkClass(settlementPassed)}>
+                    {checkSymbol(settlementPassed)}
+                  </span>
+                  <span className="summaryLabel">Decision result</span>
+                  <span className={`summaryValue${settlementPassed ? " textGood" : " textBad"}`}>
+                    {settlementResult.decision_result}
+                  </span>
                 </div>
 
-                {settlementResult.reason_codes.length > 0 && (
-                  <div className="commitRow">
-                    <span className="commitLabel">Reason Codes</span>
-                    <span className="commitValue">
-                      {settlementResult.reason_codes.join(", ")}
+                {paymentResult?.tx_hash && (
+                  <div className="verifyRow">
+                    <span className="check">✔</span>
+                    <span className="summaryLabel">TX hash</span>
+                    <span className="summaryValue commitValueMono breakAll">
+                      {paymentResult.tx_hash}
                     </span>
+                    <button
+                      className="copyBtn"
+                      onClick={() => copyToClipboard(paymentResult.tx_hash, "settlement_tx_hash")}
+                      title="Copy TX hash"
+                    >
+                      {copied === "settlement_tx_hash" ? "✔ Copied" : "Copy"}
+                    </button>
                   </div>
                 )}
 
-                <div className="commitRow">
-                  <span className="commitLabel">Proof Artifact</span>
-                  <span className="commitValue commitValueMono" style={{ wordBreak: "break-all" }}>
-                    {JSON.stringify(settlementResult.proof_artifact, null, 2)}
-                  </span>
-                </div>
+                {permit?.bundle_hash && (
+                  <div className="verifyRow">
+                    <span className="check">✔</span>
+                    <span className="summaryLabel">Bundle hash</span>
+                    <span className="summaryValue commitValueMono breakAll">
+                      {permit.bundle_hash}
+                    </span>
+                    <button
+                      className="copyBtn"
+                      onClick={() => copyToClipboard(permit.bundle_hash, "settlement_bundle_hash")}
+                      title="Copy bundle hash"
+                    >
+                      {copied === "settlement_bundle_hash" ? "✔ Copied" : "Copy"}
+                    </button>
+                  </div>
+                )}
               </div>
+
+              {settlementResult.reason_codes.length > 0 && (
+                <div className="reasonCodes">
+                  <div className="reasonCodesTitle">Reason codes</div>
+                  <div className="reasonCodesList">
+                    {settlementResult.reason_codes.map((rc) => (
+                      <span key={rc} className="reasonCode">{rc}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <details className="proofArtifactDetails">
+                <summary className="proofArtifactSummary">
+                  Proof Artifact
+                  <button
+                    className="copyBtn"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      copyToClipboard(JSON.stringify(settlementResult.proof_artifact, null, 2), "settlement_proof");
+                    }}
+                    title="Copy proof artifact"
+                  >
+                    {copied === "settlement_proof" ? "✔ Copied" : "Copy"}
+                  </button>
+                </summary>
+                <div className="proofArtifactBody">
+                  <pre>{JSON.stringify(settlementResult.proof_artifact, null, 2)}</pre>
+                </div>
+              </details>
             </div>
           )}
 
