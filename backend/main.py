@@ -1129,5 +1129,5 @@ def verify_settlement(req: SettlementVerifyRequest):
         "checks": result["checks"],
         "details": result["details"],
         "verified_at": now,
-        "proof_artifact": proof_artifact.model_dump() if hasattr(proof_artifact, "model_dump") else proof_artifact.dict(),
+        "proof_artifact": proof_artifact.model_dump(),
     }
