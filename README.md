@@ -4,8 +4,8 @@ CompliGate is the transaction-time authorization and execution control layer of 
 
 ## Repository Structure
 
-- `backend/` — FastAPI service that issues and verifies signed Proof Bundles (Ed25519), with on-chain anchoring via Algorand
-- `frontend/` — UI for requesting permits, displaying proof summaries, and verifying authorization status
+- `backend/` — FastAPI service that issues and verifies signed Proof Bundles (Ed25519), with post-settlement verification against the XRP Ledger
+- `frontend/` — UI for requesting permits, displaying proof summaries, verifying authorization status, and verifying XRPL settlement outcomes
 
 ## Backend
 

@@ -31,8 +31,8 @@ ISSUER_ADDRESS = os.getenv("ISSUER_ADDRESS", "rEXAMPLE_ISSUER_ADDRESS")
 PRIVATE_KEY_B64 = os.getenv("COMPLIGATE_PRIVATE_KEY_B64", "").strip()
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173")
 
-ALGORAND_ADAPTER_URL = os.getenv("ALGORAND_ADAPTER_URL", "")
-ALGORAND_NETWORK = os.getenv("ALGORAND_NETWORK", "algorand_testnet")
+XRPL_RPC_URL = os.getenv("XRPL_RPC_URL", "https://s.altnet.rippletest.net:51234")
+XRPL_NETWORK = os.getenv("XRPL_NETWORK", "xrpl_testnet")
 PERMIT_TTL_SECONDS = int(os.getenv("PERMIT_TTL_SECONDS", "300"))
 
 
@@ -168,14 +168,6 @@ class PermitResponse(BaseModel):
 class VerifyRequest(BaseModel):
     bundle: dict
     signature: str
-
-
-class CommitRequest(BaseModel):
-    bundle_hash: str
-    subject: str
-    policy_id: str
-    exp: int
-    action: str
 
 
 # -----------------------
@@ -427,45 +419,167 @@ def verify_permit(req: VerifyRequest):
 
 
 # -----------------------
-# Algorand Adapter
+# XRPL Settlement Verification
 # -----------------------
 
-def call_algorand_adapter(payload: dict) -> dict:
-    """Forward a commit request to the Algorand adapter service.
 
-    :param payload: Dict with keys bundle_hash, subject, policy_id, exp, action.
-    :returns: Parsed JSON response from the adapter (expected to contain 'tx_id').
-    :raises HTTPException 502: If ALGORAND_ADAPTER_URL is not set or the request fails.
+class SettlementVerifyRequest(BaseModel):
+    tx_hash: str = Field(..., description="XRPL transaction hash to verify.")
+    bundle: dict = Field(..., description="The permit bundle to verify against.")
+    signature: str = Field(..., description="Permit bundle signature (base64).")
+
+
+def fetch_xrpl_transaction(tx_hash: str) -> dict:
+    """Fetch transaction details from the XRPL network.
+
+    :param tx_hash: The XRPL transaction hash.
+    :returns: Parsed JSON response from the XRPL RPC.
+    :raises HTTPException 502: If the XRPL RPC request fails.
     """
-    adapter_url = ALGORAND_ADAPTER_URL
-    if not adapter_url:
-        raise HTTPException(
-            status_code=502,
-            detail={"error": "adapter_commit_failed", "reason": "ALGORAND_ADAPTER_URL is not configured"},
-        )
+    rpc_url = XRPL_RPC_URL
+    payload = {
+        "method": "tx",
+        "params": [{"transaction": tx_hash, "binary": False}],
+    }
     try:
-        resp = http_requests.post(f"{adapter_url}/v1/commit", json=payload, timeout=10)
+        resp = http_requests.post(rpc_url, json=payload, timeout=10)
         resp.raise_for_status()
-        return resp.json()
+        result = resp.json()
+        if "result" in result:
+            return result["result"]
+        return result
     except http_requests.RequestException as exc:
         raise HTTPException(
             status_code=502,
-            detail={"error": "adapter_commit_failed", "reason": str(exc)},
+            detail={"error": "xrpl_rpc_failed", "reason": str(exc)},
         ) from exc
 
 
-@app.get("/v1/adapter-health")
-def adapter_health():
-    adapter_url = ALGORAND_ADAPTER_URL
-    if not adapter_url:
-        return {"adapter_configured": False, "reachable": False}
+def verify_settlement_against_permit(
+    tx_data: dict,
+    bundle: dict,
+) -> dict:
+    """Verify that an XRPL transaction satisfies the permit constraints.
+
+    CompliGate acts as a non-intermediary verifier: it checks post-settlement
+    outcomes against the constraints defined in the permit, without submitting
+    or brokering the transaction.
+
+    :param tx_data: Parsed XRPL transaction data from the RPC.
+    :param bundle: The original permit bundle.
+    :returns: Dict with verification checks and overall pass/fail.
+    """
+    checks: dict[str, bool] = {}
+    details: dict[str, str] = {}
+
+    # -- Check transaction was validated --
+    tx_validated = tx_data.get("validated", False)
+    checks["tx_validated"] = tx_validated
+    if not tx_validated:
+        details["tx_validated"] = "Transaction has not been validated on ledger"
+
+    # -- Check transaction type matches permit action --
+    tx_type = tx_data.get("TransactionType", "")
+    permit_action = bundle.get("action", "")
+    action_map = {"transfer": "Payment", "trustset": "TrustSet"}
+    expected_type = action_map.get(permit_action, "")
+    action_match = tx_type == expected_type
+    checks["action_match"] = action_match
+    if not action_match:
+        details["action_match"] = f"Expected {expected_type}, got {tx_type}"
+
+    # -- Check subject matches (sender) --
+    tx_account = tx_data.get("Account", "")
+    permit_subject = bundle.get("subject", "")
+    subject_match = tx_account == permit_subject
+    checks["subject_match"] = subject_match
+    if not subject_match:
+        details["subject_match"] = f"Expected {permit_subject}, got {tx_account}"
+
+    # -- Check currency is RLUSD --
+    constraints = bundle.get("constraints", {})
+    asset = bundle.get("asset", {})
+    expected_currency = asset.get("currency", CURRENCY)
+
+    if tx_type == "Payment":
+        amount = tx_data.get("Amount", {})
+        if isinstance(amount, dict):
+            tx_currency = amount.get("currency", "")
+            tx_value = float(amount.get("value", "0"))
+        else:
+            tx_currency = "XRP"
+            tx_value = int(amount) / 1_000_000 if amount else 0
+
+        currency_match = tx_currency == expected_currency
+        checks["currency_match"] = currency_match
+        if not currency_match:
+            details["currency_match"] = f"Expected {expected_currency}, got {tx_currency}"
+
+        # -- Check amount within permit constraints --
+        max_amount = constraints.get("max_amount")
+        if max_amount is not None:
+            amount_ok = tx_value <= max_amount
+            checks["amount_within_limit"] = amount_ok
+            if not amount_ok:
+                details["amount_within_limit"] = (
+                    f"Transaction amount {tx_value} exceeds permit max {max_amount}"
+                )
+        else:
+            checks["amount_within_limit"] = True
+
+        # -- Check counterparty (destination) if constrained --
+        allowed_counterparty = constraints.get("allowed_counterparty")
+        tx_destination = tx_data.get("Destination", "")
+        if allowed_counterparty:
+            counterparty_match = tx_destination == allowed_counterparty
+            checks["counterparty_match"] = counterparty_match
+            if not counterparty_match:
+                details["counterparty_match"] = (
+                    f"Expected {allowed_counterparty}, got {tx_destination}"
+                )
+        else:
+            checks["counterparty_match"] = True
+
+    elif tx_type == "TrustSet":
+        limit_amount = tx_data.get("LimitAmount", {})
+        tx_currency = limit_amount.get("currency", "") if isinstance(limit_amount, dict) else ""
+        currency_match = tx_currency == expected_currency
+        checks["currency_match"] = currency_match
+        if not currency_match:
+            details["currency_match"] = f"Expected {expected_currency}, got {tx_currency}"
+        checks["amount_within_limit"] = True
+        checks["counterparty_match"] = True
+    else:
+        checks["currency_match"] = False
+        details["currency_match"] = f"Unsupported transaction type: {tx_type}"
+        checks["amount_within_limit"] = False
+        checks["counterparty_match"] = False
+
+    all_passed = all(checks.values())
+    return {
+        "settlement_verified": all_passed,
+        "checks": checks,
+        "details": details,
+    }
+
+
+@app.get("/v1/xrpl/health")
+def xrpl_health():
+    """Check XRPL network connectivity."""
+    rpc_url = XRPL_RPC_URL
+    if not rpc_url:
+        return {"xrpl_configured": False, "reachable": False, "network": XRPL_NETWORK}
     try:
-        resp = http_requests.get(f"{adapter_url}/health", timeout=5)
+        resp = http_requests.post(
+            rpc_url,
+            json={"method": "server_info", "params": [{}]},
+            timeout=5,
+        )
         resp.raise_for_status()
         reachable = True
     except http_requests.RequestException:
         reachable = False
-    return {"adapter_configured": True, "reachable": reachable}
+    return {"xrpl_configured": True, "reachable": reachable, "network": XRPL_NETWORK}
 
 
 @app.post("/v1/proof-artifact", response_model=ProofArtifact)
@@ -493,7 +607,7 @@ def create_proof_artifact(req: PermitRequest):
         "evaluation_context": evaluation_context,
         "reason_codes": REASON_CODES,
         "timestamp": now,
-        "anchor_metadata": {"chain": "algorand", "committed": False},
+        "anchor_metadata": {"chain": "xrpl", "committed": False},
     }
 
     artifact_hash = proof_hash(core)
@@ -507,47 +621,57 @@ def create_proof_artifact(req: PermitRequest):
     return build_proof_artifact(**core, bundle_hash=artifact_hash)
 
 
-@app.post("/v1/commit")
-def commit_bundle(req: CommitRequest):
-    validate_subject(req.subject)
-    validate_action(req.action)
-    if not req.bundle_hash:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "invalid_bundle_hash", "reason": "bundle_hash is required"},
-        )
-    if not req.policy_id:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "invalid_policy_id", "reason": "policy_id is required"},
-        )
-    payload = {
-        "bundle_hash": req.bundle_hash,
-        "subject": req.subject,
-        "policy_id": req.policy_id,
-        "exp": req.exp,
-        "action": req.action,
-    }
-    logger.info("commit_requested bundle_hash=%s", req.bundle_hash)
+@app.post("/v1/settle/verify")
+def verify_settlement(req: SettlementVerifyRequest):
+    """Post-settlement verification: verify that an XRPL transaction
+    satisfies the constraints defined in a CompliGate permit.
+
+    CompliGate does not submit or broker transactions. It only verifies
+    that a completed settlement conforms to the authorization permit.
+    """
+    # 1. Verify the permit signature and expiry
     try:
-        result = call_algorand_adapter(payload)
-    except HTTPException as exc:
-        logger.error("commit_failed reason=%s", exc.detail)
-        raise
-    logger.info("commit_success tx_id=%s", result.get("tx_id"))
-    anchor_metadata = {
-        "network": ALGORAND_NETWORK,
-        "tx_id": result.get("tx_id"),
-        "confirmed_round": result.get("confirmed_round"),
-        "app_id": result.get("app_id"),
-        "method": "commit_permit",
-        "contract_version": "v1",
-        "anchored_at": int(time.time()),
-    }
+        canonical = canonical_json(req.bundle).encode("utf-8")
+        sig_bytes = base64.b64decode(req.signature)
+        VERIFY_KEY.verify(canonical, sig_bytes)
+        signature_valid = True
+    except Exception:
+        signature_valid = False
+
+    now = int(time.time())
+    exp = req.bundle.get("exp", 0)
+    not_expired = now < exp
+
+    if not signature_valid:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_permit", "reason": "Permit signature is invalid"},
+        )
+
+    # 2. Fetch the XRPL transaction
+    tx_data = fetch_xrpl_transaction(req.tx_hash)
+
+    # 3. Verify settlement against permit constraints
+    result = verify_settlement_against_permit(tx_data, req.bundle)
+
+    bundle_hash = proof_hash(req.bundle)
+
+    logger.info(
+        "settlement_verified tx_hash=%s bundle_hash=%s verified=%s permit_expired=%s",
+        req.tx_hash,
+        bundle_hash,
+        result["settlement_verified"],
+        not not_expired,
+    )
+
     return {
-        "committed": True,
-        "bundle_hash": req.bundle_hash,
-        "algorand_tx_id": result.get("tx_id"),
-        "anchor_metadata": anchor_metadata,
-        "adapter_response": result,
+        "settlement_verified": result["settlement_verified"],
+        "permit_valid": signature_valid,
+        "permit_expired": not not_expired,
+        "tx_hash": req.tx_hash,
+        "bundle_hash": bundle_hash,
+        "network": XRPL_NETWORK,
+        "checks": result["checks"],
+        "details": result["details"],
+        "verified_at": now,
     }

@@ -17,26 +17,22 @@ type VerifyResponse = {
   reason_codes?: string[];
 };
 
-type AnchorMetadata = {
-  network?: string;
-  tx_id?: string;
-  confirmed_round?: number;
-  app_id?: number;
-  method?: string;
-  contract_version?: string;
-  anchored_at?: number;
+type SettlementVerifyResponse = {
+  settlement_verified: boolean;
+  permit_valid: boolean;
+  permit_expired: boolean;
+  tx_hash: string;
+  bundle_hash: string;
+  network: string;
+  checks: Record<string, boolean>;
+  details: Record<string, string>;
+  verified_at: number;
 };
 
-type CommitResponse = {
-  committed: boolean;
-  algorand_tx_id?: string;
-  bundle_hash?: string;
-  anchor_metadata?: AnchorMetadata;
-};
-
-type AdapterHealth = {
-  adapter_configured: boolean;
+type XrplHealth = {
+  xrpl_configured: boolean;
   reachable: boolean;
+  network: string;
 };
 
 function formatSeconds(s: number) {
@@ -68,12 +64,12 @@ function extractErrorMessage(data: unknown, fallback: string): string {
   return fallback;
 }
 
-function adapterConfiguredLabel(health: AdapterHealth | null): string {
+function xrplConfiguredLabel(health: XrplHealth | null): string {
   if (!health) return "Checking...";
-  return health.adapter_configured ? "Configured" : "Not Configured";
+  return health.xrpl_configured ? "Configured" : "Not Configured";
 }
 
-function adapterReachableLabel(health: AdapterHealth | null): string {
+function xrplReachableLabel(health: XrplHealth | null): string {
   if (!health) return "Checking...";
   return health.reachable ? "Reachable" : "Unreachable";
 }
@@ -87,10 +83,11 @@ export default function App() {
   const [now, setNow] = useState<number>(() => Math.floor(Date.now() / 1000));
   const [verifyResult, setVerifyResult] = useState<VerifyResponse | null>(null);
   const [verifyError, setVerifyError] = useState<string | null>(null);
-  const [commitResult, setCommitResult] = useState<CommitResponse | null>(null);
+  const [commitResult, setCommitResult] = useState<SettlementVerifyResponse | null>(null);
   const [commitError, setCommitError] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
-  const [adapterHealth, setAdapterHealth] = useState<AdapterHealth | null>(null);
+  const [xrplHealth, setXrplHealth] = useState<XrplHealth | null>(null);
+  const [txHash, setTxHash] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -108,12 +105,12 @@ export default function App() {
   useEffect(() => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    fetch(`${API_BASE}/v1/adapter-health`, { signal: controller.signal })
+    fetch(`${API_BASE}/v1/xrpl/health`, { signal: controller.signal })
       .then((r) => r.json())
-      .then((d: AdapterHealth) => setAdapterHealth(d))
+      .then((d: XrplHealth) => setXrplHealth(d))
       .catch((err) => {
-        console.error("Failed to fetch adapter health:", err);
-        setAdapterHealth({ adapter_configured: false, reachable: false });
+        console.error("Failed to fetch XRPL health:", err);
+        setXrplHealth({ xrpl_configured: false, reachable: false, network: "" });
       })
       .finally(() => clearTimeout(timeout));
   }, []);
@@ -124,7 +121,8 @@ export default function App() {
   }, [permit, now]);
 
   const status = useMemo(() => {
-    if (commitResult) return { label: "Anchored", kind: "anchored" as const };
+    if (commitResult?.settlement_verified) return { label: "Verified", kind: "anchored" as const };
+    if (commitResult && !commitResult.settlement_verified) return { label: "Settlement Failed", kind: "bad" as const };
     if (!permit) return { label: "No Permit", kind: "neutral" as const };
     if (remaining <= 0) return { label: "Expired", kind: "bad" as const };
     if (remaining < 60) return { label: "Expiring Soon", kind: "warn" as const };
@@ -177,8 +175,8 @@ export default function App() {
     }
   }
 
-  async function commitToAlgorand() {
-    if (!permit) return;
+  async function verifySettlement() {
+    if (!permit || !txHash.trim()) return;
     setCommitError(null);
     setCommitResult(null);
     setCommitting(true);
@@ -186,36 +184,34 @@ export default function App() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      const res = await fetch(`${API_BASE}/v1/commit`, {
+      const res = await fetch(`${API_BASE}/v1/settle/verify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          bundle_hash: permit.bundle_hash,
-          subject: permit.bundle.subject,
-          policy_id: permit.bundle.asset.policy_id,
-          exp: permit.bundle.exp,
-          action: permit.bundle.action,
+          tx_hash: txHash.trim(),
+          bundle: permit.bundle,
+          signature: permit.signature,
         }),
         signal: controller.signal,
       });
 
       const data = await res.json();
       if (!res.ok) {
-        setCommitError(extractErrorMessage(data, "Failed to commit to Algorand."));
+        setCommitError(extractErrorMessage(data, "Failed to verify settlement."));
       } else if (
         !data ||
         typeof data !== "object" ||
-        typeof (data as Record<string, unknown>).committed !== "boolean"
+        typeof (data as Record<string, unknown>).settlement_verified !== "boolean"
       ) {
         setCommitError("Unexpected response from server.");
       } else {
-        setCommitResult(data as CommitResponse);
+        setCommitResult(data as SettlementVerifyResponse);
       }
     } catch (e: unknown) {
       if (e instanceof Error && e.name === "AbortError") {
         setCommitError("Request timed out. Please try again.");
       } else {
-        setCommitError(e instanceof Error ? e.message : "Network error calling commit endpoint.");
+        setCommitError(e instanceof Error ? e.message : "Network error calling settlement verify endpoint.");
       }
     } finally {
       clearTimeout(timeout);
@@ -257,15 +253,21 @@ export default function App() {
       </header>
 
       <div className="adapterBar">
-        <span className="adapterBarLabel">Algorand Adapter</span>
-        <span className={`badge ${adapterHealth === null ? "neutral" : adapterHealth.adapter_configured ? "good" : "bad"}`}>
+        <span className="adapterBarLabel">XRPL Network</span>
+        <span className={`badge ${xrplHealth === null ? "neutral" : xrplHealth.xrpl_configured ? "good" : "bad"}`}>
           <span className="badgeDot" />
-          {adapterConfiguredLabel(adapterHealth)}
+          {xrplConfiguredLabel(xrplHealth)}
         </span>
-        <span className={`badge ${adapterHealth === null ? "neutral" : adapterHealth.reachable ? "good" : "bad"}`}>
+        <span className={`badge ${xrplHealth === null ? "neutral" : xrplHealth.reachable ? "good" : "bad"}`}>
           <span className="badgeDot" />
-          {adapterReachableLabel(adapterHealth)}
+          {xrplReachableLabel(xrplHealth)}
         </span>
+        {xrplHealth?.network && (
+          <span className="badge neutral">
+            <span className="badgeDot" />
+            {xrplHealth.network}
+          </span>
+        )}
       </div>
 
       <main className="grid">
@@ -284,6 +286,7 @@ export default function App() {
             setVerifyError(null);
             setCommitResult(null);
             setCommitError(null);
+            setTxHash("");
           }}
         />
 
@@ -536,83 +539,99 @@ export default function App() {
           })()}
         </section>
 
-        {/* Panel 5: Algorand Commit */}
+        {/* Panel 5: Settlement Verification */}
         <section className="card">
-          <h2><PanelNumber n={5} />Algorand Commit</h2>
+          <h2><PanelNumber n={5} />Settlement Verification</h2>
           <p className="muted">
-            Commit the proof bundle to the Algorand adapter for on-chain anchoring.
+            After executing a transaction on XRPL, paste the transaction hash to verify it satisfies the permit constraints.
           </p>
+
+          <label className="label">XRPL Transaction Hash</label>
+          <input
+            className="input"
+            value={txHash}
+            onChange={(e) => setTxHash(e.target.value)}
+            placeholder="Enter XRPL tx hash..."
+            spellCheck={false}
+            disabled={!permit}
+          />
 
           <div className="row">
             <button
               className="btn primary"
-              onClick={commitToAlgorand}
-              disabled={!permit || committing}
+              onClick={verifySettlement}
+              disabled={!permit || !txHash.trim() || committing}
             >
-              {committing ? "Committing…" : "Commit to Algorand"}
+              {committing ? "Verifying…" : "Verify Settlement"}
             </button>
           </div>
 
           {commitResult && (
             <div className="commitResult">
               <div className="commitResultHeader">
-                <span className="badge anchored">
+                <span className={`badge ${commitResult.settlement_verified ? "anchored" : "bad"}`}>
                   <span className="badgeDot" />
-                  ⚓ Anchored
+                  {commitResult.settlement_verified ? "✔ Settlement Verified" : "✘ Settlement Failed"}
                 </span>
               </div>
 
               <div className="commitRows">
                 <div className="commitRow">
-                  <span className="commitLabel">Committed</span>
-                  <span className={`commitValue${commitResult.committed ? " textGood" : " textBad"}`}>
-                    {String(commitResult.committed)}
+                  <span className="commitLabel">Verified</span>
+                  <span className={`commitValue${commitResult.settlement_verified ? " textGood" : " textBad"}`}>
+                    {String(commitResult.settlement_verified)}
                   </span>
                 </div>
 
-                {(commitResult.anchor_metadata?.tx_id ?? commitResult.algorand_tx_id) && (
+                <div className="commitRow">
+                  <span className="commitLabel">TX Hash</span>
+                  <span className="commitValue commitValueMono" style={{ wordBreak: "break-all" }}>
+                    {commitResult.tx_hash}
+                  </span>
+                </div>
+
+                <div className="commitRow">
+                  <span className="commitLabel">Network</span>
+                  <span className="commitValue">{commitResult.network}</span>
+                </div>
+
+                <div className="commitRow">
+                  <span className="commitLabel">Permit Valid</span>
+                  <span className={`commitValue${commitResult.permit_valid ? " textGood" : " textBad"}`}>
+                    {String(commitResult.permit_valid)}
+                  </span>
+                </div>
+
+                {commitResult.permit_expired && (
                   <div className="commitRow">
-                    <span className="commitLabel">TX ID</span>
-                    <span className="commitValue commitValueMono" style={{ wordBreak: "break-all" }}>
-                      {commitResult.anchor_metadata?.tx_id ?? commitResult.algorand_tx_id}
-                    </span>
+                    <span className="commitLabel">Permit Expired</span>
+                    <span className="commitValue textBad">true</span>
                   </div>
                 )}
 
-                {commitResult.anchor_metadata && (
-                  <>
-                    {commitResult.anchor_metadata.network && (
-                      <div className="commitRow">
-                        <span className="commitLabel">Network</span>
-                        <span className="commitValue">{commitResult.anchor_metadata.network}</span>
-                      </div>
-                    )}
-                    {commitResult.anchor_metadata.confirmed_round != null && (
-                      <div className="commitRow">
-                        <span className="commitLabel">Confirmed Round</span>
-                        <span className="commitValue">{commitResult.anchor_metadata.confirmed_round}</span>
-                      </div>
-                    )}
-                    {commitResult.anchor_metadata.app_id != null && (
-                      <div className="commitRow">
-                        <span className="commitLabel">App ID</span>
-                        <span className="commitValue">{commitResult.anchor_metadata.app_id}</span>
-                      </div>
-                    )}
-                    {commitResult.anchor_metadata.anchored_at != null && (
-                      <div className="commitRow">
-                        <span className="commitLabel">Anchored At</span>
-                        <span className="commitValue">
-                          {new Date(commitResult.anchor_metadata.anchored_at * 1000).toISOString()}
+                <div className="commitRow">
+                  <span className="commitLabel">Verified At</span>
+                  <span className="commitValue">
+                    {new Date(commitResult.verified_at * 1000).toISOString()}
+                  </span>
+                </div>
+
+                {/* Individual checks */}
+                {Object.entries(commitResult.checks).length > 0 && (
+                  <div className="commitMetaBlock">
+                    <div className="codeTitle">Compliance Checks</div>
+                    {Object.entries(commitResult.checks).map(([key, passed]) => (
+                      <div key={key} className="verifyRow">
+                        <span className={passed ? "check" : "check checkFail"}>
+                          {passed ? "✔" : "✘"}
+                        </span>
+                        <span className="summaryLabel">{key.replace(/_/g, " ")}</span>
+                        <span className={`summaryValue${passed ? " textGood" : " textBad"}`}>
+                          {passed ? "pass" : commitResult.details[key] ?? "fail"}
                         </span>
                       </div>
-                    )}
-
-                    <div className="commitMetaBlock">
-                      <div className="codeTitle">Anchor Metadata</div>
-                      <pre>{JSON.stringify(commitResult.anchor_metadata, null, 2)}</pre>
-                    </div>
-                  </>
+                    ))}
+                  </div>
                 )}
               </div>
             </div>

@@ -29,11 +29,12 @@ Each permit carries a hard expiry enforced at both issuance and verification.
 ## Architecture
 
 ```
-User → CompliGate Backend → Proof Bundle → bundle_hash → Algorand Adapter → On-chain anchoring
+User → CompliGate Backend → Proof Bundle → User executes tx on XRPL → POST /v1/settle/verify → Post-settlement verification
 ```
 
-- **Algorand** is the current proof anchoring layer. The `bundle_hash` (SHA-256 of the canonical bundle) is submitted to an Algorand adapter service which records it on-chain.
-- **XRPL integration** is a planned future phase. CompliGate will connect to XRPL trustline and payment flows once the anchoring layer is stable.
+- **XRPL** is the settlement layer. CompliGate does not submit or broker transactions — it operates as a non-intermediary verifier.
+- Users obtain a permit, independently execute the transaction on XRPL, then submit the XRPL transaction hash back to CompliGate for post-settlement verification.
+- CompliGate checks that the settled transaction conforms to the permit constraints (amount, currency, counterparty, action type).
 
 ---
 
@@ -56,8 +57,8 @@ It consumes validated inputs provided by upstream CompliLedger components and re
 | `GET` | `/public-key` | Returns the Ed25519 public key (base64 and hex) used to verify permit signatures |
 | `POST` | `/v1/permit` | Issues a signed Proof Bundle for the given subject and action |
 | `POST` | `/v1/verify` | Verifies a Proof Bundle signature and checks expiry |
-| `POST` | `/v1/commit` | Records a permit commitment; forwards `bundle_hash` to the Algorand adapter for on-chain anchoring |
-| `GET` | `/v1/adapter-health` | Returns whether the Algorand adapter is configured and reachable |
+| `POST` | `/v1/settle/verify` | Post-settlement verification: checks an XRPL transaction against permit constraints |
+| `GET` | `/v1/xrpl/health` | Returns whether the XRPL network is configured and reachable |
 
 **POST /v1/permit** — request body:
 ```json
@@ -76,14 +77,12 @@ It consumes validated inputs provided by upstream CompliLedger components and re
 }
 ```
 
-**POST /v1/commit** — request body:
+**POST /v1/settle/verify** — request body:
 ```json
 {
-  "bundle_hash": "<sha256-hex>",
-  "subject": "r...",
-  "policy_id": "RLUSD_US_v1",
-  "exp": 1234567890,
-  "action": "transfer"
+  "tx_hash": "<xrpl-tx-hash>",
+  "bundle": { ... },
+  "signature": "<base64>"
 }
 ```
 
@@ -97,7 +96,7 @@ A Proof Bundle is the output of a successful permit issuance. It contains:
 - **Ed25519 signature** — signs the canonical bundle bytes; verifiable with the public key from `/public-key`
 - **SHA-256 hash** (`bundle_hash`) — derived from the canonical JSON; used as the on-chain reference
 - **Time-bound validity** — `iat` (issued-at) and `exp` (expiry) Unix timestamps embedded in the bundle
-- **On-chain anchor** — `bundle_hash` is submitted to the Algorand adapter and recorded in a transaction
+- **Post-settlement verification** — after a user independently executes a transaction on XRPL, CompliGate verifies the outcome against the permit constraints
 
 ---
 
@@ -111,7 +110,8 @@ A Proof Bundle is the output of a successful permit issuance. It contains:
 | `ISSUER_ADDRESS` | Issuer address bound to the permit |
 | `COMPLIGATE_PRIVATE_KEY_B64` | Base64-encoded Ed25519 seed (32 bytes). If blank, an ephemeral key is generated on startup. |
 | `CORS_ORIGINS` | Comma-separated list of allowed CORS origins |
-| `ALGORAND_ADAPTER_URL` | URL of the Algorand adapter service used for on-chain anchoring |
+| `XRPL_RPC_URL` | XRPL JSON-RPC URL for settlement verification (default: XRPL Testnet) |
+| `XRPL_NETWORK` | XRPL network name used in verification metadata (e.g., `xrpl_testnet`) |
 
 Copy `.env.example` to `.env` and fill in values before running locally.
 
@@ -156,13 +156,13 @@ docker run --env-file .env -p 8000:8000 compligate-backend
 
 ## Roadmap
 
-**Near term**
-- Backend service stabilization and full test coverage
-- Frontend permit request and verification UI
-- Algorand on-chain anchoring via adapter service
+**Current phase**
+- XRPL integration: post-settlement verification for RLUSD payments and trustline operations
+- Frontend settlement verification flow
 
 **Next phase**
-- XRPL integration: trustline authorization, payment gating, and token flow controls
+- Production XRPL mainnet support
+- Extended RLUSD compliance controls
 
 ---
 
