@@ -693,6 +693,7 @@ export default function App() {
 
           {settlementResult && (() => {
             const artifact = settlementResult.proof_artifact;
+            // Prefer hashes from the proof artifact; fall back to local state if the API omits them
             const txHash = typeof artifact.tx_hash === "string" ? artifact.tx_hash : paymentResult?.tx_hash;
             const bundleHash = typeof artifact.bundle_hash === "string" ? artifact.bundle_hash : permit?.bundle_hash;
             return (
