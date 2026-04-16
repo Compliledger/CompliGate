@@ -17,16 +17,19 @@ type VerifyResponse = {
   reason_codes?: string[];
 };
 
-type SettlementVerifyResponse = {
-  settlement_verified: boolean;
-  permit_valid: boolean;
-  permit_expired: boolean;
+type XrplPaymentResponse = {
   tx_hash: string;
-  bundle_hash: string;
-  network: string;
-  checks: Record<string, boolean>;
-  details: Record<string, string>;
-  verified_at: number;
+  engine_result: string;
+  amount: string;
+  issuer: string;
+  currency: string;
+  destination: string;
+};
+
+type SettlementVerifyNewResponse = {
+  decision_result: string;
+  reason_codes: string[];
+  proof_artifact: Record<string, unknown>;
 };
 
 type XrplHealth = {
@@ -83,12 +86,16 @@ export default function App() {
   const [now, setNow] = useState<number>(() => Math.floor(Date.now() / 1000));
   const [verifyResult, setVerifyResult] = useState<VerifyResponse | null>(null);
   const [verifyError, setVerifyError] = useState<string | null>(null);
-  const [commitResult, setCommitResult] = useState<SettlementVerifyResponse | null>(null);
-  const [commitError, setCommitError] = useState<string | null>(null);
-  const [committing, setCommitting] = useState(false);
   const [xrplHealth, setXrplHealth] = useState<XrplHealth | null>(null);
-  const [txHash, setTxHash] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
+  const [destination, setDestination] = useState("");
+  const [amount, setAmount] = useState("");
+  const [paymentResult, setPaymentResult] = useState<XrplPaymentResponse | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [settlementResult, setSettlementResult] = useState<SettlementVerifyNewResponse | null>(null);
+  const [settlementError, setSettlementError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -121,13 +128,12 @@ export default function App() {
   }, [permit, now]);
 
   const status = useMemo(() => {
-    if (commitResult?.settlement_verified) return { label: "Verified", kind: "anchored" as const };
-    if (commitResult && !commitResult.settlement_verified) return { label: "Settlement Failed", kind: "bad" as const };
+    if (settlementResult) return { label: "Verified", kind: "anchored" as const };
     if (!permit) return { label: "No Permit", kind: "neutral" as const };
     if (remaining <= 0) return { label: "Expired", kind: "bad" as const };
     if (remaining < 60) return { label: "Expiring Soon", kind: "warn" as const };
     return { label: "Active", kind: "good" as const };
-  }, [permit, remaining, commitResult]);
+  }, [permit, remaining, settlementResult]);
 
   const expiryPercent = useMemo(() => {
     if (!permit || remaining <= 0 || permit.expires_in_seconds <= 0) return 0;
@@ -175,47 +181,82 @@ export default function App() {
     }
   }
 
-  async function verifySettlement() {
-    if (!permit || !txHash.trim()) return;
-    setCommitError(null);
-    setCommitResult(null);
-    setCommitting(true);
+  async function submitXrplPayment() {
+    if (!destination.trim() || !amount.trim()) return;
+    setPaymentError(null);
+    setPaymentResult(null);
+    setSubmitting(true);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      const res = await fetch(`${API_BASE}/v1/settle/verify`, {
+      const payload: Record<string, string> = {
+        destination: destination.trim(),
+        amount: amount.trim(),
+      };
+      if (permit?.bundle_hash) {
+        payload.memo_bundle_hash = permit.bundle_hash;
+      }
+
+      const res = await fetch(`${API_BASE}/v1/xrpl/payment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setPaymentError(extractErrorMessage(data, "Failed to submit XRPL payment."));
+      } else {
+        setPaymentResult(data as XrplPaymentResponse);
+      }
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name === "AbortError") {
+        setPaymentError("Request timed out. Please try again.");
+      } else {
+        setPaymentError(e instanceof Error ? e.message : "Network error calling XRPL payment endpoint.");
+      }
+    } finally {
+      clearTimeout(timeout);
+      setSubmitting(false);
+    }
+  }
+
+  async function verifySettlement() {
+    if (!permit || !paymentResult) return;
+    setSettlementError(null);
+    setSettlementResult(null);
+    setVerifying(true);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(`${API_BASE}/v1/settlement/verify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          tx_hash: txHash.trim(),
-          bundle: permit.bundle,
-          signature: permit.signature,
+          bundle_hash: permit.bundle_hash,
+          tx_hash: paymentResult.tx_hash,
         }),
         signal: controller.signal,
       });
 
       const data = await res.json();
       if (!res.ok) {
-        setCommitError(extractErrorMessage(data, "Failed to verify settlement."));
-      } else if (
-        !data ||
-        typeof data !== "object" ||
-        typeof (data as Record<string, unknown>).settlement_verified !== "boolean"
-      ) {
-        setCommitError("Unexpected response from server.");
+        setSettlementError(extractErrorMessage(data, "Failed to verify settlement."));
       } else {
-        setCommitResult(data as SettlementVerifyResponse);
+        setSettlementResult(data as SettlementVerifyNewResponse);
       }
     } catch (e: unknown) {
       if (e instanceof Error && e.name === "AbortError") {
-        setCommitError("Request timed out. Please try again.");
+        setSettlementError("Request timed out. Please try again.");
       } else {
-        setCommitError(e instanceof Error ? e.message : "Network error calling settlement verify endpoint.");
+        setSettlementError(e instanceof Error ? e.message : "Network error calling settlement verify endpoint.");
       }
     } finally {
       clearTimeout(timeout);
-      setCommitting(false);
+      setVerifying(false);
     }
   }
 
@@ -246,7 +287,7 @@ export default function App() {
         <div className={`pill ${status.kind}`}>
           <span className="dot" />
           {status.label}
-          {permit && remaining > 0 && !commitResult && (
+          {permit && remaining > 0 && !settlementResult && (
             <span className="pillRight">{formatSeconds(remaining)}</span>
           )}
         </div>
@@ -277,16 +318,21 @@ export default function App() {
             setPermit(p);
             setVerifyResult(null);
             setVerifyError(null);
-            setCommitResult(null);
-            setCommitError(null);
+            setPaymentResult(null);
+            setPaymentError(null);
+            setSettlementResult(null);
+            setSettlementError(null);
           }}
           onClear={() => {
             setPermit(null);
             setVerifyResult(null);
             setVerifyError(null);
-            setCommitResult(null);
-            setCommitError(null);
-            setTxHash("");
+            setPaymentResult(null);
+            setPaymentError(null);
+            setSettlementResult(null);
+            setSettlementError(null);
+            setDestination("");
+            setAmount("");
           }}
         />
 
@@ -539,105 +585,140 @@ export default function App() {
           })()}
         </section>
 
-        {/* Panel 5: Settlement Verification */}
+        {/* Panel 5: XRPL Payment */}
         <section className="card">
-          <h2><PanelNumber n={5} />Settlement Verification</h2>
+          <h2><PanelNumber n={5} />XRPL Payment</h2>
           <p className="muted">
-            After executing a transaction on XRPL, paste the transaction hash to verify it satisfies the permit constraints.
+            Submit an XRPL payment transaction. If a permit exists, its bundle hash will be included as a memo.
           </p>
 
-          <label className="label">XRPL Transaction Hash</label>
+          <label className="label">Destination</label>
           <input
             className="input"
-            value={txHash}
-            onChange={(e) => setTxHash(e.target.value)}
-            placeholder="Enter XRPL tx hash..."
+            value={destination}
+            onChange={(e) => setDestination(e.target.value)}
+            placeholder="Enter destination address..."
             spellCheck={false}
-            disabled={!permit}
+          />
+
+          <label className="label">Amount</label>
+          <input
+            className="input"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="Enter amount..."
+            spellCheck={false}
           />
 
           <div className="row">
             <button
               className="btn primary"
-              onClick={verifySettlement}
-              disabled={!permit || !txHash.trim() || committing}
+              onClick={submitXrplPayment}
+              disabled={!destination.trim() || !amount.trim() || submitting}
             >
-              {committing ? "Verifying…" : "Verify Settlement"}
+              {submitting ? "Submitting…" : "Submit XRPL Payment"}
             </button>
           </div>
 
-          {commitResult && (
+          {paymentResult && (
             <div className="commitResult">
               <div className="commitResultHeader">
-                <span className={`badge ${commitResult.settlement_verified ? "anchored" : "bad"}`}>
+                <span className="badge anchored">
                   <span className="badgeDot" />
-                  {commitResult.settlement_verified ? "✔ Settlement Verified" : "✘ Settlement Failed"}
+                  Payment Submitted
                 </span>
               </div>
 
               <div className="commitRows">
                 <div className="commitRow">
-                  <span className="commitLabel">Verified</span>
-                  <span className={`commitValue${commitResult.settlement_verified ? " textGood" : " textBad"}`}>
-                    {String(commitResult.settlement_verified)}
-                  </span>
-                </div>
-
-                <div className="commitRow">
                   <span className="commitLabel">TX Hash</span>
                   <span className="commitValue commitValueMono" style={{ wordBreak: "break-all" }}>
-                    {commitResult.tx_hash}
+                    {paymentResult.tx_hash}
                   </span>
                 </div>
-
                 <div className="commitRow">
-                  <span className="commitLabel">Network</span>
-                  <span className="commitValue">{commitResult.network}</span>
+                  <span className="commitLabel">Engine Result</span>
+                  <span className="commitValue">{paymentResult.engine_result}</span>
                 </div>
-
                 <div className="commitRow">
-                  <span className="commitLabel">Permit Valid</span>
-                  <span className={`commitValue${commitResult.permit_valid ? " textGood" : " textBad"}`}>
-                    {String(commitResult.permit_valid)}
+                  <span className="commitLabel">Amount</span>
+                  <span className="commitValue">{paymentResult.amount}</span>
+                </div>
+                <div className="commitRow">
+                  <span className="commitLabel">Issuer</span>
+                  <span className="commitValue commitValueMono" style={{ wordBreak: "break-all" }}>
+                    {paymentResult.issuer}
                   </span>
                 </div>
-
-                {commitResult.permit_expired && (
-                  <div className="commitRow">
-                    <span className="commitLabel">Permit Expired</span>
-                    <span className="commitValue textBad">true</span>
-                  </div>
-                )}
-
                 <div className="commitRow">
-                  <span className="commitLabel">Verified At</span>
-                  <span className="commitValue">
-                    {new Date(commitResult.verified_at * 1000).toISOString()}
+                  <span className="commitLabel">Currency</span>
+                  <span className="commitValue">{paymentResult.currency}</span>
+                </div>
+                <div className="commitRow">
+                  <span className="commitLabel">Destination</span>
+                  <span className="commitValue commitValueMono" style={{ wordBreak: "break-all" }}>
+                    {paymentResult.destination}
                   </span>
                 </div>
-
-                {/* Individual checks */}
-                {Object.entries(commitResult.checks).length > 0 && (
-                  <div className="commitMetaBlock">
-                    <div className="codeTitle">Compliance Checks</div>
-                    {Object.entries(commitResult.checks).map(([key, passed]) => (
-                      <div key={key} className="verifyRow">
-                        <span className={passed ? "check" : "check checkFail"}>
-                          {passed ? "✔" : "✘"}
-                        </span>
-                        <span className="summaryLabel">{key.replace(/_/g, " ")}</span>
-                        <span className={`summaryValue${passed ? " textGood" : " textBad"}`}>
-                          {passed ? "pass" : commitResult.details[key] ?? "fail"}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
           )}
 
-          {commitError && <div className="alert bad">{commitError}</div>}
+          {paymentError && <div className="alert bad">{paymentError}</div>}
+        </section>
+
+        {/* Panel 6: Settlement Verification */}
+        <section className="card">
+          <h2><PanelNumber n={6} />Settlement Verification</h2>
+          <p className="muted">
+            Verify that the XRPL payment satisfies the permit constraints.
+          </p>
+
+          <div className="row">
+            <button
+              className="btn primary"
+              onClick={verifySettlement}
+              disabled={!permit || !paymentResult || verifying}
+            >
+              {verifying ? "Verifying…" : "Verify Settlement"}
+            </button>
+          </div>
+
+          {settlementResult && (
+            <div className="commitResult">
+              <div className="commitResultHeader">
+                <span className="badge anchored">
+                  <span className="badgeDot" />
+                  Settlement Verified
+                </span>
+              </div>
+
+              <div className="commitRows">
+                <div className="commitRow">
+                  <span className="commitLabel">Decision Result</span>
+                  <span className="commitValue">{settlementResult.decision_result}</span>
+                </div>
+
+                {settlementResult.reason_codes.length > 0 && (
+                  <div className="commitRow">
+                    <span className="commitLabel">Reason Codes</span>
+                    <span className="commitValue">
+                      {settlementResult.reason_codes.join(", ")}
+                    </span>
+                  </div>
+                )}
+
+                <div className="commitRow">
+                  <span className="commitLabel">Proof Artifact</span>
+                  <span className="commitValue commitValueMono" style={{ wordBreak: "break-all" }}>
+                    {JSON.stringify(settlementResult.proof_artifact, null, 2)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {settlementError && <div className="alert bad">{settlementError}</div>}
         </section>
       </main>
 
