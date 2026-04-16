@@ -30,9 +30,10 @@ type SettlementVerifyResponse = {
 };
 
 type XrplHealth = {
-  xrpl_configured: boolean;
+  configured: boolean;
   reachable: boolean;
   network: string;
+  rlusd_configured: boolean;
 };
 
 function formatSeconds(s: number) {
@@ -66,7 +67,7 @@ function extractErrorMessage(data: unknown, fallback: string): string {
 
 function xrplConfiguredLabel(health: XrplHealth | null): string {
   if (!health) return "Checking...";
-  return health.xrpl_configured ? "Configured" : "Not Configured";
+  return health.configured ? "Configured" : "Not Configured";
 }
 
 function xrplReachableLabel(health: XrplHealth | null): string {
@@ -110,7 +111,7 @@ export default function App() {
       .then((d: XrplHealth) => setXrplHealth(d))
       .catch((err) => {
         console.error("Failed to fetch XRPL health:", err);
-        setXrplHealth({ xrpl_configured: false, reachable: false, network: "" });
+        setXrplHealth({ configured: false, reachable: false, network: "", rlusd_configured: false });
       })
       .finally(() => clearTimeout(timeout));
   }, []);
@@ -254,7 +255,7 @@ export default function App() {
 
       <div className="adapterBar">
         <span className="adapterBarLabel">XRPL Network</span>
-        <span className={`badge ${xrplHealth === null ? "neutral" : xrplHealth.xrpl_configured ? "good" : "bad"}`}>
+        <span className={`badge ${xrplHealth === null ? "neutral" : xrplHealth.configured ? "good" : "bad"}`}>
           <span className="badgeDot" />
           {xrplConfiguredLabel(xrplHealth)}
         </span>
@@ -268,6 +269,10 @@ export default function App() {
             {xrplHealth.network}
           </span>
         )}
+        <span className={`badge ${xrplHealth === null ? "neutral" : xrplHealth.rlusd_configured ? "good" : "bad"}`}>
+          <span className="badgeDot" />
+          {xrplHealth === null ? "Checking..." : xrplHealth.rlusd_configured ? "RLUSD Configured" : "RLUSD Not Configured"}
+        </span>
       </div>
 
       <main className="grid">
