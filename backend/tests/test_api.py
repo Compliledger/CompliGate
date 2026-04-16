@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 import logging
-from main import app, evaluate_governance, evaluate_eligibility, evaluate_constraints
+from main import app, evaluate_governance, evaluate_eligibility, evaluate_constraints, verify_settlement_against_permit
 
 client = TestClient(app)
 
@@ -147,128 +147,317 @@ def test_verify_validates_signature():
     assert data["not_expired"] is True
 
 
-COMMIT_PAYLOAD = {
-    "bundle_hash": "abc123def456",
-    "subject": VALID_SUBJECT,
-    "policy_id": "RLUSD_US_v1",
-    "exp": 9999999999,
-    "action": "transfer",
-}
+SAMPLE_TX_HASH = "ABC123DEF456789012345678901234567890123456789012345678901234"
 
 
-def test_commit_returns_committed_response():
-    mock_result = {"tx_id": "ALGO_TX_001", "status": "confirmed"}
+def _get_valid_permit():
+    """Issue a permit and return the response data."""
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 500})
+    assert response.status_code == 200
+    return response.json()
+
+
+def _make_xrpl_payment_tx(account, destination, currency, value, validated=True):
+    """Build a mock XRPL Payment transaction result."""
+    return {
+        "Account": account,
+        "Destination": destination,
+        "TransactionType": "Payment",
+        "Amount": {"currency": currency, "value": str(value), "issuer": "rISSUER"},
+        "validated": validated,
+    }
+
+
+def _make_xrpl_trustset_tx(account, currency, validated=True):
+    """Build a mock XRPL TrustSet transaction result."""
+    return {
+        "Account": account,
+        "TransactionType": "TrustSet",
+        "LimitAmount": {"currency": currency, "value": "1000000", "issuer": "rISSUER"},
+        "validated": validated,
+    }
+
+
+def test_settle_verify_valid_payment():
+    permit = _get_valid_permit()
+    tx_data = _make_xrpl_payment_tx(
+        account=VALID_SUBJECT,
+        destination="rCounterparty1234567890123456789",
+        currency="RLUSD",
+        value=500,
+    )
+
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settle/verify",
+            json={
+                "tx_hash": SAMPLE_TX_HASH,
+                "bundle": permit["bundle"],
+                "signature": permit["signature"],
+            },
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["settlement_verified"] is True
+    assert data["permit_valid"] is True
+    assert data["tx_hash"] == SAMPLE_TX_HASH
+    assert data["bundle_hash"] == permit["bundle_hash"]
+    assert data["checks"]["tx_validated"] is True
+    assert data["checks"]["action_match"] is True
+    assert data["checks"]["subject_match"] is True
+    assert data["checks"]["currency_match"] is True
+    assert data["checks"]["amount_within_limit"] is True
+
+
+def test_settle_verify_rejects_invalid_signature():
+    permit = _get_valid_permit()
+    response = client.post(
+        "/v1/settle/verify",
+        json={
+            "tx_hash": SAMPLE_TX_HASH,
+            "bundle": permit["bundle"],
+            "signature": "aW52YWxpZHNpZ25hdHVyZQ==",
+        },
+    )
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["error"] == "invalid_permit"
+
+
+def test_settle_verify_detects_unvalidated_tx():
+    permit = _get_valid_permit()
+    tx_data = _make_xrpl_payment_tx(
+        account=VALID_SUBJECT,
+        destination="rCounterparty1234567890123456789",
+        currency="RLUSD",
+        value=500,
+        validated=False,
+    )
+
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settle/verify",
+            json={
+                "tx_hash": SAMPLE_TX_HASH,
+                "bundle": permit["bundle"],
+                "signature": permit["signature"],
+            },
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["settlement_verified"] is False
+    assert data["checks"]["tx_validated"] is False
+
+
+def test_settle_verify_detects_wrong_currency():
+    permit = _get_valid_permit()
+    tx_data = _make_xrpl_payment_tx(
+        account=VALID_SUBJECT,
+        destination="rCounterparty1234567890123456789",
+        currency="USD",
+        value=500,
+    )
+
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settle/verify",
+            json={
+                "tx_hash": SAMPLE_TX_HASH,
+                "bundle": permit["bundle"],
+                "signature": permit["signature"],
+            },
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["settlement_verified"] is False
+    assert data["checks"]["currency_match"] is False
+
+
+def test_settle_verify_detects_amount_exceeds_limit():
+    permit = _get_valid_permit()
+    tx_data = _make_xrpl_payment_tx(
+        account=VALID_SUBJECT,
+        destination="rCounterparty1234567890123456789",
+        currency="RLUSD",
+        value=1500,
+    )
+
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settle/verify",
+            json={
+                "tx_hash": SAMPLE_TX_HASH,
+                "bundle": permit["bundle"],
+                "signature": permit["signature"],
+            },
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["settlement_verified"] is False
+    assert data["checks"]["amount_within_limit"] is False
+
+
+def test_settle_verify_detects_wrong_subject():
+    permit = _get_valid_permit()
+    tx_data = _make_xrpl_payment_tx(
+        account="rWrongAccount12345678901234567",
+        destination="rCounterparty1234567890123456789",
+        currency="RLUSD",
+        value=500,
+    )
+
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settle/verify",
+            json={
+                "tx_hash": SAMPLE_TX_HASH,
+                "bundle": permit["bundle"],
+                "signature": permit["signature"],
+            },
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["settlement_verified"] is False
+    assert data["checks"]["subject_match"] is False
+
+
+def test_settle_verify_detects_wrong_counterparty():
+    counterparty = "rCounterparty1234567890123456789"
+    permit_resp = client.post(
+        "/v1/permit",
+        json={"subject": VALID_SUBJECT, "amount": 500, "counterparty": counterparty},
+    )
+    assert permit_resp.status_code == 200
+    permit = permit_resp.json()
+
+    tx_data = _make_xrpl_payment_tx(
+        account=VALID_SUBJECT,
+        destination="rWrongCounterparty123456789012",
+        currency="RLUSD",
+        value=500,
+    )
+
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settle/verify",
+            json={
+                "tx_hash": SAMPLE_TX_HASH,
+                "bundle": permit["bundle"],
+                "signature": permit["signature"],
+            },
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["settlement_verified"] is False
+    assert data["checks"]["counterparty_match"] is False
+
+
+def test_settle_verify_trustset():
+    permit_resp = client.post(
+        "/v1/permit",
+        json={"subject": VALID_SUBJECT, "action": "trustset"},
+    )
+    assert permit_resp.status_code == 200
+    permit = permit_resp.json()
+
+    tx_data = _make_xrpl_trustset_tx(account=VALID_SUBJECT, currency="RLUSD")
+
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settle/verify",
+            json={
+                "tx_hash": SAMPLE_TX_HASH,
+                "bundle": permit["bundle"],
+                "signature": permit["signature"],
+            },
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["settlement_verified"] is True
+    assert data["checks"]["action_match"] is True
+
+
+def test_settle_verify_returns_502_on_rpc_failure():
+    import requests as req_lib
+
+    permit = _get_valid_permit()
+
+    with patch("main.http_requests.post") as mock_post:
+        mock_post.side_effect = req_lib.RequestException("connection refused")
+
+        response = client.post(
+            "/v1/settle/verify",
+            json={
+                "tx_hash": SAMPLE_TX_HASH,
+                "bundle": permit["bundle"],
+                "signature": permit["signature"],
+            },
+        )
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert detail["error"] == "xrpl_rpc_failed"
+
+
+def test_settle_verify_is_logged(caplog):
+    permit = _get_valid_permit()
+    tx_data = _make_xrpl_payment_tx(
+        account=VALID_SUBJECT,
+        destination="rCounterparty1234567890123456789",
+        currency="RLUSD",
+        value=500,
+    )
+
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        with caplog.at_level(logging.INFO, logger="main"):
+            client.post(
+                "/v1/settle/verify",
+                json={
+                    "tx_hash": SAMPLE_TX_HASH,
+                    "bundle": permit["bundle"],
+                    "signature": permit["signature"],
+                },
+            )
+
+    messages = [r.message for r in caplog.records]
+    assert any(m.startswith("settlement_verified") and "tx_hash=" in m for m in messages)
+
+
+def test_xrpl_health_configured():
     with patch("main.http_requests.post") as mock_post:
         mock_resp = MagicMock()
-        mock_resp.json.return_value = mock_result
         mock_resp.raise_for_status.return_value = None
         mock_post.return_value = mock_resp
 
-        with patch("main.ALGORAND_ADAPTER_URL", "http://adapter:8080"):
-            response = client.post("/v1/commit", json=COMMIT_PAYLOAD)
+        response = client.get("/v1/xrpl/health")
 
     assert response.status_code == 200
     data = response.json()
-    assert data["committed"] is True
-    assert "anchor_metadata" in data
-    assert data["anchor_metadata"]["tx_id"] == "ALGO_TX_001"
-    assert data["bundle_hash"] == COMMIT_PAYLOAD["bundle_hash"]
-    assert data["adapter_response"] == mock_result
+    assert data["xrpl_configured"] is True
+    assert data["reachable"] is True
+    assert "network" in data
 
 
-def test_commit_calls_adapter_with_correct_payload():
-    mock_result = {"tx_id": "ALGO_TX_002"}
-    with patch("main.http_requests.post") as mock_post:
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = mock_result
-        mock_resp.raise_for_status.return_value = None
-        mock_post.return_value = mock_resp
-
-        with patch("main.ALGORAND_ADAPTER_URL", "http://adapter:8080"):
-            client.post("/v1/commit", json=COMMIT_PAYLOAD)
-
-        called_url = mock_post.call_args[0][0]
-        called_json = mock_post.call_args[1]["json"]
-
-    assert called_url == "http://adapter:8080/v1/commit"
-    assert called_json["bundle_hash"] == COMMIT_PAYLOAD["bundle_hash"]
-    assert called_json["subject"] == COMMIT_PAYLOAD["subject"]
-    assert called_json["policy_id"] == COMMIT_PAYLOAD["policy_id"]
-    assert called_json["exp"] == COMMIT_PAYLOAD["exp"]
-    assert called_json["action"] == COMMIT_PAYLOAD["action"]
-
-
-def test_commit_returns_502_when_adapter_url_not_configured():
-    with patch("main.ALGORAND_ADAPTER_URL", ""):
-        response = client.post("/v1/commit", json=COMMIT_PAYLOAD)
-    assert response.status_code == 502
-    detail = response.json()["detail"]
-    assert detail["error"] == "adapter_commit_failed"
-    assert "ALGORAND_ADAPTER_URL" in detail["reason"]
-
-
-def test_commit_returns_502_when_adapter_call_fails():
+def test_xrpl_health_unreachable():
     import requests as req_lib
 
     with patch("main.http_requests.post") as mock_post:
         mock_post.side_effect = req_lib.RequestException("connection refused")
 
-        with patch("main.ALGORAND_ADAPTER_URL", "http://adapter:8080"):
-            response = client.post("/v1/commit", json=COMMIT_PAYLOAD)
-
-    assert response.status_code == 502
-    detail = response.json()["detail"]
-    assert detail["error"] == "adapter_commit_failed"
-    assert "connection refused" in detail["reason"]
-
-
-def test_commit_tx_id_is_none_when_missing_from_adapter():
-    mock_result = {"status": "ok"}  # no tx_id key
-    with patch("main.http_requests.post") as mock_post:
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = mock_result
-        mock_resp.raise_for_status.return_value = None
-        mock_post.return_value = mock_resp
-
-        with patch("main.ALGORAND_ADAPTER_URL", "http://adapter:8080"):
-            response = client.post("/v1/commit", json=COMMIT_PAYLOAD)
+        response = client.get("/v1/xrpl/health")
 
     assert response.status_code == 200
-    assert response.json()["anchor_metadata"]["tx_id"] is None
+    data = response.json()
+    assert data["xrpl_configured"] is True
+    assert data["reachable"] is False
 
 
-def test_commit_rejects_empty_bundle_hash():
-    payload = {**COMMIT_PAYLOAD, "bundle_hash": ""}
-    response = client.post("/v1/commit", json=payload)
-    assert response.status_code == 400
-    detail = response.json()["detail"]
-    assert detail["error"] == "invalid_bundle_hash"
-    assert detail["reason"] == "bundle_hash is required"
-
-
-def test_commit_rejects_empty_policy_id():
-    payload = {**COMMIT_PAYLOAD, "policy_id": ""}
-    response = client.post("/v1/commit", json=payload)
-    assert response.status_code == 400
-    detail = response.json()["detail"]
-    assert detail["error"] == "invalid_policy_id"
-    assert detail["reason"] == "policy_id is required"
-
-
-def test_commit_rejects_invalid_subject():
-    payload = {**COMMIT_PAYLOAD, "subject": "invalid"}
-    response = client.post("/v1/commit", json=payload)
-    assert response.status_code == 400
-    detail = response.json()["detail"]
-    assert detail["error"] == "invalid_subject"
-
-
-def test_commit_rejects_invalid_action():
-    payload = {**COMMIT_PAYLOAD, "action": "unknown_action"}
-    response = client.post("/v1/commit", json=payload)
-    assert response.status_code == 400
-    detail = response.json()["detail"]
-    assert detail["error"] == "unsupported_action"
+def test_xrpl_health_not_configured():
+    with patch("main.XRPL_RPC_URL", ""):
+        response = client.get("/v1/xrpl/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["xrpl_configured"] is False
+    assert data["reachable"] is False
 
 
 def test_verify_rejects_bad_signature():
@@ -368,70 +557,33 @@ def test_permit_verified_is_logged(caplog):
     )
 
 
-def test_commit_requested_and_success_are_logged(caplog):
-    mock_result = {"tx_id": "ALGO_TX_LOG_TEST"}
-    with patch("main.http_requests.post") as mock_post:
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = mock_result
-        mock_resp.raise_for_status.return_value = None
-        mock_post.return_value = mock_resp
+def test_settlement_verify_requested_and_success_are_logged(caplog):
+    permit = _get_valid_permit()
+    tx_data = _make_xrpl_payment_tx(
+        account=VALID_SUBJECT,
+        destination="rCounterparty1234567890123456789",
+        currency="RLUSD",
+        value=500,
+    )
 
-        with patch("main.ALGORAND_ADAPTER_URL", "http://adapter:8080"):
-            with caplog.at_level(logging.INFO, logger="main"):
-                client.post("/v1/commit", json=COMMIT_PAYLOAD)
-
-    messages = [r.message for r in caplog.records]
-    assert any(m.startswith("commit_requested") and "bundle_hash=" in m for m in messages)
-    assert any(m.startswith("commit_success") and "tx_id=" in m for m in messages)
-
-
-def test_adapter_health_not_configured():
-    with patch("main.ALGORAND_ADAPTER_URL", ""):
-        response = client.get("/v1/adapter-health")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["adapter_configured"] is False
-    assert data["reachable"] is False
-
-
-def test_adapter_health_reachable():
-    with patch("main.http_requests.get") as mock_get:
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status.return_value = None
-        mock_get.return_value = mock_resp
-
-        with patch("main.ALGORAND_ADAPTER_URL", "http://adapter:8080"):
-            response = client.get("/v1/adapter-health")
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["adapter_configured"] is True
-    assert data["reachable"] is True
-    mock_get.assert_called_once_with("http://adapter:8080/health", timeout=5)
-
-
-def test_adapter_health_unreachable():
-    import requests as req_lib
-
-    with patch("main.http_requests.get") as mock_get:
-        mock_get.side_effect = req_lib.RequestException("connection refused")
-
-        with patch("main.ALGORAND_ADAPTER_URL", "http://adapter:8080"):
-            response = client.get("/v1/adapter-health")
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["adapter_configured"] is True
-    assert data["reachable"] is False
-
-
-def test_commit_failed_is_logged(caplog):
-    with patch("main.ALGORAND_ADAPTER_URL", ""):
-        with caplog.at_level(logging.ERROR, logger="main"):
-            client.post("/v1/commit", json=COMMIT_PAYLOAD)
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        with caplog.at_level(logging.INFO, logger="main"):
+            client.post(
+                "/v1/settle/verify",
+                json={
+                    "tx_hash": SAMPLE_TX_HASH,
+                    "bundle": permit["bundle"],
+                    "signature": permit["signature"],
+                },
+            )
 
     messages = [r.message for r in caplog.records]
-    assert any(m.startswith("commit_failed") and "reason=" in m for m in messages)
+    assert any(
+        m.startswith("settlement_verified")
+        and "tx_hash=" in m
+        and "bundle_hash=" in m
+        for m in messages
+    )
 
 
 def test_verify_expired_bundle_returns_not_expired_false():
@@ -451,32 +603,34 @@ def test_verify_expired_bundle_returns_not_expired_false():
     assert data["not_expired"] is False
 
 
-def test_commit_success_monkeypatch(monkeypatch):
-    mock_result = {"tx_id": "ALGO_TX_MONKEYPATCH"}
-    captured_calls = []
+def test_settle_verify_xrp_native_amount():
+    """Settlement verification handles XRP native amounts (string drops).
+    500000000 drops = 500 XRP, which matches the permit amount numerically
+    but the currency mismatch (XRP vs RLUSD) should cause the check to fail.
+    """
+    permit = _get_valid_permit()
+    # XRP native amounts are strings representing drops
+    tx_data = {
+        "Account": VALID_SUBJECT,
+        "Destination": "rCounterparty1234567890123456789",
+        "TransactionType": "Payment",
+        "Amount": "500000000",  # 500 XRP in drops
+        "validated": True,
+    }
 
-    def mock_post(url, json=None, timeout=None):
-        captured_calls.append({"url": url, "json": json})
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = mock_result
-        mock_resp.raise_for_status.return_value = None
-        return mock_resp
-
-    monkeypatch.setattr("main.http_requests.post", mock_post)
-    monkeypatch.setattr("main.ALGORAND_ADAPTER_URL", "http://adapter:8080")
-
-    response = client.post("/v1/commit", json=COMMIT_PAYLOAD)
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settle/verify",
+            json={
+                "tx_hash": SAMPLE_TX_HASH,
+                "bundle": permit["bundle"],
+                "signature": permit["signature"],
+            },
+        )
     assert response.status_code == 200
     data = response.json()
-    assert data["committed"] is True
-    assert "anchor_metadata" in data
-    assert data["anchor_metadata"]["tx_id"] == "ALGO_TX_MONKEYPATCH"
-    assert data["bundle_hash"] == COMMIT_PAYLOAD["bundle_hash"]
-
-    assert len(captured_calls) == 1
-    assert captured_calls[0]["url"] == "http://adapter:8080/v1/commit"
-    assert captured_calls[0]["json"]["bundle_hash"] == COMMIT_PAYLOAD["bundle_hash"]
-    assert captured_calls[0]["json"]["subject"] == COMMIT_PAYLOAD["subject"]
+    # Currency should not match since permit expects RLUSD, not XRP
+    assert data["checks"]["currency_match"] is False
 
 
 # -----------------------
@@ -788,7 +942,7 @@ def test_enrich_proof_artifact_updates_anchor_metadata():
     from main import enrich_proof_artifact_with_anchor
 
     artifact = _make_proof_artifact()
-    anchor = {"network": "algorand_testnet", "tx_id": "TX123", "anchored_at": 1700000001}
+    anchor = {"network": "xrpl_testnet", "tx_hash": "ABC123", "verified_at": 1700000001}
     enriched = enrich_proof_artifact_with_anchor(artifact, anchor)
     assert enriched.anchor_metadata == anchor
 
