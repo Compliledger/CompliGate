@@ -371,7 +371,7 @@ export default function App() {
           </div>
 
           {!permit ? (
-            <p className="muted">Request a permit to view the authorization constraints.</p>
+            <p className="muted">Request a permit to view the constraints.</p>
           ) : (
             <>
               <div className="summary">

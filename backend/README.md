@@ -40,7 +40,7 @@ User → CompliGate Backend → Proof Bundle → User settles tx on XRPL → POS
 
 ## Role Within CompliLedger
 
-CompliGate operates exclusively at the point of authorization. It does not perform:
+CompliGate operates at the point of authorization and post-settlement verification. It does not perform:
 - Asset or transaction classification
 - Reserve or collateral validation
 - Identity verification or KYC
