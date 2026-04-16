@@ -1,18 +1,18 @@
 # CompliGate Backend
 
-CompliGate is the transaction-time authorization and execution control layer of CompliLedger. It issues time-bound, cryptographically signed permits that determine whether a transaction is allowed, define how it may execute, and specify when it is valid. Each permit is packaged as a Proof Bundle — a canonical JSON document signed with Ed25519 and hashed for on-chain anchoring.
+CompliGate is the transaction-time authorization and constraint verification layer of CompliLedger. It issues time-bound, cryptographically signed permits that determine whether a transaction is authorized, define the constraints under which it may proceed, and specify when the authorization is valid. Each permit is packaged as a Proof Bundle — a canonical JSON document signed with Ed25519 and hashed for on-chain anchoring.
 
 ---
 
 ## Core Model
 
-### Authorization (Before Execution)
+### Authorization (Before Settlement)
 CompliGate evaluates incoming requests against configured policy before any transaction proceeds.
 - Subject identity is bound to the permit at issuance
 - Policy version and jurisdiction are embedded in every bundle
 - Requests that fail policy evaluation receive an explicit DENY
 
-### Execution Constraints (During Execution)
+### Constraints (During Settlement)
 The permit defines the conditions under which the transaction may proceed.
 - Permitted action type (e.g., `transfer`, `trustline`)
 - Currency and issuer binding
@@ -29,18 +29,18 @@ Each permit carries a hard expiry enforced at both issuance and verification.
 ## Architecture
 
 ```
-User → CompliGate Backend → Proof Bundle → User executes tx on XRPL → POST /v1/settle/verify → Post-settlement verification
+User → CompliGate Backend → Proof Bundle → User settles tx on XRPL → POST /v1/settle/verify → Post-settlement verification
 ```
 
-- **XRPL** is the settlement layer. CompliGate does not submit or broker transactions — it operates as a non-intermediary verifier.
-- Users obtain a permit, independently execute the transaction on XRPL, then submit the XRPL transaction hash back to CompliGate for post-settlement verification.
+- **XRPL** is the settlement layer. CompliGate does not submit transactions — it operates as an independent verifier.
+- Users obtain a permit, independently settle the transaction on XRPL, then submit the XRPL transaction hash back to CompliGate for post-settlement verification.
 - CompliGate checks that the settled transaction conforms to the permit constraints (amount, currency, counterparty, action type).
 
 ---
 
 ## Role Within CompliLedger
 
-CompliGate operates exclusively at the point of execution. It does not perform:
+CompliGate operates at the point of authorization and post-settlement verification. It does not perform:
 - Asset or transaction classification
 - Reserve or collateral validation
 - Identity verification or KYC
@@ -96,7 +96,7 @@ A Proof Bundle is the output of a successful permit issuance. It contains:
 - **Ed25519 signature** — signs the canonical bundle bytes; verifiable with the public key from `/public-key`
 - **SHA-256 hash** (`bundle_hash`) — derived from the canonical JSON; used as the on-chain reference
 - **Time-bound validity** — `iat` (issued-at) and `exp` (expiry) Unix timestamps embedded in the bundle
-- **Post-settlement verification** — after a user independently executes a transaction on XRPL, CompliGate verifies the outcome against the permit constraints
+- **Post-settlement verification** — after a user independently settles a transaction on XRPL, CompliGate verifies the outcome against the permit constraints
 
 ---
 
@@ -166,4 +166,4 @@ docker run --env-file .env -p 8000:8000 compligate-backend
 
 ---
 
-CompliGate enforces policy at execution and produces cryptographic proof of authorization.
+CompliGate enforces policy at authorization and produces cryptographic proof of compliance.
