@@ -22,6 +22,14 @@ export type PermitPolicy = {
 export type PermitConstraints = {
   max_amount: number;
   allowed_counterparty?: string | null;
+  reserve_backed?: boolean;
+  liquidity_verified?: boolean;
+  kyc_verified?: boolean;
+  sanctions_check?: string;
+  jurisdiction?: string;
+  freeze_possible?: boolean;
+  clawback_possible?: boolean;
+  trustline_required?: boolean;
 };
 
 export type PermitBundle = {
@@ -33,6 +41,7 @@ export type PermitBundle = {
     issuer: string;
     currency: string;
     classification: string;
+    regulatory_treatment?: string;
     policy_id: string;
   };
   constraints: PermitConstraints;
