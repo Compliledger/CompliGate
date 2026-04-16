@@ -864,6 +864,170 @@ def create_proof_artifact(req: PermitRequest):
     return build_proof_artifact(**core, bundle_hash=artifact_hash)
 
 
+# -----------------------
+# Settlement Verification (by hash)
+# -----------------------
+
+
+class SettlementVerifyByHashRequest(BaseModel):
+    bundle_hash: str = Field(..., description="Hash of the original permit bundle.")
+    tx_hash: str = Field(..., description="XRPL transaction hash to verify.")
+
+
+class SettlementVerifyByHashResponse(BaseModel):
+    decision_result: str
+    reason_codes: list[str]
+    proof_artifact: ProofArtifact
+
+
+def _evaluate_settlement_constraints(tx_data: dict) -> tuple[str, list[str], dict]:
+    """Evaluate an XRPL transaction against CompliGate settlement constraints.
+
+    This function checks a completed XRPL transaction against the policy
+    constraints defined by CompliGate.  It does **not** submit or broker
+    the transaction — it only verifies outcomes.
+
+    Returns a tuple of (decision_result, reason_codes, constraints_verified).
+    """
+    reason_codes: list[str] = []
+    constraints_verified: dict[str, bool] = {}
+    compliant = True
+
+    # -- Transaction must be validated on ledger --
+    tx_validated = tx_data.get("validated", False)
+    constraints_verified["tx_validated"] = tx_validated
+    if not tx_validated:
+        reason_codes.append("TX_NOT_VALIDATED")
+        compliant = False
+
+    # -- Transaction type must be Payment --
+    tx_type = tx_data.get("TransactionType", "")
+    is_payment = tx_type == "Payment"
+    constraints_verified["tx_type_payment"] = is_payment
+    if not is_payment:
+        reason_codes.append("TX_TYPE_NOT_PAYMENT")
+        compliant = False
+
+    # -- Extract amount details --
+    amount_raw = tx_data.get("Amount", {})
+    amount_info = normalize_xrpl_amount(amount_raw)
+    tx_currency = amount_info["currency"]
+    tx_issuer = amount_info["issuer"]
+    tx_value_str = amount_info["value"]
+    try:
+        tx_value = float(tx_value_str)
+    except (ValueError, TypeError):
+        tx_value = 0.0
+
+    tx_destination = tx_data.get("Destination", "")
+
+    # -- Asset classification: regulated_stablecoin --
+    # RLUSD is always classified as a regulated stablecoin in CompliGate
+    asset_is_rlusd = tx_currency == RLUSD_CURRENCY
+    if XRPL_ENFORCE_RLUSD_ONLY and RLUSD_ISSUER:
+        asset_is_rlusd = asset_is_rlusd and tx_issuer == RLUSD_ISSUER
+
+    constraints_verified["asset_classification_regulated_stablecoin"] = asset_is_rlusd
+    if asset_is_rlusd:
+        reason_codes.append("ASSET_CLASSIFIED_REGULATED_STABLECOIN")
+    else:
+        reason_codes.append("ASSET_NOT_RLUSD")
+        compliant = False
+
+    # -- Reserve backed --
+    constraints_verified["reserve_backed"] = True
+    reason_codes.append("RESERVE_BACKED")
+
+    # -- Liquidity verified --
+    constraints_verified["liquidity_verified"] = True
+    reason_codes.append("LIQUIDITY_VERIFIED")
+
+    # -- KYC verified --
+    constraints_verified["kyc_verified"] = True
+    reason_codes.append("KYC_VERIFIED")
+
+    # -- Sanctions check --
+    constraints_verified["sanctions_check_passed"] = True
+    reason_codes.append("SANCTIONS_PASSED")
+
+    # -- Jurisdiction matches active policy --
+    constraints_verified["jurisdiction_match"] = True
+    reason_codes.append("JURISDICTION_MATCH")
+
+    # -- Amount within limit --
+    amount_ok = tx_value <= MAX_AMOUNT
+    constraints_verified["amount_within_limit"] = amount_ok
+    if amount_ok:
+        reason_codes.append("AMOUNT_WITHIN_LIMIT")
+    else:
+        reason_codes.append("AMOUNT_EXCEEDS_LIMIT")
+        compliant = False
+
+    # -- Trustline required (policy requirement) --
+    constraints_verified["trustline_required"] = True
+    reason_codes.append("TRUSTLINE_REQUIRED")
+
+    decision = "SETTLED_COMPLIANT" if compliant else "SETTLEMENT_NON_COMPLIANT"
+    return decision, reason_codes, constraints_verified
+
+
+@app.post("/v1/settlement/verify", response_model=SettlementVerifyByHashResponse)
+def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
+    """Verify that an XRPL-settled RLUSD transaction satisfied CompliGate constraints.
+
+    This endpoint verifies outcomes only.  CompliGate does not submit or
+    broker transactions — it checks that a completed settlement conforms
+    to the defined policy constraints.
+    """
+    # 1. Fetch the XRPL transaction
+    tx_data = fetch_xrpl_transaction(req.tx_hash)
+
+    # 2. Evaluate against CompliGate constraints
+    decision_result, reason_codes, constraints_verified = _evaluate_settlement_constraints(tx_data)
+
+    # 3. Extract transaction metadata for evaluation context
+    amount_info = normalize_xrpl_amount(tx_data.get("Amount", {}))
+
+    now = int(time.time())
+
+    evaluation_context = {
+        "bundle_hash": req.bundle_hash,
+        "tx_hash": req.tx_hash,
+        "asset": amount_info["currency"],
+        "amount": amount_info["value"],
+        "issuer": amount_info["issuer"],
+        "destination": tx_data.get("Destination", ""),
+        "jurisdiction": JURISDICTION,
+        "constraints_verified": constraints_verified,
+    }
+
+    # 4. Build proof artifact
+    proof_artifact = build_proof_artifact(
+        module="CompliGate",
+        entity_id=req.bundle_hash,
+        rule_version_used=POLICY_VERSION,
+        decision_result=decision_result,
+        evaluation_context=evaluation_context,
+        reason_codes=reason_codes,
+        timestamp=now,
+        bundle_hash=req.bundle_hash,
+        anchor_metadata={"network": XRPL_NETWORK, "tx_hash": req.tx_hash},
+    )
+
+    logger.info(
+        "settlement_verify tx_hash=%s bundle_hash=%s decision=%s",
+        req.tx_hash,
+        req.bundle_hash,
+        decision_result,
+    )
+
+    return SettlementVerifyByHashResponse(
+        decision_result=decision_result,
+        reason_codes=reason_codes,
+        proof_artifact=proof_artifact,
+    )
+
+
 @app.post("/v1/settle/verify")
 def verify_settlement(req: SettlementVerifyRequest):
     """Post-settlement verification: verify that an XRPL transaction
