@@ -182,7 +182,7 @@ def get_demo_wallet() -> "Wallet | None":
     return Wallet.from_seed(XRPL_DEMO_WALLET_SEED)
 
 
-def normalize_xrpl_amount(amount_obj) -> dict:
+def normalize_xrpl_amount(amount_obj: str | dict) -> dict:
     """Normalise an XRPL ``Amount`` value into a consistent dict.
 
     XRPL represents native XRP amounts as a string of *drops* while
