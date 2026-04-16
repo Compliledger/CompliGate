@@ -508,7 +508,10 @@ def verify_settlement_against_permit(
             tx_value = float(amount.get("value", "0"))
         else:
             tx_currency = "XRP"
-            tx_value = int(amount) / 1_000_000 if amount else 0
+            try:
+                tx_value = int(amount) / 1_000_000 if amount else 0
+            except (ValueError, TypeError):
+                tx_value = 0
 
         currency_match = tx_currency == expected_currency
         checks["currency_match"] = currency_match
@@ -656,18 +659,20 @@ def verify_settlement(req: SettlementVerifyRequest):
 
     bundle_hash = proof_hash(req.bundle)
 
+    expired = not not_expired
+
     logger.info(
         "settlement_verified tx_hash=%s bundle_hash=%s verified=%s permit_expired=%s",
         req.tx_hash,
         bundle_hash,
         result["settlement_verified"],
-        not not_expired,
+        expired,
     )
 
     return {
         "settlement_verified": result["settlement_verified"],
         "permit_valid": signature_valid,
-        "permit_expired": not not_expired,
+        "permit_expired": expired,
         "tx_hash": req.tx_hash,
         "bundle_hash": bundle_hash,
         "network": XRPL_NETWORK,

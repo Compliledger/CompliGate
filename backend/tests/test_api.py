@@ -604,7 +604,10 @@ def test_verify_expired_bundle_returns_not_expired_false():
 
 
 def test_settle_verify_xrp_native_amount():
-    """Settlement verification handles XRP native amounts (string drops)."""
+    """Settlement verification handles XRP native amounts (string drops).
+    500000000 drops = 500 XRP, which matches the permit amount numerically
+    but the currency mismatch (XRP vs RLUSD) should cause the check to fail.
+    """
     permit = _get_valid_permit()
     # XRP native amounts are strings representing drops
     tx_data = {
