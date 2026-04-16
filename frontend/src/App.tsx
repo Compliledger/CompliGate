@@ -691,39 +691,82 @@ export default function App() {
             </button>
           </div>
 
-          {settlementResult && (
-            <div className="commitResult">
-              <div className="commitResultHeader">
-                <span className={`badge ${settlementPassed ? "anchored" : "bad"}`}>
-                  <span className="badgeDot" />
-                  {settlementPassed ? "✔ Settlement Verified" : "✘ Settlement Failed"}
-                </span>
-              </div>
+          {settlementResult && (() => {
+            const artifact = settlementResult.proof_artifact;
+            const txHash = typeof artifact.tx_hash === "string" ? artifact.tx_hash : paymentResult?.tx_hash;
+            const bundleHash = typeof artifact.bundle_hash === "string" ? artifact.bundle_hash : permit?.bundle_hash;
+            return (
+              <div className="verifyResult">
+                <div className={`verifyHeader ${settlementPassed ? "good" : "bad"}`}>
+                  <span className={`verifyIcon ${settlementPassed ? "good" : "bad"}`}>
+                    {settlementPassed ? "✔" : "✘"}
+                  </span>
+                  {settlementPassed ? "PASS" : "FAIL"} — {settlementResult.decision_result}
+                </div>
 
-              <div className="commitRows">
-                <div className="commitRow">
-                  <span className="commitLabel">Decision Result</span>
-                  <span className="commitValue">{settlementResult.decision_result}</span>
+                <div className="verifyRows">
+                  {txHash && (
+                    <div className="verifyRow">
+                      <span className="check">✔</span>
+                      <span className="summaryLabel">TX Hash</span>
+                      <span className="summaryValue commitValueMono breakAll">{txHash}</span>
+                      <button
+                        className="copyBtn"
+                        onClick={() => copyToClipboard(txHash, "stl_tx_hash")}
+                        title="Copy tx_hash"
+                      >
+                        {copied === "stl_tx_hash" ? "✔ Copied" : "Copy"}
+                      </button>
+                    </div>
+                  )}
+                  {bundleHash && (
+                    <div className="verifyRow">
+                      <span className="check">✔</span>
+                      <span className="summaryLabel">Bundle Hash</span>
+                      <span className="summaryValue commitValueMono breakAll">{bundleHash}</span>
+                      <button
+                        className="copyBtn"
+                        onClick={() => copyToClipboard(bundleHash, "stl_bundle_hash")}
+                        title="Copy bundle_hash"
+                      >
+                        {copied === "stl_bundle_hash" ? "✔ Copied" : "Copy"}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {settlementResult.reason_codes.length > 0 && (
-                  <div className="commitRow">
-                    <span className="commitLabel">Reason Codes</span>
-                    <span className="commitValue">
-                      {settlementResult.reason_codes.join(", ")}
-                    </span>
+                  <div className="reasonCodes">
+                    <div className="reasonCodesTitle">Reason Codes</div>
+                    <div className="reasonCodesList">
+                      {settlementResult.reason_codes.map((rc) => (
+                        <span key={rc} className="reasonCode">{rc}</span>
+                      ))}
+                    </div>
                   </div>
                 )}
 
-                <div className="commitRow">
-                  <span className="commitLabel">Proof Artifact</span>
-                  <span className="commitValue commitValueMono" style={{ wordBreak: "break-all" }}>
-                    {JSON.stringify(settlementResult.proof_artifact, null, 2)}
-                  </span>
+                <div className="proofArtifactBlock">
+                  <details className="proofArtifactDetails">
+                    <summary className="proofArtifactSummary">
+                      Proof Artifact
+                      <button
+                        className="copyBtn"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          copyToClipboard(JSON.stringify(artifact, null, 2), "stl_proof_artifact");
+                        }}
+                        title="Copy proof artifact JSON"
+                      >
+                        {copied === "stl_proof_artifact" ? "✔ Copied" : "Copy"}
+                      </button>
+                    </summary>
+                    <pre className="proofArtifactPre">{JSON.stringify(artifact, null, 2)}</pre>
+                  </details>
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {settlementError && <div className="alert bad">{settlementError}</div>}
         </section>
