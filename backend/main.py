@@ -10,6 +10,13 @@ from uuid import uuid4
 
 import requests as http_requests
 
+try:
+    from xrpl.clients import JsonRpcClient
+    from xrpl.wallet import Wallet
+    _XRPL_SDK_AVAILABLE = True
+except ImportError:
+    _XRPL_SDK_AVAILABLE = False
+
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,6 +40,10 @@ CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost
 
 XRPL_RPC_URL = os.getenv("XRPL_RPC_URL", "https://s.altnet.rippletest.net:51234")
 XRPL_NETWORK = os.getenv("XRPL_NETWORK", "xrpl_testnet")
+RLUSD_ISSUER = os.getenv("RLUSD_ISSUER", "")
+RLUSD_CURRENCY = os.getenv("RLUSD_CURRENCY", "RLUSD")
+XRPL_DEMO_WALLET_SEED = os.getenv("XRPL_DEMO_WALLET_SEED", "")
+XRPL_ENFORCE_RLUSD_ONLY = os.getenv("XRPL_ENFORCE_RLUSD_ONLY", "false").lower() in ("true", "1", "yes")
 PERMIT_TTL_SECONDS = int(os.getenv("PERMIT_TTL_SECONDS", "300"))
 
 
@@ -133,6 +144,102 @@ def load_or_create_signing_key() -> SigningKey:
 
 SIGNING_KEY = load_or_create_signing_key()
 VERIFY_KEY = SIGNING_KEY.verify_key
+
+
+# -----------------------
+# XRPL Client Helpers
+# -----------------------
+
+def get_xrpl_client() -> "JsonRpcClient | None":
+    """Return an xrpl-py ``JsonRpcClient`` for the configured RPC URL.
+
+    Returns ``None`` when the xrpl-py SDK is not installed or
+    ``XRPL_RPC_URL`` is not set so that callers can gracefully degrade
+    without crashing application startup.
+    """
+    if not _XRPL_SDK_AVAILABLE:
+        logger.warning("xrpl-py SDK is not installed – XRPL client unavailable")
+        return None
+    if not XRPL_RPC_URL:
+        logger.warning("XRPL_RPC_URL is not configured – XRPL client unavailable")
+        return None
+    return JsonRpcClient(XRPL_RPC_URL)
+
+
+def get_demo_wallet() -> "Wallet | None":
+    """Return an xrpl-py ``Wallet`` from ``XRPL_DEMO_WALLET_SEED``.
+
+    Returns ``None`` when the seed is not configured or the xrpl-py SDK
+    is not installed.  This helper is intended **only** for demo / test
+    environments.
+    """
+    if not _XRPL_SDK_AVAILABLE:
+        logger.warning("xrpl-py SDK is not installed – demo wallet unavailable")
+        return None
+    if not XRPL_DEMO_WALLET_SEED:
+        logger.info("XRPL_DEMO_WALLET_SEED is not configured – demo wallet unavailable")
+        return None
+    return Wallet.from_seed(XRPL_DEMO_WALLET_SEED)
+
+
+def normalize_xrpl_amount(amount_obj: str | dict) -> dict:
+    """Normalise an XRPL ``Amount`` value into a consistent dict.
+
+    XRPL represents native XRP amounts as a string of *drops* while
+    issued-currency amounts are represented as a dict with ``currency``,
+    ``issuer``, and ``value`` keys.  This helper returns a uniform dict::
+
+        {"currency": "XRP", "value": "1.0", "issuer": ""}
+        {"currency": "RLUSD", "value": "10", "issuer": "rISSUER..."}
+
+    :param amount_obj: An amount value from an XRPL transaction – either
+        a string (drops of XRP) or a dict (issued currency).
+    :returns: A normalised dict with ``currency``, ``value``, and
+        ``issuer`` keys.
+    """
+    if isinstance(amount_obj, dict):
+        return {
+            "currency": amount_obj.get("currency", ""),
+            "value": amount_obj.get("value", "0"),
+            "issuer": amount_obj.get("issuer", ""),
+        }
+    # Native XRP – amount_obj is a string of drops
+    try:
+        drops = int(amount_obj)
+    except (ValueError, TypeError):
+        drops = 0
+    return {
+        "currency": "XRP",
+        "value": str(drops / 1_000_000),
+        "issuer": "",
+    }
+
+
+def is_rlusd_payment(tx_json: dict) -> bool:
+    """Check whether *tx_json* represents an RLUSD ``Payment``.
+
+    Returns ``True`` when all of the following conditions are met:
+
+    * ``TransactionType`` is ``"Payment"``
+    * The delivered currency matches ``RLUSD_CURRENCY``
+    * If ``RLUSD_ISSUER`` is configured the issuer must match as well
+
+    :param tx_json: A decoded XRPL transaction object (the ``result``
+        portion of an RPC ``tx`` response).
+    """
+    if tx_json.get("TransactionType") != "Payment":
+        return False
+
+    amount = tx_json.get("Amount", {})
+    normalized = normalize_xrpl_amount(amount)
+
+    if normalized["currency"] != RLUSD_CURRENCY:
+        return False
+
+    if RLUSD_ISSUER and normalized["issuer"] != RLUSD_ISSUER:
+        return False
+
+    return True
 
 
 # -----------------------
