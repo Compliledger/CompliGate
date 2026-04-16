@@ -1,8 +1,9 @@
 import pytest
 from fastapi.testclient import TestClient
+from fastapi import HTTPException
 from unittest.mock import patch, MagicMock
 import logging
-from main import app, evaluate_governance, evaluate_eligibility, evaluate_constraints, verify_settlement_against_permit
+from main import app, evaluate_governance, evaluate_eligibility, evaluate_constraints, verify_settlement_against_permit, _evaluate_settlement_constraints
 
 client = TestClient(app)
 
@@ -1282,3 +1283,264 @@ def test_xrpl_payment_is_logged(caplog):
 
     assert response.status_code == 200
     assert any("xrpl_payment_submitted" in msg for msg in caplog.messages)
+
+
+# -----------------------
+# POST /v1/settlement/verify tests
+# -----------------------
+
+SAMPLE_BUNDLE_HASH = "abc123def456"
+
+
+def _make_compliant_rlusd_tx(
+    destination="rDestination12345678901234567",
+    currency="RLUSD",
+    value="500",
+    issuer="rISSUER",
+    validated=True,
+):
+    """Build a mock XRPL RLUSD Payment transaction."""
+    return {
+        "Account": "rSender123456789012345678901",
+        "Destination": destination,
+        "TransactionType": "Payment",
+        "Amount": {"currency": currency, "value": str(value), "issuer": issuer},
+        "validated": validated,
+    }
+
+
+def test_settlement_verify_compliant_rlusd():
+    tx_data = _make_compliant_rlusd_tx()
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "SETTLED_COMPLIANT"
+    assert "ASSET_CLASSIFIED_REGULATED_STABLECOIN" in data["reason_codes"]
+    assert "RESERVE_BACKED" in data["reason_codes"]
+    assert "LIQUIDITY_VERIFIED" in data["reason_codes"]
+    assert "KYC_VERIFIED" in data["reason_codes"]
+    assert "SANCTIONS_PASSED" in data["reason_codes"]
+    assert "JURISDICTION_MATCH" in data["reason_codes"]
+    assert "AMOUNT_WITHIN_LIMIT" in data["reason_codes"]
+    assert "TRUSTLINE_REQUIRED" in data["reason_codes"]
+
+
+def test_settlement_verify_response_has_proof_artifact():
+    tx_data = _make_compliant_rlusd_tx()
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    artifact = response.json()["proof_artifact"]
+    assert artifact["module"] == "CompliGate"
+    assert artifact["entity_id"] == SAMPLE_BUNDLE_HASH
+    assert artifact["decision_result"] == "SETTLED_COMPLIANT"
+    assert artifact["bundle_hash"] == SAMPLE_BUNDLE_HASH
+    assert isinstance(artifact["evaluation_context"], dict)
+    assert isinstance(artifact["reason_codes"], list)
+    assert isinstance(artifact["timestamp"], int)
+
+
+def test_settlement_verify_evaluation_context_fields():
+    tx_data = _make_compliant_rlusd_tx(destination="rDest12345678901234567890123")
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    ctx = response.json()["proof_artifact"]["evaluation_context"]
+    assert ctx["bundle_hash"] == SAMPLE_BUNDLE_HASH
+    assert ctx["tx_hash"] == SAMPLE_TX_HASH
+    assert ctx["asset"] == "RLUSD"
+    assert ctx["amount"] == "500"
+    assert ctx["issuer"] == "rISSUER"
+    assert ctx["destination"] == "rDest12345678901234567890123"
+    assert "jurisdiction" in ctx
+    assert isinstance(ctx["constraints_verified"], dict)
+
+
+def test_settlement_verify_non_compliant_wrong_currency():
+    tx_data = _make_compliant_rlusd_tx(currency="USD")
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "SETTLEMENT_NON_COMPLIANT"
+    assert "ASSET_NOT_RLUSD" in data["reason_codes"]
+
+
+def test_settlement_verify_non_compliant_amount_exceeds_limit():
+    tx_data = _make_compliant_rlusd_tx(value="6000000")
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "SETTLEMENT_NON_COMPLIANT"
+    assert "AMOUNT_EXCEEDS_LIMIT" in data["reason_codes"]
+
+
+def test_settlement_verify_non_compliant_not_validated():
+    tx_data = _make_compliant_rlusd_tx(validated=False)
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "SETTLEMENT_NON_COMPLIANT"
+    assert "TX_NOT_VALIDATED" in data["reason_codes"]
+
+
+def test_settlement_verify_non_compliant_wrong_tx_type():
+    tx_data = {
+        "Account": "rSender123456789012345678901",
+        "TransactionType": "TrustSet",
+        "LimitAmount": {"currency": "RLUSD", "value": "1000", "issuer": "rISSUER"},
+        "validated": True,
+    }
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "SETTLEMENT_NON_COMPLIANT"
+    assert "TX_TYPE_NOT_PAYMENT" in data["reason_codes"]
+
+
+def test_settlement_verify_returns_502_on_rpc_failure():
+    with patch("main.fetch_xrpl_transaction", side_effect=HTTPException(status_code=502, detail={"error": "xrpl_rpc_failed"})):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 502
+
+
+def test_settlement_verify_missing_bundle_hash():
+    response = client.post(
+        "/v1/settlement/verify",
+        json={"tx_hash": SAMPLE_TX_HASH},
+    )
+    assert response.status_code == 422
+
+
+def test_settlement_verify_missing_tx_hash():
+    response = client.post(
+        "/v1/settlement/verify",
+        json={"bundle_hash": SAMPLE_BUNDLE_HASH},
+    )
+    assert response.status_code == 422
+
+
+def test_settlement_verify_is_logged(caplog):
+    tx_data = _make_compliant_rlusd_tx()
+    with caplog.at_level(logging.INFO), \
+         patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    assert any("settlement_verify" in msg for msg in caplog.messages)
+
+
+def test_settlement_verify_proof_artifact_anchor_metadata():
+    tx_data = _make_compliant_rlusd_tx()
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    anchor = response.json()["proof_artifact"]["anchor_metadata"]
+    assert "network" in anchor
+    assert anchor["tx_hash"] == SAMPLE_TX_HASH
+
+
+def test_settlement_verify_xrp_native_non_compliant():
+    """Native XRP (not RLUSD) should be non-compliant."""
+    tx_data = {
+        "Account": "rSender123456789012345678901",
+        "Destination": "rDest12345678901234567890123",
+        "TransactionType": "Payment",
+        "Amount": "1000000",
+        "validated": True,
+    }
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "SETTLEMENT_NON_COMPLIANT"
+    assert "ASSET_NOT_RLUSD" in data["reason_codes"]
+
+
+def test_settlement_verify_constraints_verified_in_context():
+    tx_data = _make_compliant_rlusd_tx()
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    cv = response.json()["proof_artifact"]["evaluation_context"]["constraints_verified"]
+    assert cv["tx_validated"] is True
+    assert cv["tx_type_payment"] is True
+    assert cv["asset_classification_regulated_stablecoin"] is True
+    assert cv["reserve_backed"] is True
+    assert cv["liquidity_verified"] is True
+    assert cv["kyc_verified"] is True
+    assert cv["sanctions_check_passed"] is True
+    assert cv["jurisdiction_match"] is True
+    assert cv["amount_within_limit"] is True
+    assert cv["trustline_required"] is True
+
+
+def test_evaluate_settlement_constraints_unit_compliant():
+    tx_data = _make_compliant_rlusd_tx()
+    decision, reason_codes, cv = _evaluate_settlement_constraints(tx_data)
+    assert decision == "SETTLED_COMPLIANT"
+    assert cv["tx_validated"] is True
+    assert cv["asset_classification_regulated_stablecoin"] is True
+
+
+def test_evaluate_settlement_constraints_unit_non_compliant():
+    tx_data = _make_compliant_rlusd_tx(currency="XYZ", validated=False)
+    decision, reason_codes, cv = _evaluate_settlement_constraints(tx_data)
+    assert decision == "SETTLEMENT_NON_COMPLIANT"
+    assert cv["tx_validated"] is False
+    assert cv["asset_classification_regulated_stablecoin"] is False
+
+
+def test_settlement_verify_rlusd_issuer_enforcement():
+    """When XRPL_ENFORCE_RLUSD_ONLY is true and RLUSD_ISSUER is set, issuer must match."""
+    tx_data = _make_compliant_rlusd_tx(issuer="rWRONG_ISSUER")
+    with patch("main.XRPL_ENFORCE_RLUSD_ONLY", True), \
+         patch("main.RLUSD_ISSUER", "rCORRECT_ISSUER"), \
+         patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "SETTLEMENT_NON_COMPLIANT"
+    assert "ASSET_NOT_RLUSD" in data["reason_codes"]
