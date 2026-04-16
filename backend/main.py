@@ -709,10 +709,16 @@ def verify_settlement_against_permit(
 
 @app.get("/v1/xrpl/health")
 def xrpl_health():
-    """Check XRPL network connectivity."""
+    """Check XRPL network connectivity and configuration."""
     rpc_url = XRPL_RPC_URL
+    rlusd_configured = bool(RLUSD_ISSUER and RLUSD_CURRENCY)
     if not rpc_url:
-        return {"xrpl_configured": False, "reachable": False, "network": XRPL_NETWORK}
+        return {
+            "configured": False,
+            "reachable": False,
+            "network": XRPL_NETWORK,
+            "rlusd_configured": rlusd_configured,
+        }
     try:
         resp = http_requests.post(
             rpc_url,
@@ -723,7 +729,12 @@ def xrpl_health():
         reachable = True
     except http_requests.RequestException:
         reachable = False
-    return {"xrpl_configured": True, "reachable": reachable, "network": XRPL_NETWORK}
+    return {
+        "configured": True,
+        "reachable": reachable,
+        "network": XRPL_NETWORK,
+        "rlusd_configured": rlusd_configured,
+    }
 
 
 # -----------------------

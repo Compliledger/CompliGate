@@ -432,9 +432,10 @@ def test_xrpl_health_configured():
 
     assert response.status_code == 200
     data = response.json()
-    assert data["xrpl_configured"] is True
+    assert data["configured"] is True
     assert data["reachable"] is True
     assert "network" in data
+    assert "rlusd_configured" in data
 
 
 def test_xrpl_health_unreachable():
@@ -447,7 +448,7 @@ def test_xrpl_health_unreachable():
 
     assert response.status_code == 200
     data = response.json()
-    assert data["xrpl_configured"] is True
+    assert data["configured"] is True
     assert data["reachable"] is False
 
 
@@ -456,7 +457,7 @@ def test_xrpl_health_not_configured():
         response = client.get("/v1/xrpl/health")
     assert response.status_code == 200
     data = response.json()
-    assert data["xrpl_configured"] is False
+    assert data["configured"] is False
     assert data["reachable"] is False
 
 
