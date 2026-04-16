@@ -1545,3 +1545,152 @@ def test_settlement_verify_rlusd_issuer_enforcement():
     data = response.json()
     assert data["decision_result"] == "SETTLEMENT_NON_COMPLIANT"
     assert "ASSET_NOT_RLUSD" in data["reason_codes"]
+
+
+# -----------------------
+# XRPL/RLUSD Phase Tests
+# -----------------------
+
+
+def test_xrpl_health_configured_returns_rlusd_status():
+    """XRPL health returns rlusd_configured reflecting RLUSD_ISSUER and RLUSD_CURRENCY."""
+    with patch("main.http_requests.post") as mock_post, \
+         patch("main.RLUSD_ISSUER", "rISSUER123"), \
+         patch("main.RLUSD_CURRENCY", "RLUSD"):
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.return_value = None
+        mock_post.return_value = mock_resp
+        response = client.get("/v1/xrpl/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["configured"] is True
+    assert data["rlusd_configured"] is True
+
+
+def test_xrpl_health_unconfigured_rlusd():
+    """When RLUSD_ISSUER is empty, rlusd_configured is False."""
+    with patch("main.http_requests.post") as mock_post, \
+         patch("main.RLUSD_ISSUER", ""), \
+         patch("main.RLUSD_CURRENCY", "RLUSD"):
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.return_value = None
+        mock_post.return_value = mock_resp
+        response = client.get("/v1/xrpl/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["configured"] is True
+    assert data["rlusd_configured"] is False
+
+
+def test_xrpl_health_unconfigured_returns_all_fields():
+    """Unconfigured XRPL health response includes all expected fields."""
+    with patch("main.XRPL_RPC_URL", ""):
+        response = client.get("/v1/xrpl/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert "configured" in data
+    assert "reachable" in data
+    assert "network" in data
+    assert "rlusd_configured" in data
+    assert data["configured"] is False
+    assert data["reachable"] is False
+
+
+def test_settlement_verify_success_mocked_xrpl_lookup():
+    """Full success path: mocked XRPL tx lookup returns a compliant RLUSD payment."""
+    tx_data = _make_compliant_rlusd_tx(
+        destination="rDest12345678901234567890123",
+        currency="RLUSD",
+        value="1000",
+        issuer="rISSUER",
+    )
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "SETTLED_COMPLIANT"
+    # Verify proof artifact is present and correct
+    proof = data["proof_artifact"]
+    assert proof["module"] == "CompliGate"
+    assert proof["entity_id"] == SAMPLE_BUNDLE_HASH
+    assert proof["decision_result"] == "SETTLED_COMPLIANT"
+    # Verify evaluation context contains tx details
+    ctx = proof["evaluation_context"]
+    assert ctx["tx_hash"] == SAMPLE_TX_HASH
+    assert ctx["asset"] == "RLUSD"
+    assert ctx["amount"] == "1000"
+    assert ctx["destination"] == "rDest12345678901234567890123"
+
+
+def test_settlement_verify_fails_asset_not_rlusd():
+    """Settlement verification rejects a non-RLUSD asset (e.g. USD)."""
+    tx_data = _make_compliant_rlusd_tx(currency="USD")
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "SETTLEMENT_NON_COMPLIANT"
+    assert "ASSET_NOT_RLUSD" in data["reason_codes"]
+    cv = data["proof_artifact"]["evaluation_context"]["constraints_verified"]
+    assert cv["asset_classification_regulated_stablecoin"] is False
+
+
+def test_settlement_verify_fails_amount_exceeds_limit():
+    """Settlement verification rejects a payment exceeding the MAX_AMOUNT policy limit."""
+    from main import MAX_AMOUNT
+
+    tx_data = _make_compliant_rlusd_tx(value=str(MAX_AMOUNT + 1))
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "SETTLEMENT_NON_COMPLIANT"
+    assert "AMOUNT_EXCEEDS_LIMIT" in data["reason_codes"]
+    cv = data["proof_artifact"]["evaluation_context"]["constraints_verified"]
+    assert cv["amount_within_limit"] is False
+
+
+def test_xrpl_payment_fails_missing_wallet_seed():
+    """XRPL payment returns 400 when demo wallet seed is not configured."""
+    with patch("main.get_demo_wallet", return_value=None), \
+         patch("main.get_xrpl_client") as mock_client:
+        mock_client.return_value = MagicMock()
+        response = client.post(
+            "/v1/xrpl/payment",
+            json={"destination": "rDestination123456789012345678", "amount": "100"},
+        )
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["error"] == "demo_wallet_not_configured"
+    assert "XRPL_DEMO_WALLET_SEED" in detail["reason"]
+
+
+def test_evaluate_settlement_constraints_amount_at_max():
+    """Exactly MAX_AMOUNT should be compliant."""
+    from main import MAX_AMOUNT
+
+    tx_data = _make_compliant_rlusd_tx(value=str(MAX_AMOUNT))
+    decision, reason_codes, cv = _evaluate_settlement_constraints(tx_data)
+    assert decision == "SETTLED_COMPLIANT"
+    assert cv["amount_within_limit"] is True
+    assert "AMOUNT_WITHIN_LIMIT" in reason_codes
+
+
+def test_evaluate_settlement_constraints_amount_over_max():
+    """One above MAX_AMOUNT should be non-compliant."""
+    from main import MAX_AMOUNT
+
+    tx_data = _make_compliant_rlusd_tx(value=str(MAX_AMOUNT + 1))
+    decision, reason_codes, cv = _evaluate_settlement_constraints(tx_data)
+    assert decision == "SETTLEMENT_NON_COMPLIANT"
+    assert cv["amount_within_limit"] is False
+    assert "AMOUNT_EXCEEDS_LIMIT" in reason_codes
