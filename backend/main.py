@@ -13,6 +13,9 @@ import requests as http_requests
 try:
     from xrpl.clients import JsonRpcClient
     from xrpl.wallet import Wallet
+    from xrpl.models.transactions import Payment, Memo
+    from xrpl.models.amounts import IssuedCurrencyAmount
+    from xrpl.transaction import submit_and_wait
     _XRPL_SDK_AVAILABLE = True
 except ImportError:
     _XRPL_SDK_AVAILABLE = False
@@ -690,6 +693,105 @@ def xrpl_health():
     except http_requests.RequestException:
         reachable = False
     return {"xrpl_configured": True, "reachable": reachable, "network": XRPL_NETWORK}
+
+
+# -----------------------
+# XRPL Demo Payment
+# -----------------------
+
+
+class XRPLPaymentRequest(BaseModel):
+    destination: str = Field(..., description="Destination XRPL account address.")
+    amount: str | float | int = Field(..., description="Amount to send.")
+    memo_bundle_hash: str | None = Field(None, description="Optional bundle hash to attach as memo.")
+
+
+@app.post("/v1/xrpl/payment")
+def xrpl_payment(req: XRPLPaymentRequest):
+    """Submit a demo RLUSD payment on the XRPL testnet.
+
+    This endpoint is intended for demo / test purposes only.  It uses the
+    configured ``XRPL_DEMO_WALLET_SEED`` to sign and submit a ``Payment``
+    transaction on the XRPL testnet.
+    """
+    if not _XRPL_SDK_AVAILABLE:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "xrpl_sdk_unavailable", "reason": "xrpl-py SDK is not installed"},
+        )
+
+    client = get_xrpl_client()
+    if client is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "xrpl_not_configured", "reason": "XRPL_RPC_URL is not configured"},
+        )
+
+    wallet = get_demo_wallet()
+    if wallet is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "demo_wallet_not_configured", "reason": "XRPL_DEMO_WALLET_SEED is not configured"},
+        )
+
+    amount_value = str(req.amount)
+
+    # XRPL requires non-standard currency codes (> 3 chars) to be hex-encoded
+    currency_code = RLUSD_CURRENCY
+    if len(currency_code) > 3:
+        currency_code = currency_code.encode("ascii").hex().upper().ljust(40, "0")
+
+    payment_amount = IssuedCurrencyAmount(
+        currency=currency_code,
+        issuer=RLUSD_ISSUER,
+        value=amount_value,
+    )
+
+    memos = []
+    if req.memo_bundle_hash:
+        memos.append(
+            Memo(
+                memo_data=req.memo_bundle_hash.encode("utf-8").hex(),
+                memo_type="text/plain".encode("utf-8").hex(),
+            )
+        )
+
+    payment = Payment(
+        account=wallet.address,
+        destination=req.destination,
+        amount=payment_amount,
+        memos=memos if memos else None,
+    )
+
+    try:
+        response = submit_and_wait(payment, client, wallet)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"error": "xrpl_submit_failed", "reason": str(exc)},
+        ) from exc
+
+    engine_result = response.result.get("meta", {}).get("TransactionResult", "unknown")
+    tx_hash = response.result.get("hash", "")
+
+    logger.info(
+        "xrpl_payment_submitted tx_hash=%s destination=%s amount=%s engine_result=%s",
+        tx_hash,
+        req.destination,
+        amount_value,
+        engine_result,
+    )
+
+    return {
+        "submitted": True,
+        "tx_hash": tx_hash,
+        "engine_result": engine_result,
+        "network": XRPL_NETWORK,
+        "currency": RLUSD_CURRENCY,
+        "issuer": RLUSD_ISSUER,
+        "amount": amount_value,
+        "destination": req.destination,
+    }
 
 
 @app.post("/v1/proof-artifact", response_model=ProofArtifact)
