@@ -1077,3 +1077,208 @@ def test_enrich_proof_artifact_accepts_empty_anchor_metadata():
     artifact = _make_proof_artifact()
     enriched = enrich_proof_artifact_with_anchor(artifact, {})
     assert enriched.anchor_metadata == {}
+
+
+# -----------------------
+# XRPL Payment Endpoint Tests
+# -----------------------
+
+PAYMENT_URL = "/v1/xrpl/payment"
+VALID_DESTINATION = "rN7n3473SaZBCG4dFL83w7PB5XDnEHyMQX"
+
+
+def test_xrpl_payment_missing_wallet_seed():
+    """Returns 400 when XRPL_DEMO_WALLET_SEED is not configured."""
+    with patch("main.XRPL_DEMO_WALLET_SEED", ""):
+        response = client.post(
+            PAYMENT_URL,
+            json={"destination": VALID_DESTINATION, "amount": "10"},
+        )
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["error"] == "demo_wallet_not_configured"
+
+
+def test_xrpl_payment_missing_rpc_url():
+    """Returns 400 when XRPL_RPC_URL is not configured."""
+    with patch("main.XRPL_RPC_URL", ""):
+        response = client.post(
+            PAYMENT_URL,
+            json={"destination": VALID_DESTINATION, "amount": "10"},
+        )
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["error"] == "xrpl_not_configured"
+
+
+def test_xrpl_payment_sdk_unavailable():
+    """Returns 400 when xrpl-py SDK is not installed."""
+    with patch("main._XRPL_SDK_AVAILABLE", False):
+        response = client.post(
+            PAYMENT_URL,
+            json={"destination": VALID_DESTINATION, "amount": "10"},
+        )
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["error"] == "xrpl_sdk_unavailable"
+
+
+def _mock_demo_wallet():
+    """Return a MagicMock that acts as an xrpl Wallet."""
+    wallet = MagicMock()
+    wallet.address = "rSENDER1234567890123456789012"
+    return wallet
+
+
+def test_xrpl_payment_success():
+    """Successful payment submission returns expected fields."""
+    mock_response = MagicMock()
+    mock_response.result = {
+        "hash": "ABC123TXHASH",
+        "meta": {"TransactionResult": "tesSUCCESS"},
+    }
+
+    with patch("main.get_demo_wallet", return_value=_mock_demo_wallet()), \
+         patch("main.RLUSD_ISSUER", "rISSUER123"), \
+         patch("main.RLUSD_CURRENCY", "RLUSD"), \
+         patch("main.XRPL_RPC_URL", "https://s.altnet.rippletest.net:51234"), \
+         patch("main.XRPL_NETWORK", "xrpl_testnet"), \
+         patch("main.submit_and_wait", return_value=mock_response) as mock_submit:
+        response = client.post(
+            PAYMENT_URL,
+            json={"destination": VALID_DESTINATION, "amount": "25"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["submitted"] is True
+    assert data["tx_hash"] == "ABC123TXHASH"
+    assert data["engine_result"] == "tesSUCCESS"
+    assert data["network"] == "xrpl_testnet"
+    assert data["currency"] == "RLUSD"
+    assert data["issuer"] == "rISSUER123"
+    assert data["amount"] == "25"
+    assert data["destination"] == VALID_DESTINATION
+    mock_submit.assert_called_once()
+
+
+def test_xrpl_payment_with_memo():
+    """When memo_bundle_hash is provided, submit is called with memos."""
+    mock_response = MagicMock()
+    mock_response.result = {
+        "hash": "MEMOTXHASH",
+        "meta": {"TransactionResult": "tesSUCCESS"},
+    }
+
+    with patch("main.get_demo_wallet", return_value=_mock_demo_wallet()), \
+         patch("main.RLUSD_ISSUER", "rISSUER123"), \
+         patch("main.RLUSD_CURRENCY", "RLUSD"), \
+         patch("main.XRPL_RPC_URL", "https://s.altnet.rippletest.net:51234"), \
+         patch("main.submit_and_wait", return_value=mock_response) as mock_submit:
+        response = client.post(
+            PAYMENT_URL,
+            json={
+                "destination": VALID_DESTINATION,
+                "amount": 10,
+                "memo_bundle_hash": "abc123hash",
+            },
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["submitted"] is True
+    assert data["tx_hash"] == "MEMOTXHASH"
+
+    # Verify that the Payment object passed to submit_and_wait had memos
+    call_args = mock_submit.call_args
+    payment_obj = call_args[0][0]
+    assert payment_obj.memos is not None
+    assert len(payment_obj.memos) == 1
+
+
+def test_xrpl_payment_without_memo():
+    """When memo_bundle_hash is not provided, memos should be None."""
+    mock_response = MagicMock()
+    mock_response.result = {
+        "hash": "NOMEMOTXHASH",
+        "meta": {"TransactionResult": "tesSUCCESS"},
+    }
+
+    with patch("main.get_demo_wallet", return_value=_mock_demo_wallet()), \
+         patch("main.RLUSD_ISSUER", "rISSUER123"), \
+         patch("main.RLUSD_CURRENCY", "RLUSD"), \
+         patch("main.XRPL_RPC_URL", "https://s.altnet.rippletest.net:51234"), \
+         patch("main.submit_and_wait", return_value=mock_response) as mock_submit:
+        response = client.post(
+            PAYMENT_URL,
+            json={"destination": VALID_DESTINATION, "amount": "5"},
+        )
+
+    assert response.status_code == 200
+    call_args = mock_submit.call_args
+    payment_obj = call_args[0][0]
+    assert payment_obj.memos is None
+
+
+def test_xrpl_payment_submit_failure():
+    """Returns 502 when the XRPL submission fails."""
+    with patch("main.get_demo_wallet", return_value=_mock_demo_wallet()), \
+         patch("main.RLUSD_ISSUER", "rISSUER123"), \
+         patch("main.RLUSD_CURRENCY", "RLUSD"), \
+         patch("main.XRPL_RPC_URL", "https://s.altnet.rippletest.net:51234"), \
+         patch("main.submit_and_wait", side_effect=Exception("connection timeout")):
+        response = client.post(
+            PAYMENT_URL,
+            json={"destination": VALID_DESTINATION, "amount": "10"},
+        )
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert detail["error"] == "xrpl_submit_failed"
+    assert "connection timeout" in detail["reason"]
+
+
+def test_xrpl_payment_numeric_amount():
+    """Numeric amount is converted to string in the response."""
+    mock_response = MagicMock()
+    mock_response.result = {
+        "hash": "NUMTXHASH",
+        "meta": {"TransactionResult": "tesSUCCESS"},
+    }
+
+    with patch("main.get_demo_wallet", return_value=_mock_demo_wallet()), \
+         patch("main.RLUSD_ISSUER", "rISSUER123"), \
+         patch("main.RLUSD_CURRENCY", "RLUSD"), \
+         patch("main.XRPL_RPC_URL", "https://s.altnet.rippletest.net:51234"), \
+         patch("main.submit_and_wait", return_value=mock_response):
+        response = client.post(
+            PAYMENT_URL,
+            json={"destination": VALID_DESTINATION, "amount": 42},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["amount"] == "42"
+
+
+def test_xrpl_payment_is_logged(caplog):
+    """Successful payment submission is logged."""
+    mock_response = MagicMock()
+    mock_response.result = {
+        "hash": "LOGTXHASH",
+        "meta": {"TransactionResult": "tesSUCCESS"},
+    }
+
+    with caplog.at_level(logging.INFO), \
+         patch("main.get_demo_wallet", return_value=_mock_demo_wallet()), \
+         patch("main.RLUSD_ISSUER", "rISSUER123"), \
+         patch("main.RLUSD_CURRENCY", "RLUSD"), \
+         patch("main.XRPL_RPC_URL", "https://s.altnet.rippletest.net:51234"), \
+         patch("main.submit_and_wait", return_value=mock_response):
+        response = client.post(
+            PAYMENT_URL,
+            json={"destination": VALID_DESTINATION, "amount": "10"},
+        )
+
+    assert response.status_code == 200
+    assert any("xrpl_payment_submitted" in msg for msg in caplog.messages)
