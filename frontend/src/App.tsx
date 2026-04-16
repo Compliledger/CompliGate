@@ -147,6 +147,23 @@ export default function App() {
     return Math.min(100, (remaining / permit.expires_in_seconds) * 100);
   }, [permit, remaining]);
 
+  const regulatoryControlsJson = useMemo(() => {
+    if (!permit) return "";
+    return JSON.stringify({
+      asset_classification: permit.bundle.asset.classification,
+      regulatory_treatment: permit.bundle.asset.regulatory_treatment,
+      reserve_backed: permit.bundle.constraints.reserve_backed,
+      liquidity_verified: permit.bundle.constraints.liquidity_verified,
+      kyc_verified: permit.bundle.constraints.kyc_verified,
+      sanctions_check: permit.bundle.constraints.sanctions_check,
+      jurisdiction: permit.bundle.constraints.jurisdiction,
+      max_amount: permit.bundle.constraints.max_amount,
+      freeze_possible: permit.bundle.constraints.freeze_possible,
+      clawback_possible: permit.bundle.constraints.clawback_possible,
+      trustline_required: permit.bundle.constraints.trustline_required,
+    }, null, 2);
+  }, [permit]);
+
   async function verifyPermit() {
     if (!permit) return;
     setVerifyError(null);
@@ -563,40 +580,13 @@ export default function App() {
                 <div className="codeTitle">Regulatory Controls (JSON)</div>
                 <button
                   className="copyBtn"
-                  onClick={() => {
-                    const controls = {
-                      asset_classification: permit.bundle.asset.classification,
-                      regulatory_treatment: permit.bundle.asset.regulatory_treatment,
-                      reserve_backed: permit.bundle.constraints.reserve_backed,
-                      liquidity_verified: permit.bundle.constraints.liquidity_verified,
-                      kyc_verified: permit.bundle.constraints.kyc_verified,
-                      sanctions_check: permit.bundle.constraints.sanctions_check,
-                      jurisdiction: permit.bundle.constraints.jurisdiction,
-                      max_amount: permit.bundle.constraints.max_amount,
-                      freeze_possible: permit.bundle.constraints.freeze_possible,
-                      clawback_possible: permit.bundle.constraints.clawback_possible,
-                      trustline_required: permit.bundle.constraints.trustline_required,
-                    };
-                    copyToClipboard(JSON.stringify(controls, null, 2), "reg_controls");
-                  }}
+                  onClick={() => copyToClipboard(regulatoryControlsJson, "reg_controls")}
                   title="Copy regulatory controls"
                 >
                   {copied === "reg_controls" ? "✔ Copied" : "Copy"}
                 </button>
               </div>
-              <pre>{JSON.stringify({
-                asset_classification: permit.bundle.asset.classification,
-                regulatory_treatment: permit.bundle.asset.regulatory_treatment,
-                reserve_backed: permit.bundle.constraints.reserve_backed,
-                liquidity_verified: permit.bundle.constraints.liquidity_verified,
-                kyc_verified: permit.bundle.constraints.kyc_verified,
-                sanctions_check: permit.bundle.constraints.sanctions_check,
-                jurisdiction: permit.bundle.constraints.jurisdiction,
-                max_amount: permit.bundle.constraints.max_amount,
-                freeze_possible: permit.bundle.constraints.freeze_possible,
-                clawback_possible: permit.bundle.constraints.clawback_possible,
-                trustline_required: permit.bundle.constraints.trustline_required,
-              }, null, 2)}</pre>
+              <pre>{regulatoryControlsJson}</pre>
 
               <div className="codeTitle">Proof Bundle (raw JSON)</div>
               <pre>{JSON.stringify(permit.bundle, null, 2)}</pre>
