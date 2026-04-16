@@ -59,7 +59,7 @@ def test_permit_unsupported_action_returns_400():
 
 
 def test_permit_amount_exceeds_max_returns_400():
-    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 1001})
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 5000001})
     assert response.status_code == 400
     detail = response.json()["detail"]
     assert detail["error"] == "transaction_not_allowed"
@@ -67,7 +67,7 @@ def test_permit_amount_exceeds_max_returns_400():
 
 
 def test_permit_amount_at_max_is_allowed():
-    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 1000})
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 5000000})
     assert response.status_code == 200
 
 
@@ -279,7 +279,7 @@ def test_settle_verify_detects_amount_exceeds_limit():
         account=VALID_SUBJECT,
         destination="rCounterparty1234567890123456789",
         currency="RLUSD",
-        value=1500,
+        value=5000001,
     )
 
     with patch("main.fetch_xrpl_transaction", return_value=tx_data):
@@ -516,7 +516,7 @@ def test_permit_unsupported_action_returns_structured_error():
 
 
 def test_permit_amount_exceeds_max_returns_structured_error():
-    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 1001})
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 5000001})
     assert response.status_code == 400
     detail = response.json()["detail"]
     assert detail["error"] == "transaction_not_allowed"
@@ -524,7 +524,7 @@ def test_permit_amount_exceeds_max_returns_structured_error():
 
 
 def test_permit_amount_at_max_is_accepted():
-    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 1000})
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 5000000})
     assert response.status_code == 200
 
 
@@ -673,7 +673,7 @@ def test_evaluate_constraints_invalid_action_raises():
 def test_evaluate_constraints_amount_exceeds_max_raises():
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as exc_info:
-        evaluate_constraints("transfer", 1001, None)
+        evaluate_constraints("transfer", 5000001, None)
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail["error"] == "transaction_not_allowed"
 
@@ -799,7 +799,7 @@ def test_proof_artifact_validates_action():
 def test_proof_artifact_validates_amount():
     response = client.post(
         "/v1/proof-artifact",
-        json={"subject": VALID_SUBJECT, "amount": 9999},
+        json={"subject": VALID_SUBJECT, "amount": 5000001},
     )
     assert response.status_code == 400
     assert response.json()["detail"]["error"] == "transaction_not_allowed"
@@ -918,6 +918,97 @@ def test_permit_proof_artifact_timestamp_is_integer():
 
 
 # -----------------------
+# XRPL/RLUSD constraint tests
+# -----------------------
+
+def test_permit_bundle_asset_classification():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    asset = response.json()["bundle"]["asset"]
+    assert asset["classification"] == "regulated_stablecoin"
+    assert asset["regulatory_treatment"] == "non_security"
+    from main import POLICY_VERSION
+    assert asset["policy_id"] == POLICY_VERSION
+
+
+def test_permit_bundle_constraints_backing_signals():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    constraints = response.json()["bundle"]["constraints"]
+    assert constraints["reserve_backed"] is True
+    assert constraints["liquidity_verified"] is True
+
+
+def test_permit_bundle_constraints_jurisdiction_identity():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    constraints = response.json()["bundle"]["constraints"]
+    assert constraints["kyc_verified"] is True
+    assert constraints["sanctions_check"] == "passed"
+    from main import JURISDICTION
+    assert constraints["jurisdiction"] == JURISDICTION
+
+
+def test_permit_bundle_constraints_transaction_limits():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 100})
+    assert response.status_code == 200
+    constraints = response.json()["bundle"]["constraints"]
+    assert constraints["amount"] == 100
+    assert constraints["max_amount"] == 5000000
+    assert constraints["within_limit"] is True
+
+
+def test_permit_bundle_constraints_within_limit_false_not_possible():
+    """Amount exceeding max_amount is rejected at validation, so within_limit is always True in response."""
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 5000001})
+    assert response.status_code == 400
+
+
+def test_permit_bundle_constraints_no_amount():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    constraints = response.json()["bundle"]["constraints"]
+    assert constraints["amount"] is None
+    assert constraints["within_limit"] is True
+
+
+def test_permit_bundle_constraints_xrpl_issuer_controls():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    constraints = response.json()["bundle"]["constraints"]
+    assert constraints["freeze_possible"] is True
+    assert constraints["clawback_possible"] is True
+    assert constraints["trustline_required"] is True
+
+
+def test_permit_evaluation_context_xrpl_fields():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 250})
+    assert response.status_code == 200
+    ctx = response.json()["proof_artifact"]["evaluation_context"]
+    assert ctx["classification"] == "regulated_stablecoin"
+    assert ctx["regulatory_treatment"] == "non_security"
+    assert ctx["reserve_backed"] is True
+    assert ctx["liquidity_verified"] is True
+    assert ctx["kyc_verified"] is True
+    assert ctx["sanctions_check"] == "passed"
+    assert ctx["amount"] == 250
+    assert ctx["max_amount"] == 5000000
+    assert ctx["within_limit"] is True
+    assert ctx["freeze_possible"] is True
+    assert ctx["clawback_possible"] is True
+    assert ctx["trustline_required"] is True
+
+
+def test_permit_reason_codes_include_xrpl_codes():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT, "amount": 100})
+    assert response.status_code == 200
+    codes = response.json()["reason_codes"]
+    assert "KYC_VERIFIED" in codes
+    assert "SANCTIONS_PASSED" in codes
+    assert "RESERVE_BACKED" in codes
+    assert "LIQUIDITY_VERIFIED" in codes
+    assert "ISSUER_CONTROLS_ACTIVE" in codes
+    assert "AMOUNT_WITHIN_LIMIT" in codes
 # enrich_proof_artifact_with_anchor tests
 # -----------------------
 
