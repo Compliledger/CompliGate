@@ -372,6 +372,13 @@ export default function App() {
                   <span className="summaryLabel">Asset classification</span>
                   <span className="summaryValue">{permit.summary.asset_classification}</span>
                 </div>
+                {permit.bundle.asset.regulatory_treatment && (
+                  <div className="summaryRow">
+                    <span className="check">✔</span>
+                    <span className="summaryLabel">Regulatory treatment</span>
+                    <span className="summaryValue">{permit.bundle.asset.regulatory_treatment}</span>
+                  </div>
+                )}
                 <div className="summaryRow">
                   <span className={checkClass(permit.summary.custody_attestation_bound)}>
                     {checkSymbol(permit.summary.custody_attestation_bound)}
@@ -422,6 +429,99 @@ export default function App() {
                 </div>
               </div>
 
+              <div className="regulatoryControlsHeader">XRPL / RLUSD Regulatory Controls</div>
+              <div className="summary">
+                {permit.bundle.constraints.reserve_backed !== undefined && (
+                  <div className="summaryRow">
+                    <span className={checkClass(permit.bundle.constraints.reserve_backed)}>
+                      {checkSymbol(permit.bundle.constraints.reserve_backed)}
+                    </span>
+                    <span className="summaryLabel">Reserve backed</span>
+                    <span className="summaryValue">
+                      {permit.bundle.constraints.reserve_backed ? "Yes" : "No"}
+                    </span>
+                  </div>
+                )}
+                {permit.bundle.constraints.liquidity_verified !== undefined && (
+                  <div className="summaryRow">
+                    <span className={checkClass(permit.bundle.constraints.liquidity_verified)}>
+                      {checkSymbol(permit.bundle.constraints.liquidity_verified)}
+                    </span>
+                    <span className="summaryLabel">Liquidity verified</span>
+                    <span className="summaryValue">
+                      {permit.bundle.constraints.liquidity_verified ? "Yes" : "No"}
+                    </span>
+                  </div>
+                )}
+                {permit.bundle.constraints.kyc_verified !== undefined && (
+                  <div className="summaryRow">
+                    <span className={checkClass(permit.bundle.constraints.kyc_verified)}>
+                      {checkSymbol(permit.bundle.constraints.kyc_verified)}
+                    </span>
+                    <span className="summaryLabel">KYC verified</span>
+                    <span className="summaryValue">
+                      {permit.bundle.constraints.kyc_verified ? "Yes" : "No"}
+                    </span>
+                  </div>
+                )}
+                {permit.bundle.constraints.sanctions_check !== undefined && (
+                  <div className="summaryRow">
+                    <span className={checkClass(permit.bundle.constraints.sanctions_check === "passed")}>
+                      {checkSymbol(permit.bundle.constraints.sanctions_check === "passed")}
+                    </span>
+                    <span className="summaryLabel">Sanctions check</span>
+                    <span className="summaryValue">{permit.bundle.constraints.sanctions_check}</span>
+                  </div>
+                )}
+                {permit.bundle.constraints.jurisdiction && (
+                  <div className="summaryRow">
+                    <span className="check">✔</span>
+                    <span className="summaryLabel">Jurisdiction</span>
+                    <span className="summaryValue">{permit.bundle.constraints.jurisdiction}</span>
+                  </div>
+                )}
+                {permit.bundle.constraints.max_amount !== undefined && (
+                  <div className="summaryRow">
+                    <span className="check">✔</span>
+                    <span className="summaryLabel">Max amount</span>
+                    <span className="summaryValue">{permit.bundle.constraints.max_amount}</span>
+                  </div>
+                )}
+                {permit.bundle.constraints.freeze_possible !== undefined && (
+                  <div className="summaryRow">
+                    <span className={checkClass(permit.bundle.constraints.freeze_possible)}>
+                      {checkSymbol(permit.bundle.constraints.freeze_possible)}
+                    </span>
+                    <span className="summaryLabel">Freeze possible</span>
+                    <span className="summaryValue">
+                      {permit.bundle.constraints.freeze_possible ? "Yes" : "No"}
+                    </span>
+                  </div>
+                )}
+                {permit.bundle.constraints.clawback_possible !== undefined && (
+                  <div className="summaryRow">
+                    <span className={checkClass(permit.bundle.constraints.clawback_possible)}>
+                      {checkSymbol(permit.bundle.constraints.clawback_possible)}
+                    </span>
+                    <span className="summaryLabel">Clawback possible</span>
+                    <span className="summaryValue">
+                      {permit.bundle.constraints.clawback_possible ? "Yes" : "No"}
+                    </span>
+                  </div>
+                )}
+                {permit.bundle.constraints.trustline_required !== undefined && (
+                  <div className="summaryRow">
+                    <span className={checkClass(permit.bundle.constraints.trustline_required)}>
+                      {checkSymbol(permit.bundle.constraints.trustline_required)}
+                    </span>
+                    <span className="summaryLabel">Trustline required</span>
+                    <span className="summaryValue">
+                      {permit.bundle.constraints.trustline_required ? "Yes" : "No"}
+                    </span>
+                  </div>
+                )}
+              </div>
+
               <div className="expiryBarWrap">
                 <div
                   className={`expiryBarFill${
@@ -458,6 +558,45 @@ export default function App() {
                 </button>
               </div>
               <pre>{permit.bundle_hash}</pre>
+
+              <div className="codeTitleRow">
+                <div className="codeTitle">Regulatory Controls (JSON)</div>
+                <button
+                  className="copyBtn"
+                  onClick={() => {
+                    const controls = {
+                      asset_classification: permit.bundle.asset.classification,
+                      regulatory_treatment: permit.bundle.asset.regulatory_treatment,
+                      reserve_backed: permit.bundle.constraints.reserve_backed,
+                      liquidity_verified: permit.bundle.constraints.liquidity_verified,
+                      kyc_verified: permit.bundle.constraints.kyc_verified,
+                      sanctions_check: permit.bundle.constraints.sanctions_check,
+                      jurisdiction: permit.bundle.constraints.jurisdiction,
+                      max_amount: permit.bundle.constraints.max_amount,
+                      freeze_possible: permit.bundle.constraints.freeze_possible,
+                      clawback_possible: permit.bundle.constraints.clawback_possible,
+                      trustline_required: permit.bundle.constraints.trustline_required,
+                    };
+                    copyToClipboard(JSON.stringify(controls, null, 2), "reg_controls");
+                  }}
+                  title="Copy regulatory controls"
+                >
+                  {copied === "reg_controls" ? "✔ Copied" : "Copy"}
+                </button>
+              </div>
+              <pre>{JSON.stringify({
+                asset_classification: permit.bundle.asset.classification,
+                regulatory_treatment: permit.bundle.asset.regulatory_treatment,
+                reserve_backed: permit.bundle.constraints.reserve_backed,
+                liquidity_verified: permit.bundle.constraints.liquidity_verified,
+                kyc_verified: permit.bundle.constraints.kyc_verified,
+                sanctions_check: permit.bundle.constraints.sanctions_check,
+                jurisdiction: permit.bundle.constraints.jurisdiction,
+                max_amount: permit.bundle.constraints.max_amount,
+                freeze_possible: permit.bundle.constraints.freeze_possible,
+                clawback_possible: permit.bundle.constraints.clawback_possible,
+                trustline_required: permit.bundle.constraints.trustline_required,
+              }, null, 2)}</pre>
 
               <div className="codeTitle">Proof Bundle (raw JSON)</div>
               <pre>{JSON.stringify(permit.bundle, null, 2)}</pre>
