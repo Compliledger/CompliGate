@@ -360,10 +360,10 @@ export default function App() {
           }}
         />
 
-        {/* Panel 2: Permit Summary */}
+        {/* Panel 2: Show Constraints */}
         <section className="card">
           <div className="summaryHeader">
-            <h2><PanelNumber n={2} />Permit Summary</h2>
+            <h2><PanelNumber n={2} />Constraints</h2>
             <span className={`badge ${status.kind}`}>
               <span className="badgeDot" />
               {status.label}
@@ -371,7 +371,7 @@ export default function App() {
           </div>
 
           {!permit ? (
-            <p className="muted">Request a permit to view the compliance summary.</p>
+            <p className="muted">Request a permit to view the authorization constraints.</p>
           ) : (
             <>
               <div className="summary">
@@ -555,175 +555,9 @@ export default function App() {
           )}
         </section>
 
-        {/* Panel 3: Technical Proof */}
-        <section className="card spanFull">
-          <h2><PanelNumber n={3} />Technical Proof</h2>
-          {!permit ? (
-            <p className="muted">
-              Proof bundle details will appear here after a permit is issued.
-            </p>
-          ) : (
-            <div className="codeBlock">
-              <div className="codeTitleRow">
-                <div className="codeTitle">Bundle Hash (SHA-256)</div>
-                <button
-                  className="copyBtn"
-                  onClick={() => copyToClipboard(permit.bundle_hash, "bundle_hash")}
-                  title="Copy bundle hash"
-                >
-                  {copied === "bundle_hash" ? "✔ Copied" : "Copy"}
-                </button>
-              </div>
-              <pre>{permit.bundle_hash}</pre>
-
-              <div className="codeTitleRow">
-                <div className="codeTitle">Regulatory Controls (JSON)</div>
-                <button
-                  className="copyBtn"
-                  onClick={() => copyToClipboard(regulatoryControlsJson, "reg_controls")}
-                  title="Copy regulatory controls"
-                >
-                  {copied === "reg_controls" ? "✔ Copied" : "Copy"}
-                </button>
-              </div>
-              <pre>{regulatoryControlsJson}</pre>
-
-              <div className="codeTitle">Proof Bundle (raw JSON)</div>
-              <pre>{JSON.stringify(permit.bundle, null, 2)}</pre>
-
-              <div className="codeTitleRow">
-                <div className="codeTitle">Signature</div>
-                <button
-                  className="copyBtn"
-                  onClick={() => copyToClipboard(permit.signature, "signature")}
-                  title="Copy signature"
-                >
-                  {copied === "signature" ? "✔ Copied" : "Copy"}
-                </button>
-              </div>
-              <pre>{permit.signature}</pre>
-
-              {permit.proof_artifact && (
-                <>
-                  <div className="codeTitleRow">
-                    <div className="codeTitle">Proof Artifact</div>
-                    <button
-                      className="copyBtn"
-                      onClick={() => copyToClipboard(JSON.stringify(permit.proof_artifact, null, 2), "proof_artifact")}
-                      title="Copy proof artifact"
-                    >
-                      {copied === "proof_artifact" ? "✔ Copied" : "Copy"}
-                    </button>
-                  </div>
-                  <pre>{JSON.stringify(permit.proof_artifact, null, 2)}</pre>
-                </>
-              )}
-            </div>
-          )}
-        </section>
-
-        {/* Panel 4: Verification */}
+        {/* Panel 3: Submit XRPL Payment */}
         <section className="card">
-          <h2><PanelNumber n={4} />Verification</h2>
-          <p className="muted">
-            Verify the permit signature and confirm it has not expired.
-          </p>
-
-          <div className="row">
-            <button className="btn primary" onClick={verifyPermit} disabled={!permit}>
-              Verify Permit
-            </button>
-          </div>
-
-          {verifyError && <div className="alert bad">{verifyError}</div>}
-          {verifyResult && (() => {
-            const passed = verifyResult.signature_valid && verifyResult.not_expired;
-            const decisionResult =
-              verifyResult.decision_result ?? permit?.proof_artifact?.decision_result;
-            const reasonCodes =
-              verifyResult.reason_codes ?? permit?.proof_artifact?.reason_codes;
-            return (
-              <div className="verifyResult">
-                <div className={`verifyHeader ${passed ? "good" : "bad"}`}>
-                  <span className={`verifyIcon ${passed ? "good" : "bad"}`}>
-                    {passed ? "✔" : "✘"}
-                  </span>
-                  {passed ? "PASS" : "FAIL"}
-                </div>
-                <div className="verifyRows">
-                  <div className="verifyRow">
-                    <span className={checkClass(verifyResult.signature_valid)}>
-                      {checkSymbol(verifyResult.signature_valid)}
-                    </span>
-                    <span className="summaryLabel">Signature valid</span>
-                    <span className="summaryValue">{String(verifyResult.signature_valid)}</span>
-                  </div>
-                  <div className="verifyRow">
-                    <span className={checkClass(verifyResult.not_expired)}>
-                      {checkSymbol(verifyResult.not_expired)}
-                    </span>
-                    <span className="summaryLabel">Not expired</span>
-                    <span className="summaryValue">{String(verifyResult.not_expired)}</span>
-                  </div>
-                  {decisionResult && (() => {
-                    const decision = decisionResult.toLowerCase();
-                    const isPermit = decision === "permit" || decision === "allow";
-                    return (
-                      <div className="verifyRow">
-                        <span className={checkClass(isPermit)}>
-                          {checkSymbol(isPermit)}
-                        </span>
-                        <span className="summaryLabel">Decision result</span>
-                        <span
-                          className={`summaryValue${
-                            isPermit ? " textGood" : " textBad"
-                          }`}
-                        >
-                          {decisionResult}
-                        </span>
-                      </div>
-                    );
-                  })()}
-                  {verifyResult.action && (
-                    <div className="verifyRow">
-                      <span className="check">✔</span>
-                      <span className="summaryLabel">Action</span>
-                      <span className="summaryValue">{verifyResult.action}</span>
-                    </div>
-                  )}
-                  {verifyResult.policy_version && (
-                    <div className="verifyRow">
-                      <span className="check">✔</span>
-                      <span className="summaryLabel">Policy version</span>
-                      <span className="summaryValue">{verifyResult.policy_version}</span>
-                    </div>
-                  )}
-                  {verifyResult.bundle_hash && (
-                    <div className="verifyRow">
-                      <span className="check">✔</span>
-                      <span className="summaryLabel">Bundle hash</span>
-                      <span className="summaryValue breakAll">{verifyResult.bundle_hash}</span>
-                    </div>
-                  )}
-                </div>
-                {reasonCodes && reasonCodes.length > 0 && (
-                  <div className="reasonCodes">
-                    <div className="reasonCodesTitle">Reason codes</div>
-                    <div className="reasonCodesList">
-                      {reasonCodes.map((rc) => (
-                        <span key={rc} className="reasonCode">{rc}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-        </section>
-
-        {/* Panel 5: XRPL Payment */}
-        <section className="card">
-          <h2><PanelNumber n={5} />XRPL Payment</h2>
+          <h2><PanelNumber n={3} />Submit XRPL Payment</h2>
           <p className="muted">
             Submit an XRPL payment transaction. If a permit exists, its bundle hash will be included as a memo.
           </p>
@@ -803,9 +637,9 @@ export default function App() {
           {paymentError && <div className="alert bad">{paymentError}</div>}
         </section>
 
-        {/* Panel 6: Settlement Verification */}
+        {/* Panel 4: Verify Settlement */}
         <section className="card">
-          <h2><PanelNumber n={6} />Settlement Verification</h2>
+          <h2><PanelNumber n={4} />Verify Settlement</h2>
           <p className="muted">
             Verify that the XRPL payment satisfies the permit constraints.
           </p>
@@ -908,6 +742,166 @@ export default function App() {
           )}
 
           {settlementError && <div className="alert bad">{settlementError}</div>}
+        </section>
+
+        {/* Panel 5: Show Proof */}
+        <section className="card spanFull">
+          <h2><PanelNumber n={5} />Show Proof</h2>
+          {!permit ? (
+            <p className="muted">
+              Proof bundle details will appear here after a permit is issued.
+            </p>
+          ) : (
+            <>
+              <div className="row" style={{ marginTop: 0 }}>
+                <button className="btn primary" onClick={verifyPermit} disabled={!permit}>
+                  Verify Permit Signature
+                </button>
+              </div>
+
+              {verifyError && <div className="alert bad">{verifyError}</div>}
+              {verifyResult && (() => {
+                const passed = verifyResult.signature_valid && verifyResult.not_expired;
+                const decisionResult =
+                  verifyResult.decision_result ?? permit?.proof_artifact?.decision_result;
+                const reasonCodes =
+                  verifyResult.reason_codes ?? permit?.proof_artifact?.reason_codes;
+                return (
+                  <div className="verifyResult">
+                    <div className={`verifyHeader ${passed ? "good" : "bad"}`}>
+                      <span className={`verifyIcon ${passed ? "good" : "bad"}`}>
+                        {passed ? "✔" : "✘"}
+                      </span>
+                      {passed ? "PASS" : "FAIL"}
+                    </div>
+                    <div className="verifyRows">
+                      <div className="verifyRow">
+                        <span className={checkClass(verifyResult.signature_valid)}>
+                          {checkSymbol(verifyResult.signature_valid)}
+                        </span>
+                        <span className="summaryLabel">Signature valid</span>
+                        <span className="summaryValue">{String(verifyResult.signature_valid)}</span>
+                      </div>
+                      <div className="verifyRow">
+                        <span className={checkClass(verifyResult.not_expired)}>
+                          {checkSymbol(verifyResult.not_expired)}
+                        </span>
+                        <span className="summaryLabel">Not expired</span>
+                        <span className="summaryValue">{String(verifyResult.not_expired)}</span>
+                      </div>
+                      {decisionResult && (() => {
+                        const decision = decisionResult.toLowerCase();
+                        const isPermit = decision === "permit" || decision === "allow";
+                        return (
+                          <div className="verifyRow">
+                            <span className={checkClass(isPermit)}>
+                              {checkSymbol(isPermit)}
+                            </span>
+                            <span className="summaryLabel">Decision result</span>
+                            <span
+                              className={`summaryValue${
+                                isPermit ? " textGood" : " textBad"
+                              }`}
+                            >
+                              {decisionResult}
+                            </span>
+                          </div>
+                        );
+                      })()}
+                      {verifyResult.action && (
+                        <div className="verifyRow">
+                          <span className="check">✔</span>
+                          <span className="summaryLabel">Action</span>
+                          <span className="summaryValue">{verifyResult.action}</span>
+                        </div>
+                      )}
+                      {verifyResult.policy_version && (
+                        <div className="verifyRow">
+                          <span className="check">✔</span>
+                          <span className="summaryLabel">Policy version</span>
+                          <span className="summaryValue">{verifyResult.policy_version}</span>
+                        </div>
+                      )}
+                      {verifyResult.bundle_hash && (
+                        <div className="verifyRow">
+                          <span className="check">✔</span>
+                          <span className="summaryLabel">Bundle hash</span>
+                          <span className="summaryValue breakAll">{verifyResult.bundle_hash}</span>
+                        </div>
+                      )}
+                    </div>
+                    {reasonCodes && reasonCodes.length > 0 && (
+                      <div className="reasonCodes">
+                        <div className="reasonCodesTitle">Reason codes</div>
+                        <div className="reasonCodesList">
+                          {reasonCodes.map((rc) => (
+                            <span key={rc} className="reasonCode">{rc}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              <div className="codeBlock">
+                <div className="codeTitleRow">
+                  <div className="codeTitle">Bundle Hash (SHA-256)</div>
+                  <button
+                    className="copyBtn"
+                    onClick={() => copyToClipboard(permit.bundle_hash, "bundle_hash")}
+                    title="Copy bundle hash"
+                  >
+                    {copied === "bundle_hash" ? "✔ Copied" : "Copy"}
+                  </button>
+                </div>
+                <pre>{permit.bundle_hash}</pre>
+
+                <div className="codeTitleRow">
+                  <div className="codeTitle">Regulatory Controls (JSON)</div>
+                  <button
+                    className="copyBtn"
+                    onClick={() => copyToClipboard(regulatoryControlsJson, "reg_controls")}
+                    title="Copy regulatory controls"
+                  >
+                    {copied === "reg_controls" ? "✔ Copied" : "Copy"}
+                  </button>
+                </div>
+                <pre>{regulatoryControlsJson}</pre>
+
+                <div className="codeTitle">Proof Bundle (raw JSON)</div>
+                <pre>{JSON.stringify(permit.bundle, null, 2)}</pre>
+
+                <div className="codeTitleRow">
+                  <div className="codeTitle">Signature</div>
+                  <button
+                    className="copyBtn"
+                    onClick={() => copyToClipboard(permit.signature, "signature")}
+                    title="Copy signature"
+                  >
+                    {copied === "signature" ? "✔ Copied" : "Copy"}
+                  </button>
+                </div>
+                <pre>{permit.signature}</pre>
+
+                {permit.proof_artifact && (
+                  <>
+                    <div className="codeTitleRow">
+                      <div className="codeTitle">Proof Artifact</div>
+                      <button
+                        className="copyBtn"
+                        onClick={() => copyToClipboard(JSON.stringify(permit.proof_artifact, null, 2), "proof_artifact")}
+                        title="Copy proof artifact"
+                      >
+                        {copied === "proof_artifact" ? "✔ Copied" : "Copy"}
+                      </button>
+                    </div>
+                    <pre>{JSON.stringify(permit.proof_artifact, null, 2)}</pre>
+                  </>
+                )}
+              </div>
+            </>
+          )}
         </section>
       </main>
 

@@ -602,9 +602,9 @@ def verify_settlement_against_permit(
 ) -> dict:
     """Verify that an XRPL transaction satisfies the permit constraints.
 
-    CompliGate acts as a non-intermediary verifier: it checks post-settlement
+    CompliGate acts as an independent verifier: it checks post-settlement
     outcomes against the constraints defined in the permit, without submitting
-    or brokering the transaction.
+    the transaction.
 
     :param tx_data: Parsed XRPL transaction data from the RPC.
     :param bundle: The original permit bundle.
@@ -895,7 +895,7 @@ def _evaluate_settlement_constraints(tx_data: dict) -> tuple[str, list[str], dic
     """Evaluate an XRPL transaction against CompliGate settlement constraints.
 
     This function checks a completed XRPL transaction against the policy
-    constraints defined by CompliGate.  It does **not** submit or broker
+    constraints defined by CompliGate.  It does **not** submit
     the transaction — it only verifies outcomes.
 
     :param tx_data: Parsed XRPL transaction data from the RPC.
@@ -993,8 +993,8 @@ def _evaluate_settlement_constraints(tx_data: dict) -> tuple[str, list[str], dic
 def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
     """Verify that an XRPL-settled RLUSD transaction satisfied CompliGate constraints.
 
-    This endpoint verifies outcomes only.  CompliGate does not submit or
-    broker transactions — it checks that a completed settlement conforms
+    This endpoint verifies outcomes only.  CompliGate does not submit
+    transactions — it checks that a completed settlement conforms
     to the defined policy constraints.
     """
     # 1. Fetch the XRPL transaction
@@ -1056,7 +1056,7 @@ def verify_settlement(req: SettlementVerifyRequest):
     """Post-settlement verification: verify that an XRPL transaction
     satisfies the constraints defined in a CompliGate permit.
 
-    CompliGate does not submit or broker transactions. It only verifies
+    CompliGate does not submit transactions. It only verifies
     that a completed settlement conforms to the authorization permit.
     """
     # 1. Verify the permit signature and expiry

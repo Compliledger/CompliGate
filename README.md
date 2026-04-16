@@ -1,6 +1,6 @@
 # CompliGate
 
-CompliGate is the transaction-time authorization and execution control layer of CompliLedger. It issues time-bound, cryptographically signed permits that determine whether a transaction is allowed, define how it may execute, and specify when it is valid.
+CompliGate is the transaction-time authorization and constraint verification layer of CompliLedger. It issues time-bound, cryptographically signed permits that determine whether a transaction is authorized, define the constraints under which it may proceed, and specify when the authorization is valid.
 
 ## Repository Structure
 
