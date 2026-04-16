@@ -887,7 +887,14 @@ def _evaluate_settlement_constraints(tx_data: dict) -> tuple[str, list[str], dic
     constraints defined by CompliGate.  It does **not** submit or broker
     the transaction — it only verifies outcomes.
 
-    Returns a tuple of (decision_result, reason_codes, constraints_verified).
+    :param tx_data: Parsed XRPL transaction data from the RPC.
+    :returns: A 3-tuple of:
+        - **decision_result** (str): ``"SETTLED_COMPLIANT"`` or
+          ``"SETTLEMENT_NON_COMPLIANT"``.
+        - **reason_codes** (list[str]): Machine-readable reason codes
+          describing each constraint evaluation.
+        - **constraints_verified** (dict[str, bool]): Mapping of each
+          constraint name to its pass/fail status.
     """
     reason_codes: list[str] = []
     constraints_verified: dict[str, bool] = {}
