@@ -208,6 +208,21 @@ def test_settle_verify_valid_payment():
     assert data["checks"]["subject_match"] is True
     assert data["checks"]["currency_match"] is True
     assert data["checks"]["amount_within_limit"] is True
+    # Proof artifact should be included in the response
+    artifact = data["proof_artifact"]
+    assert artifact["module"] == "CompliGate"
+    assert artifact["entity_id"] == SAMPLE_TX_HASH
+    assert artifact["rule_version_used"] is not None
+    assert artifact["decision_result"] == "SETTLED_COMPLIANT"
+    assert isinstance(artifact["evaluation_context"], dict)
+    assert isinstance(artifact["reason_codes"], list)
+    assert isinstance(artifact["timestamp"], int)
+    assert artifact["bundle_hash"] == permit["bundle_hash"]
+    anchor = artifact["anchor_metadata"]
+    assert anchor["tx_hash"] == SAMPLE_TX_HASH
+    assert "network" in anchor
+    assert isinstance(anchor["rpc_url_present"], bool)
+    assert isinstance(anchor["anchored_at"], int)
 
 
 def test_settle_verify_rejects_invalid_signature():
@@ -1340,7 +1355,7 @@ def test_settlement_verify_response_has_proof_artifact():
     assert response.status_code == 200
     artifact = response.json()["proof_artifact"]
     assert artifact["module"] == "CompliGate"
-    assert artifact["entity_id"] == SAMPLE_BUNDLE_HASH
+    assert artifact["entity_id"] == SAMPLE_TX_HASH
     assert artifact["decision_result"] == "SETTLED_COMPLIANT"
     assert artifact["bundle_hash"] == SAMPLE_BUNDLE_HASH
     assert isinstance(artifact["evaluation_context"], dict)
@@ -1472,6 +1487,10 @@ def test_settlement_verify_proof_artifact_anchor_metadata():
     anchor = response.json()["proof_artifact"]["anchor_metadata"]
     assert "network" in anchor
     assert anchor["tx_hash"] == SAMPLE_TX_HASH
+    assert "rpc_url_present" in anchor
+    assert isinstance(anchor["rpc_url_present"], bool)
+    assert "anchored_at" in anchor
+    assert isinstance(anchor["anchored_at"], int)
 
 
 def test_settlement_verify_xrp_native_non_compliant():

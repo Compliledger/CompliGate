@@ -1022,14 +1022,19 @@ def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
     # 4. Build proof artifact
     proof_artifact = build_proof_artifact(
         module="CompliGate",
-        entity_id=req.bundle_hash,
+        entity_id=req.tx_hash,
         rule_version_used=POLICY_VERSION,
         decision_result=decision_result,
         evaluation_context=evaluation_context,
         reason_codes=reason_codes,
         timestamp=now,
         bundle_hash=req.bundle_hash,
-        anchor_metadata={"network": XRPL_NETWORK, "tx_hash": req.tx_hash},
+        anchor_metadata={
+            "network": XRPL_NETWORK,
+            "tx_hash": req.tx_hash,
+            "rpc_url_present": bool(XRPL_RPC_URL),
+            "anchored_at": now,
+        },
     )
 
     logger.info(
@@ -1083,6 +1088,40 @@ def verify_settlement(req: SettlementVerifyRequest):
 
     expired = not not_expired
 
+    decision_result = (
+        "SETTLED_COMPLIANT" if result["settlement_verified"] else "SETTLEMENT_NON_COMPLIANT"
+    )
+
+    reason_codes: list[str] = []
+    for check_name, passed in result["checks"].items():
+        reason_codes.append(f"{check_name}:{'pass' if passed else 'fail'}")
+
+    evaluation_context = {
+        "bundle_hash": bundle_hash,
+        "tx_hash": req.tx_hash,
+        "permit_valid": signature_valid,
+        "permit_expired": expired,
+        "checks": result["checks"],
+        "details": result["details"],
+    }
+
+    proof_artifact = build_proof_artifact(
+        module="CompliGate",
+        entity_id=req.tx_hash,
+        rule_version_used=POLICY_VERSION,
+        decision_result=decision_result,
+        evaluation_context=evaluation_context,
+        reason_codes=reason_codes,
+        timestamp=now,
+        bundle_hash=bundle_hash,
+        anchor_metadata={
+            "network": XRPL_NETWORK,
+            "tx_hash": req.tx_hash,
+            "rpc_url_present": bool(XRPL_RPC_URL),
+            "anchored_at": now,
+        },
+    )
+
     logger.info(
         "settlement_verified tx_hash=%s bundle_hash=%s verified=%s permit_expired=%s",
         req.tx_hash,
@@ -1101,4 +1140,5 @@ def verify_settlement(req: SettlementVerifyRequest):
         "checks": result["checks"],
         "details": result["details"],
         "verified_at": now,
+        "proof_artifact": proof_artifact.model_dump(),
     }
