@@ -127,13 +127,20 @@ export default function App() {
     return Math.max(0, permit.expires_at - now);
   }, [permit, now]);
 
+  const settlementPassed = useMemo(() => {
+    if (!settlementResult) return false;
+    const d = settlementResult.decision_result.toLowerCase();
+    return d === "permit" || d === "allow" || d === "approved";
+  }, [settlementResult]);
+
   const status = useMemo(() => {
-    if (settlementResult) return { label: "Verified", kind: "anchored" as const };
+    if (settlementResult && settlementPassed) return { label: "Verified", kind: "anchored" as const };
+    if (settlementResult && !settlementPassed) return { label: "Settlement Failed", kind: "bad" as const };
     if (!permit) return { label: "No Permit", kind: "neutral" as const };
     if (remaining <= 0) return { label: "Expired", kind: "bad" as const };
     if (remaining < 60) return { label: "Expiring Soon", kind: "warn" as const };
     return { label: "Active", kind: "good" as const };
-  }, [permit, remaining, settlementResult]);
+  }, [permit, remaining, settlementResult, settlementPassed]);
 
   const expiryPercent = useMemo(() => {
     if (!permit || remaining <= 0 || permit.expires_in_seconds <= 0) return 0;
@@ -687,9 +694,9 @@ export default function App() {
           {settlementResult && (
             <div className="commitResult">
               <div className="commitResultHeader">
-                <span className="badge anchored">
+                <span className={`badge ${settlementPassed ? "anchored" : "bad"}`}>
                   <span className="badgeDot" />
-                  Settlement Verified
+                  {settlementPassed ? "✔ Settlement Verified" : "✘ Settlement Failed"}
                 </span>
               </div>
 
