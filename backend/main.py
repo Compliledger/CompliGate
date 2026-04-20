@@ -998,7 +998,18 @@ class XRPLPaymentRequest(BaseModel):
     memo_bundle_hash: str | None = Field(None, description="Optional bundle hash to attach as memo.")
 
 
-@app.post("/v1/xrpl/payment")
+class XRPLPaymentResponse(BaseModel):
+    submitted: bool = Field(..., description="Whether the transaction was submitted.")
+    tx_hash: str = Field(..., description="Transaction hash on the XRPL ledger.")
+    engine_result: str = Field(..., description="XRPL engine result code (e.g. tesSUCCESS).")
+    network: str = Field(..., description="XRPL network identifier.")
+    currency: str = Field(..., description="Currency code used in the payment.")
+    issuer: str = Field(..., description="Issuer address for the issued currency.")
+    amount: str = Field(..., description="Amount sent (as string).")
+    destination: str = Field(..., description="Destination XRPL account address.")
+
+
+@app.post("/v1/xrpl/payment", response_model=XRPLPaymentResponse)
 def xrpl_payment(req: XRPLPaymentRequest):
     """Submit a demo RLUSD payment on the XRPL testnet.
 
