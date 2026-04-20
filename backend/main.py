@@ -738,6 +738,141 @@ def xrpl_health():
 
 
 # -----------------------
+# XRPL Transaction Lookup
+# -----------------------
+
+
+@app.get("/v1/xrpl/tx/{tx_hash}")
+def xrpl_tx_lookup(tx_hash: str):
+    """Fetch and return XRPL transaction data by hash.
+
+    This is a read-only ledger lookup.  CompliGate does not submit or
+    modify transactions — it only retrieves data for verification.
+    """
+    tx_data = fetch_xrpl_transaction(tx_hash)
+
+    validated = tx_data.get("validated", False)
+    tx_type = tx_data.get("TransactionType", "")
+    account = tx_data.get("Account", "")
+    destination = tx_data.get("Destination", "")
+
+    amount_raw = tx_data.get("Amount", {})
+    amount_info = normalize_xrpl_amount(amount_raw)
+
+    meta = tx_data.get("meta", {})
+    engine_result = meta.get("TransactionResult", "") if isinstance(meta, dict) else ""
+
+    logger.info("xrpl_tx_lookup tx_hash=%s validated=%s type=%s", tx_hash, validated, tx_type)
+
+    return {
+        "tx_hash": tx_hash,
+        "validated": validated,
+        "transaction_type": tx_type,
+        "account": account,
+        "destination": destination,
+        "amount": amount_info,
+        "engine_result": engine_result,
+        "network": XRPL_NETWORK,
+        "raw": tx_data,
+    }
+
+
+# -----------------------
+# XRPL Trustline Validation
+# -----------------------
+
+
+def fetch_account_lines(address: str) -> list[dict]:
+    """Fetch trust lines for an XRPL account via the ``account_lines`` RPC.
+
+    :param address: XRPL account address.
+    :returns: List of trust line objects from the RPC response.
+    :raises HTTPException 502: If the RPC request fails.
+    """
+    payload = {
+        "method": "account_lines",
+        "params": [{"account": address}],
+    }
+    try:
+        resp = http_requests.post(XRPL_RPC_URL, json=payload, timeout=10)
+        resp.raise_for_status()
+        result = resp.json()
+        if "result" in result:
+            return result["result"].get("lines", [])
+        return result.get("lines", [])
+    except http_requests.RequestException as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"error": "xrpl_rpc_failed", "reason": str(exc)},
+        ) from exc
+
+
+def check_rlusd_trustline(lines: list[dict]) -> dict:
+    """Check whether any trust line matches the configured RLUSD currency.
+
+    Returns a dict with ``has_trustline``, ``currency``, ``issuer``,
+    ``limit``, and ``balance`` keys.
+
+    :param lines: List of trust line dicts from the XRPL ``account_lines`` RPC.
+    """
+    for line in lines:
+        line_currency = line.get("currency", "")
+        line_issuer = line.get("account", "")
+
+        currency_match = line_currency == RLUSD_CURRENCY
+        issuer_match = (not RLUSD_ISSUER) or (line_issuer == RLUSD_ISSUER)
+
+        if currency_match and issuer_match:
+            return {
+                "has_trustline": True,
+                "currency": line_currency,
+                "issuer": line_issuer,
+                "limit": line.get("limit", "0"),
+                "balance": line.get("balance", "0"),
+            }
+
+    return {
+        "has_trustline": False,
+        "currency": RLUSD_CURRENCY,
+        "issuer": RLUSD_ISSUER,
+        "limit": "0",
+        "balance": "0",
+    }
+
+
+@app.get("/v1/xrpl/account/{address}/trustlines")
+def xrpl_account_trustlines(address: str):
+    """Fetch and validate trust lines for an XRPL account.
+
+    Returns the full list of trust lines and a dedicated RLUSD trust line
+    check result.  CompliGate uses this to verify that the prerequisite
+    trust line exists before or after a transfer.
+    """
+    if not XRPL_RPC_URL:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "xrpl_not_configured", "reason": "XRPL_RPC_URL is not configured"},
+        )
+
+    lines = fetch_account_lines(address)
+    rlusd_check = check_rlusd_trustline(lines)
+
+    logger.info(
+        "xrpl_trustline_check address=%s has_rlusd_trustline=%s",
+        address,
+        rlusd_check["has_trustline"],
+    )
+
+    return {
+        "address": address,
+        "network": XRPL_NETWORK,
+        "trustline_count": len(lines),
+        "rlusd_trustline": rlusd_check,
+        "lines": lines,
+    }
+
+
+# -----------------------
 # XRPL Demo Payment
 # -----------------------
 

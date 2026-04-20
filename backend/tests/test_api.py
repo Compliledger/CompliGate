@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from fastapi import HTTPException
 from unittest.mock import patch, MagicMock
 import logging
-from main import app, evaluate_governance, evaluate_eligibility, evaluate_constraints, verify_settlement_against_permit, _evaluate_settlement_constraints
+from main import app, evaluate_governance, evaluate_eligibility, evaluate_constraints, verify_settlement_against_permit, _evaluate_settlement_constraints, check_rlusd_trustline
 
 client = TestClient(app)
 
@@ -1634,7 +1634,7 @@ def test_settlement_verify_success_mocked_xrpl_lookup():
     # Verify proof artifact is present and correct
     proof = data["proof_artifact"]
     assert proof["module"] == "CompliGate"
-    assert proof["entity_id"] == SAMPLE_BUNDLE_HASH
+    assert proof["entity_id"] == SAMPLE_TX_HASH
     assert proof["decision_result"] == "SETTLED_COMPLIANT"
     # Verify evaluation context contains tx details
     ctx = proof["evaluation_context"]
@@ -1713,3 +1713,234 @@ def test_evaluate_settlement_constraints_amount_over_max():
     assert decision == "SETTLEMENT_NON_COMPLIANT"
     assert cv["amount_within_limit"] is False
     assert "AMOUNT_EXCEEDS_LIMIT" in reason_codes
+
+
+# -----------------------
+# GET /v1/xrpl/tx/{tx_hash} tests
+# -----------------------
+
+
+def test_xrpl_tx_lookup_success():
+    """Transaction lookup returns normalised fields from XRPL RPC."""
+    tx_data = {
+        "Account": "rSender123456789012345678901",
+        "Destination": "rDest12345678901234567890123",
+        "TransactionType": "Payment",
+        "Amount": {"currency": "RLUSD", "value": "100", "issuer": "rISSUER"},
+        "validated": True,
+        "meta": {"TransactionResult": "tesSUCCESS"},
+    }
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.get(f"/v1/xrpl/tx/{SAMPLE_TX_HASH}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["tx_hash"] == SAMPLE_TX_HASH
+    assert data["validated"] is True
+    assert data["transaction_type"] == "Payment"
+    assert data["account"] == "rSender123456789012345678901"
+    assert data["destination"] == "rDest12345678901234567890123"
+    assert data["amount"]["currency"] == "RLUSD"
+    assert data["amount"]["value"] == "100"
+    assert data["engine_result"] == "tesSUCCESS"
+    assert "network" in data
+    assert "raw" in data
+
+
+def test_xrpl_tx_lookup_unvalidated():
+    """Transaction that has not been validated returns validated=False."""
+    tx_data = {
+        "Account": "rSender123456789012345678901",
+        "TransactionType": "Payment",
+        "Amount": "1000000",
+        "validated": False,
+    }
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.get(f"/v1/xrpl/tx/{SAMPLE_TX_HASH}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["validated"] is False
+    assert data["amount"]["currency"] == "XRP"
+
+
+def test_xrpl_tx_lookup_rpc_failure():
+    """Returns 502 when the XRPL RPC is unreachable."""
+    with patch(
+        "main.fetch_xrpl_transaction",
+        side_effect=HTTPException(status_code=502, detail={"error": "xrpl_rpc_failed"}),
+    ):
+        response = client.get(f"/v1/xrpl/tx/{SAMPLE_TX_HASH}")
+    assert response.status_code == 502
+
+
+def test_xrpl_tx_lookup_is_logged(caplog):
+    tx_data = {
+        "Account": "rSender123456789012345678901",
+        "TransactionType": "Payment",
+        "Amount": {"currency": "RLUSD", "value": "50", "issuer": "rISSUER"},
+        "validated": True,
+    }
+    with caplog.at_level(logging.INFO), \
+         patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        client.get(f"/v1/xrpl/tx/{SAMPLE_TX_HASH}")
+    assert any("xrpl_tx_lookup" in msg for msg in caplog.messages)
+
+
+def test_xrpl_tx_lookup_native_xrp():
+    """Native XRP amounts (string drops) are normalised correctly."""
+    tx_data = {
+        "Account": "rSender123456789012345678901",
+        "Destination": "rDest12345678901234567890123",
+        "TransactionType": "Payment",
+        "Amount": "500000000",
+        "validated": True,
+    }
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.get(f"/v1/xrpl/tx/{SAMPLE_TX_HASH}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["amount"]["currency"] == "XRP"
+    assert data["amount"]["value"] == "500.0"
+
+
+# -----------------------
+# GET /v1/xrpl/account/{address}/trustlines tests
+# -----------------------
+
+
+def _make_account_lines(lines):
+    """Build a mock response for account_lines RPC."""
+    return {"result": {"lines": lines}}
+
+
+def test_xrpl_trustlines_with_rlusd():
+    """Account with RLUSD trustline returns has_trustline=True."""
+    lines = [
+        {"currency": "RLUSD", "account": "rISSUER123", "limit": "1000000", "balance": "500"},
+        {"currency": "USD", "account": "rOTHER", "limit": "50000", "balance": "0"},
+    ]
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {"result": {"lines": lines}}
+
+    with patch("main.http_requests.post", return_value=mock_resp):
+        response = client.get(f"/v1/xrpl/account/{VALID_SUBJECT}/trustlines")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["address"] == VALID_SUBJECT
+    assert data["trustline_count"] == 2
+    assert data["rlusd_trustline"]["has_trustline"] is True
+    assert data["rlusd_trustline"]["currency"] == "RLUSD"
+    assert data["rlusd_trustline"]["balance"] == "500"
+    assert "network" in data
+    assert isinstance(data["lines"], list)
+
+
+def test_xrpl_trustlines_without_rlusd():
+    """Account without RLUSD trustline returns has_trustline=False."""
+    lines = [
+        {"currency": "USD", "account": "rOTHER", "limit": "50000", "balance": "100"},
+    ]
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {"result": {"lines": lines}}
+
+    with patch("main.http_requests.post", return_value=mock_resp):
+        response = client.get(f"/v1/xrpl/account/{VALID_SUBJECT}/trustlines")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["rlusd_trustline"]["has_trustline"] is False
+
+
+def test_xrpl_trustlines_empty_account():
+    """Account with no trust lines returns empty."""
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {"result": {"lines": []}}
+
+    with patch("main.http_requests.post", return_value=mock_resp):
+        response = client.get(f"/v1/xrpl/account/{VALID_SUBJECT}/trustlines")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["trustline_count"] == 0
+    assert data["rlusd_trustline"]["has_trustline"] is False
+
+
+def test_xrpl_trustlines_rpc_failure():
+    """Returns 502 when XRPL RPC is unreachable."""
+    import requests as req_lib
+
+    with patch("main.http_requests.post") as mock_post:
+        mock_post.side_effect = req_lib.RequestException("connection refused")
+        response = client.get(f"/v1/xrpl/account/{VALID_SUBJECT}/trustlines")
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert detail["error"] == "xrpl_rpc_failed"
+
+
+def test_xrpl_trustlines_not_configured():
+    """Returns 400 when XRPL_RPC_URL is not set."""
+    with patch("main.XRPL_RPC_URL", ""):
+        response = client.get(f"/v1/xrpl/account/{VALID_SUBJECT}/trustlines")
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["error"] == "xrpl_not_configured"
+
+
+def test_xrpl_trustlines_is_logged(caplog):
+    lines = [
+        {"currency": "RLUSD", "account": "rISSUER", "limit": "1000000", "balance": "0"},
+    ]
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {"result": {"lines": lines}}
+
+    with caplog.at_level(logging.INFO), \
+         patch("main.http_requests.post", return_value=mock_resp):
+        client.get(f"/v1/xrpl/account/{VALID_SUBJECT}/trustlines")
+    assert any("xrpl_trustline_check" in msg for msg in caplog.messages)
+
+
+def test_xrpl_trustlines_issuer_enforcement():
+    """When RLUSD_ISSUER is set, only trustlines with matching issuer are accepted."""
+    lines = [
+        {"currency": "RLUSD", "account": "rWRONG_ISSUER", "limit": "1000000", "balance": "0"},
+    ]
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {"result": {"lines": lines}}
+
+    with patch("main.RLUSD_ISSUER", "rCORRECT_ISSUER"), \
+         patch("main.http_requests.post", return_value=mock_resp):
+        response = client.get(f"/v1/xrpl/account/{VALID_SUBJECT}/trustlines")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["rlusd_trustline"]["has_trustline"] is False
+
+
+# -----------------------
+# check_rlusd_trustline unit tests
+# -----------------------
+
+
+def test_check_rlusd_trustline_found():
+    lines = [
+        {"currency": "RLUSD", "account": "rISSUER", "limit": "500000", "balance": "100"},
+    ]
+    result = check_rlusd_trustline(lines)
+    assert result["has_trustline"] is True
+    assert result["currency"] == "RLUSD"
+    assert result["limit"] == "500000"
+    assert result["balance"] == "100"
+
+
+def test_check_rlusd_trustline_not_found():
+    lines = [
+        {"currency": "USD", "account": "rOTHER", "limit": "1000", "balance": "0"},
+    ]
+    result = check_rlusd_trustline(lines)
+    assert result["has_trustline"] is False
+
+
+def test_check_rlusd_trustline_empty():
+    result = check_rlusd_trustline([])
+    assert result["has_trustline"] is False
