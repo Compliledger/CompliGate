@@ -18,6 +18,7 @@ type VerifyResponse = {
 };
 
 type XrplPaymentResponse = {
+  submitted: boolean;
   tx_hash: string;
   engine_result: string;
   amount: string;
@@ -679,9 +680,9 @@ export default function App() {
           )}
         </section>
 
-        {/* Panel 3: Submit XRPL Payment */}
+        {/* Panel 3: XRPL Payment */}
         <section className="card">
-          <h2><PanelNumber n={3} />Submit XRPL Payment</h2>
+          <h2><PanelNumber n={3} />XRPL Payment</h2>
           <p className="muted">
             Submit an XRPL payment transaction. If a permit exists, its bundle hash will be included as a memo.
           </p>
@@ -724,6 +725,10 @@ export default function App() {
               </div>
 
               <div className="commitRows">
+                <div className="commitRow">
+                  <span className="commitLabel">Submitted</span>
+                  <span className="commitValue">{paymentResult.submitted ? "Yes" : "No"}</span>
+                </div>
                 <div className="commitRow">
                   <span className="commitLabel">TX Hash</span>
                   <span className="commitValue commitValueMono" style={{ wordBreak: "break-all" }}>
