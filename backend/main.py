@@ -1163,6 +1163,23 @@ def xrpl_payment(req: XRPLPaymentRequest):
             detail={"error": "demo_wallet_not_configured", "reason": "XRPL_DEMO_WALLET_SEED is not configured"},
         )
 
+    if XRPL_REQUIRE_TRUSTLINE:
+        trustline_result = validate_trustline(req.destination, RLUSD_ISSUER, RLUSD_CURRENCY)
+        if not trustline_result.get("trustline_exists", False):
+            reason_codes = ["TRUSTLINE_REQUIRED", "TRUSTLINE_NOT_SATISFIED"]
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "trustline_required",
+                    "reason": "destination must have trustline for configured RLUSD issuer/currency",
+                    "reason_codes": reason_codes,
+                    "destination": req.destination,
+                    "issuer": RLUSD_ISSUER,
+                    "currency": RLUSD_CURRENCY,
+                    "raw_lines_checked": trustline_result.get("raw_lines_checked", 0),
+                },
+            )
+
     amount_value = str(req.amount)
 
     # XRPL requires non-standard currency codes (> 3 chars) to be hex-encoded

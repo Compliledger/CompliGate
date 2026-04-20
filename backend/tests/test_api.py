@@ -1200,6 +1200,76 @@ def test_xrpl_payment_success():
     mock_submit.assert_called_once()
 
 
+def test_xrpl_payment_trustline_required_blocks_submission_without_trustline():
+    """When trustline is required and absent, return 400 and do not submit payment."""
+    with patch("main.get_demo_wallet", return_value=_mock_demo_wallet()), \
+         patch("main.RLUSD_ISSUER", "rISSUER123"), \
+         patch("main.RLUSD_CURRENCY", "RLUSD"), \
+         patch("main.XRPL_RPC_URL", "https://s.altnet.rippletest.net:51234"), \
+         patch("main.XRPL_REQUIRE_TRUSTLINE", True), \
+         patch(
+             "main.validate_trustline",
+             return_value={
+                 "trustline_exists": False,
+                 "issuer": "rISSUER123",
+                 "currency": "RLUSD",
+                 "raw_lines_checked": 0,
+             },
+         ), \
+         patch("main.submit_and_wait") as mock_submit:
+        response = client.post(
+            PAYMENT_URL,
+            json={"destination": VALID_DESTINATION, "amount": "25"},
+        )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["error"] == "trustline_required"
+    assert "reason_codes" in detail
+    assert "TRUSTLINE_REQUIRED" in detail["reason_codes"]
+    assert "TRUSTLINE_NOT_SATISFIED" in detail["reason_codes"]
+    assert detail["destination"] == VALID_DESTINATION
+    assert detail["issuer"] == "rISSUER123"
+    assert detail["currency"] == "RLUSD"
+    mock_submit.assert_not_called()
+
+
+def test_xrpl_payment_trustline_required_allows_submission_with_trustline():
+    """When trustline is required and present, payment is submitted."""
+    mock_response = MagicMock()
+    mock_response.result = {
+        "hash": "VALIDPAYMENTHASH",
+        "meta": {"TransactionResult": "tesSUCCESS"},
+    }
+
+    with patch("main.get_demo_wallet", return_value=_mock_demo_wallet()), \
+         patch("main.RLUSD_ISSUER", "rISSUER123"), \
+         patch("main.RLUSD_CURRENCY", "RLUSD"), \
+         patch("main.XRPL_RPC_URL", "https://s.altnet.rippletest.net:51234"), \
+         patch("main.XRPL_REQUIRE_TRUSTLINE", True), \
+         patch(
+             "main.validate_trustline",
+             return_value={
+                 "trustline_exists": True,
+                 "issuer": "rISSUER123",
+                 "currency": "RLUSD",
+                 "raw_lines_checked": 1,
+             },
+         ) as mock_validate, \
+         patch("main.submit_and_wait", return_value=mock_response) as mock_submit:
+        response = client.post(
+            PAYMENT_URL,
+            json={"destination": VALID_DESTINATION, "amount": "25"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["submitted"] is True
+    assert data["tx_hash"] == "VALIDPAYMENTHASH"
+    mock_validate.assert_called_once()
+    mock_submit.assert_called_once()
+
+
 def test_xrpl_payment_with_memo():
     """When memo_bundle_hash is provided, submit is called with memos and proof_link is returned."""
     mock_response = MagicMock()
