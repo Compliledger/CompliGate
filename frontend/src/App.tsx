@@ -1154,7 +1154,7 @@ export default function App() {
                   <span className={checkClass(Boolean(trustlineResult.issuer))}>
                     {checkSymbol(Boolean(trustlineResult.issuer))}
                   </span>
-                  <span className="summaryLabel">issuer</span>
+                  <span className="summaryLabel">Issuer</span>
                   <span className="summaryValue commitValueMono breakAll">
                     {trustlineResult.issuer ?? "—"}
                   </span>
@@ -1163,12 +1163,12 @@ export default function App() {
                   <span className={checkClass(Boolean(trustlineResult.currency))}>
                     {checkSymbol(Boolean(trustlineResult.currency))}
                   </span>
-                  <span className="summaryLabel">currency</span>
+                  <span className="summaryLabel">Currency</span>
                   <span className="summaryValue">{trustlineResult.currency ?? "—"}</span>
                 </div>
                 <div className="verifyRow">
                   <span className="summaryValue">•</span>
-                  <span className="summaryLabel">raw_lines_checked</span>
+                  <span className="summaryLabel">Raw Lines Checked</span>
                   <span className="summaryValue">{trustlineResult.raw_lines_checked}</span>
                 </div>
               </div>
