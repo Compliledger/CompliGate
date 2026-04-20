@@ -1336,6 +1336,8 @@ def test_settlement_verify_compliant_rlusd():
     assert response.status_code == 200
     data = response.json()
     assert data["decision_result"] == "SETTLED_COMPLIANT"
+    assert "CURRENCY_MATCH" in data["reason_codes"]
+    assert "ISSUER_MATCH" in data["reason_codes"]
     assert "ASSET_CLASSIFIED_REGULATED_STABLECOIN" in data["reason_codes"]
     assert "RESERVE_BACKED" in data["reason_codes"]
     assert "LIQUIDITY_VERIFIED" in data["reason_codes"]
@@ -1343,7 +1345,7 @@ def test_settlement_verify_compliant_rlusd():
     assert "SANCTIONS_PASSED" in data["reason_codes"]
     assert "JURISDICTION_MATCH" in data["reason_codes"]
     assert "AMOUNT_WITHIN_LIMIT" in data["reason_codes"]
-    assert "TRUSTLINE_REQUIRED" in data["reason_codes"]
+    assert "TRUSTLINE_NOT_REQUIRED" in data["reason_codes"]
 
 
 def test_settlement_verify_response_has_proof_artifact():
@@ -1375,12 +1377,77 @@ def test_settlement_verify_evaluation_context_fields():
     ctx = response.json()["proof_artifact"]["evaluation_context"]
     assert ctx["bundle_hash"] == SAMPLE_BUNDLE_HASH
     assert ctx["tx_hash"] == SAMPLE_TX_HASH
+    assert ctx["source_account"] == "rSender123456789012345678901"
     assert ctx["asset"] == "RLUSD"
     assert ctx["amount"] == "500"
     assert ctx["issuer"] == "rISSUER"
     assert ctx["destination"] == "rDest12345678901234567890123"
+    assert ctx["memo"] is None
     assert "jurisdiction" in ctx
+    assert ctx["kyc_verified"] is True
+    assert ctx["sanctions_check"] == "passed"
+    assert ctx["reserve_backed"] is True
+    assert ctx["liquidity_verified"] is True
     assert isinstance(ctx["constraints_verified"], dict)
+
+
+def test_settlement_verify_memo_parsing():
+    """Memo field is parsed from XRPL transaction when present."""
+    tx_data = _make_compliant_rlusd_tx()
+    memo_text = "bundle_abc123"
+    tx_data["Memos"] = [
+        {"Memo": {"MemoData": memo_text.encode("utf-8").hex(), "MemoType": "746578742f706c61696e"}}
+    ]
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    ctx = response.json()["proof_artifact"]["evaluation_context"]
+    assert ctx["memo"] == memo_text
+
+
+def test_settlement_verify_ledger_index_in_anchor():
+    """anchor_metadata includes ledger_index when present in tx data."""
+    tx_data = _make_compliant_rlusd_tx()
+    tx_data["ledger_index"] = 12345678
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    anchor = response.json()["proof_artifact"]["anchor_metadata"]
+    assert anchor["ledger_index"] == 12345678
+
+
+def test_settlement_verify_ledger_index_absent():
+    """anchor_metadata omits ledger_index when not present in tx data."""
+    tx_data = _make_compliant_rlusd_tx()
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    anchor = response.json()["proof_artifact"]["anchor_metadata"]
+    assert "ledger_index" not in anchor
+
+
+def test_settlement_verify_trustline_required_when_configured():
+    """When XRPL_REQUIRE_TRUSTLINE is true, trustline constraint is validated."""
+    tx_data = _make_compliant_rlusd_tx()
+    with patch("main.XRPL_REQUIRE_TRUSTLINE", True), \
+         patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "SETTLED_COMPLIANT"
+    assert "TRUSTLINE_REQUIRED" in data["reason_codes"]
 
 
 def test_settlement_verify_non_compliant_wrong_currency():
@@ -1488,10 +1555,8 @@ def test_settlement_verify_proof_artifact_anchor_metadata():
     anchor = response.json()["proof_artifact"]["anchor_metadata"]
     assert "network" in anchor
     assert anchor["tx_hash"] == SAMPLE_TX_HASH
-    assert "rpc_url_present" in anchor
-    assert isinstance(anchor["rpc_url_present"], bool)
-    assert "anchored_at" in anchor
-    assert isinstance(anchor["anchored_at"], int)
+    assert "verified_at" in anchor
+    assert isinstance(anchor["verified_at"], int)
 
 
 def test_settlement_verify_xrp_native_non_compliant():
@@ -1525,6 +1590,8 @@ def test_settlement_verify_constraints_verified_in_context():
     cv = response.json()["proof_artifact"]["evaluation_context"]["constraints_verified"]
     assert cv["tx_validated"] is True
     assert cv["tx_type_payment"] is True
+    assert cv["currency_match"] is True
+    assert cv["issuer_match"] is True
     assert cv["asset_classification_regulated_stablecoin"] is True
     assert cv["reserve_backed"] is True
     assert cv["liquidity_verified"] is True
@@ -1552,10 +1619,9 @@ def test_evaluate_settlement_constraints_unit_non_compliant():
 
 
 def test_settlement_verify_rlusd_issuer_enforcement():
-    """When XRPL_ENFORCE_RLUSD_ONLY is true and RLUSD_ISSUER is set, issuer must match."""
+    """When RLUSD_ISSUER is set, issuer must match."""
     tx_data = _make_compliant_rlusd_tx(issuer="rWRONG_ISSUER")
-    with patch("main.XRPL_ENFORCE_RLUSD_ONLY", True), \
-         patch("main.RLUSD_ISSUER", "rCORRECT_ISSUER"), \
+    with patch("main.RLUSD_ISSUER", "rCORRECT_ISSUER"), \
          patch("main.fetch_xrpl_transaction", return_value=tx_data):
         response = client.post(
             "/v1/settlement/verify",
@@ -1564,7 +1630,7 @@ def test_settlement_verify_rlusd_issuer_enforcement():
     assert response.status_code == 200
     data = response.json()
     assert data["decision_result"] == "SETTLEMENT_NON_COMPLIANT"
-    assert "ASSET_NOT_RLUSD" in data["reason_codes"]
+    assert "ISSUER_MISMATCH" in data["reason_codes"]
 
 
 # -----------------------
@@ -1983,15 +2049,6 @@ def test_trustline_check_found():
     """POST returns trustline_exists=True when trustline is present."""
     lines = [
         {"currency": "RLUSD", "account": "rISSUER123", "limit": "1000000", "balance": "500"},
-# validate_trustline unit tests
-# -----------------------
-
-
-def test_validate_trustline_found():
-    """validate_trustline returns trustline_exists=True when a matching line exists."""
-    lines = [
-        {"currency": "RLUSD", "account": "rISSUER_MATCH", "limit": "1000000", "balance": "250"},
-        {"currency": "USD", "account": "rOTHER", "limit": "50000", "balance": "0"},
     ]
     mock_resp = MagicMock()
     mock_resp.raise_for_status.return_value = None
@@ -2004,21 +2061,10 @@ def test_validate_trustline_found():
     assert data["address"] == VALID_SUBJECT
     assert data["trustline_exists"] is True
     assert data["currency"] == "RLUSD"
-    assert data["raw_lines_checked"] == 1
 
 
 def test_trustline_check_not_found():
     """POST returns trustline_exists=False when no matching trustline."""
-        result = validate_trustline(VALID_SUBJECT, "rISSUER_MATCH", "RLUSD")
-
-    assert result["trustline_exists"] is True
-    assert result["issuer"] == "rISSUER_MATCH"
-    assert result["currency"] == "RLUSD"
-    assert result["raw_lines_checked"] == 2
-
-
-def test_validate_trustline_not_found():
-    """validate_trustline returns trustline_exists=False when no matching line exists."""
     lines = [
         {"currency": "USD", "account": "rOTHER", "limit": "50000", "balance": "100"},
     ]
@@ -2036,12 +2082,16 @@ def test_validate_trustline_not_found():
 
 def test_trustline_check_empty_lines():
     """POST returns trustline_exists=False when account has no lines."""
-        result = validate_trustline(VALID_SUBJECT, "rISSUER_MATCH", "RLUSD")
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {"result": {"lines": []}}
 
-    assert result["trustline_exists"] is False
-    assert result["issuer"] == "rISSUER_MATCH"
-    assert result["currency"] == "RLUSD"
-    assert result["raw_lines_checked"] == 1
+    with patch("main.http_requests.post", return_value=mock_resp):
+        response = client.post("/v1/xrpl/trustline/check", json={"address": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["trustline_exists"] is False
+    assert data["raw_lines_checked"] == 0
 
 
 def test_validate_trustline_empty_lines():
@@ -2106,10 +2156,19 @@ def test_trustline_check_rpc_failure():
 
 def test_trustline_check_issuer_enforcement():
     """When RLUSD_ISSUER is set, only matching issuer counts."""
-        result = validate_trustline(VALID_SUBJECT, "rISSUER", "RLUSD")
+    lines = [
+        {"currency": "RLUSD", "account": "rWRONG", "limit": "1000000", "balance": "0"},
+    ]
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {"result": {"lines": lines}}
 
-    assert result["trustline_exists"] is False
-    assert result["raw_lines_checked"] == 0
+    with patch("main.RLUSD_ISSUER", "rCORRECT_ISSUER"), \
+         patch("main.http_requests.post", return_value=mock_resp):
+        response = client.post("/v1/xrpl/trustline/check", json={"address": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["trustline_exists"] is False
 
 
 def test_validate_trustline_wrong_issuer():
@@ -2153,6 +2212,11 @@ def test_validate_trustline_not_found():
     """validate_trustline returns trustline_exists=False when no match."""
     lines = [
         {"currency": "USD", "account": "rOTHER", "limit": "1000", "balance": "0"},
+    ]
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {"result": {"lines": lines}}
+
     with patch("main.http_requests.post", return_value=mock_resp):
         result = validate_trustline(VALID_SUBJECT, "rCORRECT_ISSUER", "RLUSD")
 
@@ -2170,7 +2234,6 @@ def test_validate_trustline_wrong_currency():
     mock_resp.json.return_value = {"result": {"lines": lines}}
 
     with patch("main.http_requests.post", return_value=mock_resp):
-        result = validate_trustline("rN7n3473SaZBCG4dFL83w7PB5XDnEHyMQX", "rISSUER", "RLUSD")
         result = validate_trustline(VALID_SUBJECT, "rISSUER", "RLUSD")
 
     assert result["trustline_exists"] is False
