@@ -2260,7 +2260,6 @@ def test_trustline_check_issuer_enforcement():
     mock_resp.raise_for_status.return_value = None
     mock_resp.json.return_value = {"result": {"lines": lines}}
 
-    with patch("main.RLUSD_ISSUER", "rCORRECT_ISSUER"), \
     with patch("main.RLUSD_ISSUER", "rISSUER"), \
          patch("main.http_requests.post", return_value=mock_resp):
         response = client.post("/v1/xrpl/trustline/check", json={"address": VALID_SUBJECT})
