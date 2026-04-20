@@ -39,6 +39,39 @@ type XrplHealth = {
   rlusd_configured: boolean;
 };
 
+type TrustlineCheckResult = {
+  has_trustline: boolean;
+  currency: string;
+  issuer: string;
+  limit: string;
+  balance: string;
+};
+
+type TrustlinesResponse = {
+  address: string;
+  network: string;
+  trustline_count: number;
+  rlusd_trustline: TrustlineCheckResult;
+  lines: Record<string, unknown>[];
+};
+
+type TxLookupAmount = {
+  currency: string;
+  value: string;
+  issuer: string;
+};
+
+type TxLookupResponse = {
+  tx_hash: string;
+  validated: boolean;
+  transaction_type: string;
+  account: string;
+  destination: string;
+  amount: TxLookupAmount;
+  engine_result: string;
+  network: string;
+};
+
 function formatSeconds(s: number) {
   const mm = Math.floor(s / 60);
   const ss = s % 60;
@@ -97,6 +130,14 @@ export default function App() {
   const [settlementResult, setSettlementResult] = useState<SettlementVerifyNewResponse | null>(null);
   const [settlementError, setSettlementError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
+  const [trustlineAddress, setTrustlineAddress] = useState("");
+  const [trustlineResult, setTrustlineResult] = useState<TrustlinesResponse | null>(null);
+  const [trustlineError, setTrustlineError] = useState<string | null>(null);
+  const [trustlineLoading, setTrustlineLoading] = useState(false);
+  const [txLookupHash, setTxLookupHash] = useState("");
+  const [txLookupResult, setTxLookupResult] = useState<TxLookupResponse | null>(null);
+  const [txLookupError, setTxLookupError] = useState<string | null>(null);
+  const [txLookupLoading, setTxLookupLoading] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -296,6 +337,68 @@ export default function App() {
       );
     } catch {
       // silent fail — clipboard API unavailable
+    }
+  }
+
+  async function checkTrustlines() {
+    if (!trustlineAddress.trim()) return;
+    setTrustlineError(null);
+    setTrustlineResult(null);
+    setTrustlineLoading(true);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(
+        `${API_BASE}/v1/xrpl/account/${encodeURIComponent(trustlineAddress.trim())}/trustlines`,
+        { signal: controller.signal },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setTrustlineError(extractErrorMessage(data, "Failed to check trustlines."));
+      } else {
+        setTrustlineResult(data as TrustlinesResponse);
+      }
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name === "AbortError") {
+        setTrustlineError("Request timed out. Please try again.");
+      } else {
+        setTrustlineError(e instanceof Error ? e.message : "Network error checking trustlines.");
+      }
+    } finally {
+      clearTimeout(timeout);
+      setTrustlineLoading(false);
+    }
+  }
+
+  async function lookupTransaction() {
+    if (!txLookupHash.trim()) return;
+    setTxLookupError(null);
+    setTxLookupResult(null);
+    setTxLookupLoading(true);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(
+        `${API_BASE}/v1/xrpl/tx/${encodeURIComponent(txLookupHash.trim())}`,
+        { signal: controller.signal },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setTxLookupError(extractErrorMessage(data, "Failed to look up transaction."));
+      } else {
+        setTxLookupResult(data as TxLookupResponse);
+      }
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name === "AbortError") {
+        setTxLookupError("Request timed out. Please try again.");
+      } else {
+        setTxLookupError(e instanceof Error ? e.message : "Network error looking up transaction.");
+      }
+    } finally {
+      clearTimeout(timeout);
+      setTxLookupLoading(false);
     }
   }
 
@@ -984,6 +1087,220 @@ export default function App() {
               </div>
             </>
           )}
+        </section>
+
+        {/* Panel 6: XRPL Trustline Check */}
+        <section className="card">
+          <h2><PanelNumber n={6} />Trustline Check</h2>
+          <p className="muted">
+            Verify that an XRPL account has an RLUSD trustline before or after a transfer.
+          </p>
+
+          <label className="label">Account Address</label>
+          <input
+            className="input"
+            value={trustlineAddress}
+            onChange={(e) => setTrustlineAddress(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && trustlineAddress.trim() && !trustlineLoading) checkTrustlines();
+            }}
+            placeholder="r..."
+            spellCheck={false}
+          />
+
+          <div className="row">
+            <button
+              className="btn primary"
+              onClick={checkTrustlines}
+              disabled={!trustlineAddress.trim() || trustlineLoading}
+            >
+              {trustlineLoading ? "Checking…" : "Check Trustlines"}
+            </button>
+            <button
+              className="btn"
+              onClick={() => {
+                setTrustlineAddress("");
+                setTrustlineResult(null);
+                setTrustlineError(null);
+              }}
+            >
+              Clear
+            </button>
+          </div>
+
+          {trustlineResult && (
+            <div className="verifyResult">
+              <div className={`verifyHeader ${trustlineResult.rlusd_trustline.has_trustline ? "good" : "bad"}`}>
+                <span className={`verifyIcon ${trustlineResult.rlusd_trustline.has_trustline ? "good" : "bad"}`}>
+                  {trustlineResult.rlusd_trustline.has_trustline ? "✔" : "✘"}
+                </span>
+                {trustlineResult.rlusd_trustline.has_trustline ? "RLUSD Trustline Found" : "No RLUSD Trustline"}
+              </div>
+
+              <div className="verifyRows">
+                <div className="verifyRow">
+                  <span className="check">✔</span>
+                  <span className="summaryLabel">Address</span>
+                  <span className="summaryValue commitValueMono breakAll">{trustlineResult.address}</span>
+                </div>
+                <div className="verifyRow">
+                  <span className="check">✔</span>
+                  <span className="summaryLabel">Network</span>
+                  <span className="summaryValue">{trustlineResult.network}</span>
+                </div>
+                <div className="verifyRow">
+                  <span className="check">✔</span>
+                  <span className="summaryLabel">Total trustlines</span>
+                  <span className="summaryValue">{trustlineResult.trustline_count}</span>
+                </div>
+                {trustlineResult.rlusd_trustline.has_trustline && (
+                  <>
+                    <div className="verifyRow">
+                      <span className={checkClass(true)}>
+                        {checkSymbol(true)}
+                      </span>
+                      <span className="summaryLabel">RLUSD Issuer</span>
+                      <span className="summaryValue commitValueMono breakAll">
+                        {trustlineResult.rlusd_trustline.issuer}
+                      </span>
+                    </div>
+                    <div className="verifyRow">
+                      <span className={checkClass(true)}>
+                        {checkSymbol(true)}
+                      </span>
+                      <span className="summaryLabel">Limit</span>
+                      <span className="summaryValue">{trustlineResult.rlusd_trustline.limit}</span>
+                    </div>
+                    <div className="verifyRow">
+                      <span className={checkClass(true)}>
+                        {checkSymbol(true)}
+                      </span>
+                      <span className="summaryLabel">Balance</span>
+                      <span className="summaryValue">{trustlineResult.rlusd_trustline.balance}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {trustlineError && <div className="alert bad">{trustlineError}</div>}
+        </section>
+
+        {/* Panel 7: XRPL Transaction Lookup */}
+        <section className="card">
+          <h2><PanelNumber n={7} />Transaction Lookup</h2>
+          <p className="muted">
+            Look up a real XRPL transaction by hash to inspect its details.
+          </p>
+
+          <label className="label">Transaction Hash</label>
+          <input
+            className="input"
+            value={txLookupHash}
+            onChange={(e) => setTxLookupHash(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && txLookupHash.trim() && !txLookupLoading) lookupTransaction();
+            }}
+            placeholder="Enter XRPL transaction hash..."
+            spellCheck={false}
+          />
+
+          <div className="row">
+            <button
+              className="btn primary"
+              onClick={lookupTransaction}
+              disabled={!txLookupHash.trim() || txLookupLoading}
+            >
+              {txLookupLoading ? "Looking up…" : "Look Up Transaction"}
+            </button>
+            <button
+              className="btn"
+              onClick={() => {
+                setTxLookupHash("");
+                setTxLookupResult(null);
+                setTxLookupError(null);
+              }}
+            >
+              Clear
+            </button>
+          </div>
+
+          {txLookupResult && (
+            <div className="verifyResult">
+              <div className={`verifyHeader ${txLookupResult.validated ? "good" : "bad"}`}>
+                <span className={`verifyIcon ${txLookupResult.validated ? "good" : "bad"}`}>
+                  {txLookupResult.validated ? "✔" : "✘"}
+                </span>
+                {txLookupResult.validated ? "Validated" : "Not Validated"}
+              </div>
+
+              <div className="verifyRows">
+                <div className="verifyRow">
+                  <span className="check">✔</span>
+                  <span className="summaryLabel">TX Hash</span>
+                  <span className="summaryValue commitValueMono breakAll">{txLookupResult.tx_hash}</span>
+                  <button
+                    className="copyBtn"
+                    onClick={() => copyToClipboard(txLookupResult.tx_hash, "txlookup_hash")}
+                    title="Copy TX hash"
+                  >
+                    {copied === "txlookup_hash" ? "✔ Copied" : "Copy"}
+                  </button>
+                </div>
+                <div className="verifyRow">
+                  <span className="check">✔</span>
+                  <span className="summaryLabel">Type</span>
+                  <span className="summaryValue">{txLookupResult.transaction_type}</span>
+                </div>
+                <div className="verifyRow">
+                  <span className="check">✔</span>
+                  <span className="summaryLabel">Account</span>
+                  <span className="summaryValue commitValueMono breakAll">{txLookupResult.account}</span>
+                </div>
+                {txLookupResult.destination && (
+                  <div className="verifyRow">
+                    <span className="check">✔</span>
+                    <span className="summaryLabel">Destination</span>
+                    <span className="summaryValue commitValueMono breakAll">{txLookupResult.destination}</span>
+                  </div>
+                )}
+                <div className="verifyRow">
+                  <span className="check">✔</span>
+                  <span className="summaryLabel">Currency</span>
+                  <span className="summaryValue">{txLookupResult.amount.currency}</span>
+                </div>
+                <div className="verifyRow">
+                  <span className="check">✔</span>
+                  <span className="summaryLabel">Amount</span>
+                  <span className="summaryValue">{txLookupResult.amount.value}</span>
+                </div>
+                {txLookupResult.amount.issuer && (
+                  <div className="verifyRow">
+                    <span className="check">✔</span>
+                    <span className="summaryLabel">Issuer</span>
+                    <span className="summaryValue commitValueMono breakAll">{txLookupResult.amount.issuer}</span>
+                  </div>
+                )}
+                {txLookupResult.engine_result && (
+                  <div className="verifyRow">
+                    <span className={checkClass(txLookupResult.engine_result === "tesSUCCESS")}>
+                      {checkSymbol(txLookupResult.engine_result === "tesSUCCESS")}
+                    </span>
+                    <span className="summaryLabel">Engine Result</span>
+                    <span className="summaryValue">{txLookupResult.engine_result}</span>
+                  </div>
+                )}
+                <div className="verifyRow">
+                  <span className="check">✔</span>
+                  <span className="summaryLabel">Network</span>
+                  <span className="summaryValue">{txLookupResult.network}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {txLookupError && <div className="alert bad">{txLookupError}</div>}
         </section>
       </main>
 
