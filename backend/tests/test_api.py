@@ -2427,6 +2427,10 @@ def test_validate_trustline_rpc_failure():
 # XRPL integration flow tests (mocked XRPL responses)
 # -----------------------
 
+MOCK_XRPL_ISSUER = "rISSUER"
+MOCK_SETTLEMENT_ACCOUNT = "rSender123456789012345678901"
+MOCK_SETTLEMENT_DESTINATION = "rDestination12345678901234567"
+
 
 def test_xrpl_integration_health_configured():
     mock_resp = MagicMock()
@@ -2455,7 +2459,7 @@ def test_xrpl_integration_trustline_check_success():
     mock_resp.raise_for_status.return_value = None
     mock_resp.json.return_value = {
         "result": {
-            "lines": [{"currency": "RLUSD", "account": "rISSUER123", "limit": "1000", "balance": "10"}]
+            "lines": [{"currency": "RLUSD", "account": MOCK_XRPL_ISSUER, "limit": "1000", "balance": "10"}]
         }
     }
     with patch("main.XRPL_RPC_URL", "https://mock.xrpl.local"), patch(
@@ -2543,10 +2547,10 @@ def test_xrpl_integration_settlement_verify_success():
     mock_resp.json.return_value = {
         "result": {
             "validated": True,
-            "Account": "rSender123456789012345678901",
-            "Destination": "rDestination12345678901234567",
+            "Account": MOCK_SETTLEMENT_ACCOUNT,
+            "Destination": MOCK_SETTLEMENT_DESTINATION,
             "TransactionType": "Payment",
-            "Amount": {"currency": "RLUSD", "value": "500", "issuer": "rISSUER"},
+            "Amount": {"currency": "RLUSD", "value": "500", "issuer": MOCK_XRPL_ISSUER},
         }
     }
     with patch("main.http_requests.post", return_value=mock_resp):
@@ -2564,10 +2568,10 @@ def test_xrpl_integration_settlement_verify_asset_mismatch_failure():
     mock_resp.json.return_value = {
         "result": {
             "validated": True,
-            "Account": "rSender123456789012345678901",
-            "Destination": "rDestination12345678901234567",
+            "Account": MOCK_SETTLEMENT_ACCOUNT,
+            "Destination": MOCK_SETTLEMENT_DESTINATION,
             "TransactionType": "Payment",
-            "Amount": {"currency": "USD", "value": "500", "issuer": "rISSUER"},
+            "Amount": {"currency": "USD", "value": "500", "issuer": MOCK_XRPL_ISSUER},
         }
     }
     with patch("main.http_requests.post", return_value=mock_resp):
@@ -2589,10 +2593,10 @@ def test_xrpl_integration_settlement_verify_amount_limit_failure():
     mock_resp.json.return_value = {
         "result": {
             "validated": True,
-            "Account": "rSender123456789012345678901",
-            "Destination": "rDestination12345678901234567",
+            "Account": MOCK_SETTLEMENT_ACCOUNT,
+            "Destination": MOCK_SETTLEMENT_DESTINATION,
             "TransactionType": "Payment",
-            "Amount": {"currency": "RLUSD", "value": str(MAX_AMOUNT + 1), "issuer": "rISSUER"},
+            "Amount": {"currency": "RLUSD", "value": str(MAX_AMOUNT + 1), "issuer": MOCK_XRPL_ISSUER},
         }
     }
     with patch("main.http_requests.post", return_value=mock_resp):
