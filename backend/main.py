@@ -335,6 +335,7 @@ def is_rlusd_payment(tx_json: dict) -> bool:
 SUPPORTED_ACTIONS = {"transfer", "trustset"}
 MAX_AMOUNT = 5_000_000
 REASON_CODES = ["kyc_verified", "policy_compliant", "amount_within_limits"]
+ASSET_CLASSIFICATION_REGULATED_STABLECOIN = "regulated_stablecoin"
 
 
 class PermitRequest(BaseModel):
@@ -1421,12 +1422,13 @@ def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
         "bundle_hash": req.bundle_hash,
         "tx_hash": req.tx_hash,
         "source_account": tx_payload.get("Account", ""),
+        "source": tx_payload.get("Account", ""),
         "destination_account": tx_payload.get("Destination", ""),
         "currency": amount_info["currency"],
         "amount": amount_info["value"],
         "issuer": amount_info["issuer"],
         "memo": memo,
-        "asset_classification": "regulated_stablecoin",
+        "asset_classification": ASSET_CLASSIFICATION_REGULATED_STABLECOIN,
         "asset": amount_info["currency"],
         "destination": tx_payload.get("Destination", ""),
         "jurisdiction": JURISDICTION,
@@ -1443,11 +1445,6 @@ def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
         },
         "constraints_verified": constraints_verified,
     }
-
-    # Backward-compatible aliases for existing clients/tests.
-    evaluation_context.update({
-        "source": evaluation_context["source_account"],
-    })
 
     # 4. Build proof artifact
     anchor_metadata: dict = {
