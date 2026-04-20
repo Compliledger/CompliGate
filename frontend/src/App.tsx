@@ -1167,7 +1167,9 @@ export default function App() {
                   <span className="summaryValue">{trustlineResult.currency ?? "—"}</span>
                 </div>
                 <div className="verifyRow">
-                  <span className="summaryValue">•</span>
+                  <span className={checkClass(trustlineResult.raw_lines_checked > 0)}>
+                    {checkSymbol(trustlineResult.raw_lines_checked > 0)}
+                  </span>
                   <span className="summaryLabel">Raw Lines Checked</span>
                   <span className="summaryValue">{trustlineResult.raw_lines_checked}</span>
                 </div>
