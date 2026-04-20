@@ -41,6 +41,7 @@ type XrplHealth = {
   reachable: boolean;
   network: string;
   rlusd_configured: boolean;
+  demo_wallet_configured: boolean;
 };
 
 type TrustlineCheckResult = {
@@ -115,6 +116,16 @@ function xrplReachableLabel(health: XrplHealth | null): string {
   return health.reachable ? "Reachable" : "Unreachable";
 }
 
+function xrplNetworkLabel(health: XrplHealth | null): string {
+  if (!health) return "Checking...";
+  return health.network || "Unknown";
+}
+
+function demoWalletLabel(health: XrplHealth | null): string {
+  if (!health) return "Checking...";
+  return health.demo_wallet_configured ? "Demo Wallet Configured" : "Demo Wallet Not Configured";
+}
+
 function PanelNumber({ n }: { n: number }) {
   return <span className="panelNumber">{n}</span>;
 }
@@ -163,7 +174,13 @@ export default function App() {
       .then((d: XrplHealth) => setXrplHealth(d))
       .catch((err) => {
         console.error("Failed to fetch XRPL health:", err);
-        setXrplHealth({ configured: false, reachable: false, network: "", rlusd_configured: false });
+        setXrplHealth({
+          configured: false,
+          reachable: false,
+          network: "",
+          rlusd_configured: false,
+          demo_wallet_configured: false,
+        });
       })
       .finally(() => clearTimeout(timeout));
   }, []);
@@ -435,15 +452,17 @@ export default function App() {
           <span className="badgeDot" />
           {xrplReachableLabel(xrplHealth)}
         </span>
-        {xrplHealth?.network && (
-          <span className="badge neutral">
-            <span className="badgeDot" />
-            {xrplHealth.network}
-          </span>
-        )}
+        <span className="badge neutral">
+          <span className="badgeDot" />
+          {xrplNetworkLabel(xrplHealth)}
+        </span>
         <span className={`badge ${xrplHealth === null ? "neutral" : xrplHealth.rlusd_configured ? "good" : "bad"}`}>
           <span className="badgeDot" />
           {xrplHealth === null ? "Checking..." : xrplHealth.rlusd_configured ? "RLUSD Configured" : "RLUSD Not Configured"}
+        </span>
+        <span className={`badge ${xrplHealth === null ? "neutral" : xrplHealth.demo_wallet_configured ? "good" : "bad"}`}>
+          <span className="badgeDot" />
+          {demoWalletLabel(xrplHealth)}
         </span>
       </div>
 
