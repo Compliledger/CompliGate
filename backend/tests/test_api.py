@@ -452,6 +452,7 @@ def test_xrpl_health_configured():
     assert data["reachable"] is True
     assert "network" in data
     assert "rlusd_configured" in data
+    assert "demo_wallet_configured" in data
 
 
 def test_xrpl_health_unreachable():
@@ -1611,8 +1612,35 @@ def test_xrpl_health_unconfigured_returns_all_fields():
     assert "reachable" in data
     assert "network" in data
     assert "rlusd_configured" in data
+    assert "demo_wallet_configured" in data
     assert data["configured"] is False
     assert data["reachable"] is False
+
+
+def test_xrpl_health_demo_wallet_configured():
+    """XRPL health returns demo_wallet_configured=True when seed is set."""
+    with patch("main.http_requests.post") as mock_post, \
+         patch("main.XRPL_DEMO_WALLET_SEED", "sEdNotARealSeed"):
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.return_value = None
+        mock_post.return_value = mock_resp
+        response = client.get("/v1/xrpl/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["demo_wallet_configured"] is True
+
+
+def test_xrpl_health_demo_wallet_not_configured():
+    """XRPL health returns demo_wallet_configured=False when seed is empty."""
+    with patch("main.http_requests.post") as mock_post, \
+         patch("main.XRPL_DEMO_WALLET_SEED", ""):
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.return_value = None
+        mock_post.return_value = mock_resp
+        response = client.get("/v1/xrpl/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["demo_wallet_configured"] is False
 
 
 def test_settlement_verify_success_mocked_xrpl_lookup():
