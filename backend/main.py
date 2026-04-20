@@ -1006,7 +1006,7 @@ def xrpl_trustline_check(req: TrustlineCheckRequest):
     structured result.
     """
     address = req.address
-    if not isinstance(address, str) or not address.startswith("r"):
+    if not address.startswith("r"):
         raise HTTPException(
             status_code=400,
             detail={"error": "invalid_address", "reason": "address must be a string starting with 'r'"},
@@ -1023,13 +1023,8 @@ def xrpl_trustline_check(req: TrustlineCheckRequest):
         )
 
     result = validate_trustline(address, RLUSD_ISSUER, RLUSD_CURRENCY)
-    return {
-        "address": address,
-        "trustline_exists": result["trustline_exists"],
-        "issuer": result["issuer"],
-        "currency": result["currency"],
-        "raw_lines_checked": result["raw_lines_checked"],
-    }
+    result["address"] = address
+    return result
 
 
 # -----------------------
