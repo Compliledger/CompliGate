@@ -1401,6 +1401,8 @@ def test_settlement_verify_uses_cached_permit_context():
     assert data["decision_result"] == "SETTLED_COMPLIANT"
     ctx = data["proof_artifact"]["evaluation_context"]
     assert ctx["permit_context_used"] is True
+    assert "bundle_id" in permit["bundle"]
+    assert "bundle_id" in ctx["permit_bundle"]
     assert ctx["permit_bundle"]["bundle_id"] == permit["bundle"]["bundle_id"]
     assert "SUBJECT_MATCH" in data["reason_codes"]
     assert "COUNTERPARTY_MATCH" in data["reason_codes"]

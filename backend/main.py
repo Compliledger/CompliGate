@@ -6,6 +6,7 @@ import logging
 import os
 import time
 import hashlib
+from collections import OrderedDict
 from uuid import uuid4
 
 import requests as http_requests
@@ -369,7 +370,7 @@ class VerifyRequest(BaseModel):
 # MVP in-memory permit context cache
 # -----------------------
 
-RECENT_PERMITS_BY_BUNDLE_HASH: dict[str, dict] = {}
+RECENT_PERMITS_BY_BUNDLE_HASH: "OrderedDict[str, dict]" = OrderedDict()
 
 
 def _store_recent_permit_context(
@@ -386,12 +387,9 @@ def _store_recent_permit_context(
         "proof_artifact": proof_artifact.model_dump(),
         "issued_at": issued_at,
     }
-    if len(RECENT_PERMITS_BY_BUNDLE_HASH) > PERMIT_CONTEXT_CACHE_MAX_ITEMS:
-        oldest_key = min(
-            RECENT_PERMITS_BY_BUNDLE_HASH,
-            key=lambda key: RECENT_PERMITS_BY_BUNDLE_HASH[key]["issued_at"],
-        )
-        RECENT_PERMITS_BY_BUNDLE_HASH.pop(oldest_key, None)
+    RECENT_PERMITS_BY_BUNDLE_HASH.move_to_end(bundle_hash)
+    while len(RECENT_PERMITS_BY_BUNDLE_HASH) > PERMIT_CONTEXT_CACHE_MAX_ITEMS:
+        RECENT_PERMITS_BY_BUNDLE_HASH.popitem(last=False)
 
 
 def _get_recent_permit_context(bundle_hash: str) -> dict | None:
@@ -1328,8 +1326,7 @@ def _evaluate_settlement_constraints(
     else:
         reason_codes.append("TX_TYPE_MISMATCH_PERMIT" if permit_bundle else "TX_TYPE_NOT_PAYMENT")
         compliant = False
-    is_payment = tx_type == "Payment"
-    constraints_verified["tx_type_payment"] = is_payment
+    constraints_verified["tx_type_payment"] = tx_type == "Payment"
 
     # -- Subject must match permit subject when available --
     permit_subject = (permit_bundle or {}).get("subject")
