@@ -727,7 +727,7 @@ export default function App() {
               <div className="commitRows">
                 <div className="commitRow">
                   <span className="commitLabel">Submitted</span>
-                  <span className="commitValue">{String(paymentResult.submitted)}</span>
+                  <span className="commitValue">{paymentResult.submitted ? "Yes" : "No"}</span>
                 </div>
                 <div className="commitRow">
                   <span className="commitLabel">TX Hash</span>
