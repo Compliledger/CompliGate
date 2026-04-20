@@ -1356,8 +1356,8 @@ def _evaluate_settlement_constraints(
 
     tx_destination = tx_data.get("Destination", "")
 
-    permit_asset = (permit_bundle or {}).get("asset", {})
     if permit_bundle:
+        permit_asset = permit_bundle.get("asset", {})
         expected_currency = permit_asset.get("currency", "")
         expected_issuer = permit_asset.get("issuer", "")
         if not expected_currency:
@@ -1432,7 +1432,6 @@ def _evaluate_settlement_constraints(
         if max_amount is None:
             constraints_verified["permit_max_amount_present"] = False
             reason_codes.append("PERMIT_CONTEXT_MAX_AMOUNT_MISSING")
-            compliant = False
             amount_ok = False
         else:
             amount_ok = tx_value <= max_amount
@@ -1497,7 +1496,7 @@ def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
     to the defined policy constraints.
     """
     permit_context = _get_recent_permit_context(req.bundle_hash)
-    permit_bundle = permit_context["bundle"] if permit_context else None
+    permit_bundle = permit_context.get("bundle") if permit_context else None
 
     # 1. Fetch the XRPL transaction
     tx_data = fetch_xrpl_transaction(req.tx_hash)
