@@ -923,6 +923,35 @@ def check_rlusd_trustline(lines: list[dict]) -> dict:
     }
 
 
+def validate_trustline(address: str, issuer: str, currency: str) -> dict:
+    """Validate whether a trustline exists for the given issuer and currency.
+
+    Fetches account lines for *address* via the XRPL RPC and checks each
+    returned trust line for a match on *issuer* (compared against the
+    ``account`` field) and *currency*.
+
+    :param address: XRPL account address to inspect.
+    :param issuer: Expected issuer address for the issued asset.
+    :param currency: Expected currency code (e.g. ``"RLUSD"``).
+    :returns: A dict with ``trustline_exists``, ``issuer``, ``currency``,
+        and ``raw_lines_checked`` keys.
+    :raises HTTPException 502: If the underlying RPC request fails.
+    """
+    lines = fetch_account_lines(address)
+    trustline_exists = False
+    for line in lines:
+        if line.get("currency", "") == currency and line.get("account", "") == issuer:
+            trustline_exists = True
+            break
+
+    return {
+        "trustline_exists": trustline_exists,
+        "issuer": issuer,
+        "currency": currency,
+        "raw_lines_checked": len(lines),
+    }
+
+
 @app.get("/v1/xrpl/account/{address}/trustlines")
 def xrpl_account_trustlines(address: str):
     """Fetch and validate trust lines for an XRPL account.
