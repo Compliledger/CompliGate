@@ -1405,6 +1405,8 @@ def test_settlement_verify_evaluation_context_fields():
     assert ctx["bundle_hash"] == SAMPLE_BUNDLE_HASH
     assert ctx["tx_hash"] == SAMPLE_TX_HASH
     assert ctx["source_account"] == "rSender123456789012345678901"
+    assert ctx["destination_account"] == "rDest12345678901234567890123"
+    assert ctx["currency"] == "RLUSD"
     assert ctx["asset"] == "RLUSD"
     assert ctx["amount"] == "500"
     assert ctx["issuer"] == "rISSUER"
@@ -1415,6 +1417,12 @@ def test_settlement_verify_evaluation_context_fields():
     assert ctx["sanctions_check"] == "passed"
     assert ctx["reserve_backed"] is True
     assert ctx["liquidity_verified"] is True
+    assert isinstance(ctx["policy_conditions"], dict)
+    assert ctx["policy_conditions"]["jurisdiction"] == ctx["jurisdiction"]
+    assert ctx["policy_conditions"]["kyc_verified"] is True
+    assert ctx["policy_conditions"]["sanctions"] == "passed"
+    assert ctx["policy_conditions"]["reserve_backed"] is True
+    assert ctx["policy_conditions"]["liquidity_verified"] is True
     assert isinstance(ctx["constraints_verified"], dict)
 
 
@@ -1433,6 +1441,24 @@ def test_settlement_verify_memo_parsing():
     assert response.status_code == 200
     ctx = response.json()["proof_artifact"]["evaluation_context"]
     assert ctx["memo"] == memo_text
+
+
+def test_settlement_verify_parses_wrapped_tx_payload():
+    tx_data = {"validated": True, "ledger_index": 123, "tx": _make_compliant_rlusd_tx(value="250")}
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "SETTLED_COMPLIANT"
+    ctx = data["proof_artifact"]["evaluation_context"]
+    assert ctx["source_account"] == "rSender123456789012345678901"
+    assert ctx["destination_account"] == "rDestination12345678901234567"
+    assert ctx["currency"] == "RLUSD"
+    assert ctx["amount"] == "250"
+    assert data["proof_artifact"]["anchor_metadata"]["ledger_index"] == 123
 
 
 def test_settlement_verify_ledger_index_in_anchor():

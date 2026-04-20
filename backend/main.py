@@ -1370,6 +1370,20 @@ def _evaluate_settlement_constraints(tx_data: dict) -> tuple[str, list[str], dic
     return decision, reason_codes, constraints_verified
 
 
+def _extract_tx_payload(tx_data: dict) -> dict:
+    """Return the transaction object from common XRPL tx response shapes."""
+    nested_tx = tx_data.get("tx")
+    if isinstance(nested_tx, dict):
+        return nested_tx
+    nested_tx_json = tx_data.get("tx_json")
+    if isinstance(nested_tx_json, dict):
+        return nested_tx_json
+    nested_transaction = tx_data.get("transaction")
+    if isinstance(nested_transaction, dict):
+        return nested_transaction
+    return tx_data
+
+
 @app.post("/v1/settlement/verify", response_model=SettlementVerifyByHashResponse)
 def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
     """Verify that an XRPL-settled RLUSD transaction satisfied CompliGate constraints.
@@ -1380,15 +1394,16 @@ def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
     """
     # 1. Fetch the XRPL transaction
     tx_data = fetch_xrpl_transaction(req.tx_hash)
+    tx_payload = _extract_tx_payload(tx_data)
 
     # 2. Evaluate against CompliGate constraints
-    decision_result, reason_codes, constraints_verified = _evaluate_settlement_constraints(tx_data)
+    decision_result, reason_codes, constraints_verified = _evaluate_settlement_constraints(tx_payload)
 
     # 3. Extract transaction metadata for evaluation context
-    amount_info = normalize_xrpl_amount(tx_data.get("Amount", {}))
+    amount_info = normalize_xrpl_amount(tx_payload.get("Amount", {}))
 
     # Parse memo if present
-    memos_raw = tx_data.get("Memos", [])
+    memos_raw = tx_payload.get("Memos", [])
     memo = None
     if memos_raw and isinstance(memos_raw, list):
         first_memo = memos_raw[0]
@@ -1405,19 +1420,35 @@ def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
     evaluation_context = {
         "bundle_hash": req.bundle_hash,
         "tx_hash": req.tx_hash,
-        "source_account": tx_data.get("Account", ""),
-        "asset": amount_info["currency"],
+        "source_account": tx_payload.get("Account", ""),
+        "destination_account": tx_payload.get("Destination", ""),
+        "currency": amount_info["currency"],
         "amount": amount_info["value"],
         "issuer": amount_info["issuer"],
-        "destination": tx_data.get("Destination", ""),
         "memo": memo,
+        "asset_classification": "regulated_stablecoin",
+        "asset": amount_info["currency"],
+        "destination": tx_payload.get("Destination", ""),
         "jurisdiction": JURISDICTION,
         "kyc_verified": True,
         "sanctions_check": "passed",
         "reserve_backed": True,
         "liquidity_verified": True,
+        "policy_conditions": {
+            "jurisdiction": JURISDICTION,
+            "kyc_verified": True,
+            "sanctions": "passed",
+            "reserve_backed": True,
+            "liquidity_verified": True,
+        },
         "constraints_verified": constraints_verified,
     }
+
+    # Backward-compatible aliases for existing clients/tests.
+    evaluation_context.update({
+        "source": evaluation_context["source_account"],
+        "asset": amount_info["currency"],
+    })
 
     # 4. Build proof artifact
     anchor_metadata: dict = {
@@ -1426,6 +1457,8 @@ def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
         "verified_at": now,
     }
     ledger_index = tx_data.get("ledger_index") or tx_data.get("inLedger")
+    if ledger_index is None:
+        ledger_index = tx_payload.get("ledger_index") or tx_payload.get("inLedger")
     if ledger_index is not None:
         anchor_metadata["ledger_index"] = ledger_index
 
