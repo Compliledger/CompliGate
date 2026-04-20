@@ -1317,8 +1317,12 @@ def _evaluate_settlement_constraints(
     # -- Transaction type must match permit action when available --
     tx_type = tx_data.get("TransactionType", "")
     action_map = {"transfer": "Payment", "trustset": "TrustSet"}
-    permit_action = (permit_bundle or {}).get("action", "transfer")
-    expected_tx_type = action_map.get(permit_action, "Payment")
+    permit_action = (permit_bundle or {}).get("action")
+    if permit_bundle and not permit_action:
+        constraints_verified["permit_action_present"] = False
+        reason_codes.append("PERMIT_CONTEXT_ACTION_MISSING")
+        compliant = False
+    expected_tx_type = action_map.get(permit_action or "transfer", "Payment")
     tx_type_matches_permit = tx_type == expected_tx_type
     constraints_verified["tx_type_matches_permit"] = tx_type_matches_permit
     if tx_type_matches_permit:
@@ -1353,8 +1357,21 @@ def _evaluate_settlement_constraints(
     tx_destination = tx_data.get("Destination", "")
 
     permit_asset = (permit_bundle or {}).get("asset", {})
-    expected_currency = permit_asset.get("currency", RLUSD_CURRENCY)
-    expected_issuer = permit_asset.get("issuer", RLUSD_ISSUER)
+    if permit_bundle:
+        expected_currency = permit_asset.get("currency", "")
+        expected_issuer = permit_asset.get("issuer", "")
+        if not expected_currency:
+            constraints_verified["permit_currency_present"] = False
+            reason_codes.append("PERMIT_CONTEXT_CURRENCY_MISSING")
+            compliant = False
+            expected_currency = RLUSD_CURRENCY
+        if not expected_issuer:
+            constraints_verified["permit_issuer_present"] = False
+            reason_codes.append("PERMIT_CONTEXT_ISSUER_MISSING")
+            compliant = False
+    else:
+        expected_currency = RLUSD_CURRENCY
+        expected_issuer = RLUSD_ISSUER
 
     # -- Currency must match expected permit asset currency --
     currency_match = tx_currency == expected_currency
@@ -1410,8 +1427,17 @@ def _evaluate_settlement_constraints(
 
     # -- Amount within limit (permit max when present) --
     permit_constraints = (permit_bundle or {}).get("constraints", {})
-    max_amount = permit_constraints.get("max_amount", MAX_AMOUNT)
-    amount_ok = tx_value <= max_amount
+    if permit_bundle:
+        max_amount = permit_constraints.get("max_amount")
+        if max_amount is None:
+            constraints_verified["permit_max_amount_present"] = False
+            reason_codes.append("PERMIT_CONTEXT_MAX_AMOUNT_MISSING")
+            compliant = False
+            amount_ok = False
+        else:
+            amount_ok = tx_value <= max_amount
+    else:
+        amount_ok = tx_value <= MAX_AMOUNT
     constraints_verified["amount_within_limit"] = amount_ok
     if amount_ok:
         reason_codes.append("AMOUNT_WITHIN_LIMIT")

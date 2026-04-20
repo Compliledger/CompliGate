@@ -1354,6 +1354,11 @@ def _make_compliant_rlusd_tx(
     }
 
 
+def test_make_compliant_rlusd_tx_uses_default_account():
+    tx_data = _make_compliant_rlusd_tx()
+    assert tx_data["Account"] == "rSender123456789012345678901"
+
+
 def test_settlement_verify_compliant_rlusd():
     tx_data = _make_compliant_rlusd_tx()
     with patch("main.fetch_xrpl_transaction", return_value=tx_data):
