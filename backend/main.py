@@ -1075,6 +1075,11 @@ class XRPLPaymentRequest(BaseModel):
     memo_bundle_hash: str | None = Field(None, description="Optional bundle hash to attach as memo.")
 
 
+class ProofLink(BaseModel):
+    bundle_hash: str = Field(..., description="CompliGate proof bundle hash.")
+    tx_hash: str = Field(..., description="XRPL transaction hash.")
+
+
 class XRPLPaymentResponse(BaseModel):
     submitted: bool = Field(..., description="Whether the transaction was submitted.")
     tx_hash: str = Field(..., description="Transaction hash on the XRPL ledger.")
@@ -1084,6 +1089,10 @@ class XRPLPaymentResponse(BaseModel):
     issuer: str = Field(..., description="Issuer address for the issued currency.")
     amount: str = Field(..., description="Amount sent (as string).")
     destination: str = Field(..., description="Destination XRPL account address.")
+    proof_link: ProofLink | None = Field(
+        None,
+        description="Linkage between CompliGate bundle hash and XRPL transaction hash.",
+    )
 
 
 @app.post("/v1/xrpl/payment", response_model=XRPLPaymentResponse)
