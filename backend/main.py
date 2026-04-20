@@ -1061,6 +1061,14 @@ def xrpl_trustline_check(req: TrustlineCheckRequest):
 # -----------------------
 
 
+def build_proof_link(bundle_hash: str, tx_hash: str) -> dict:
+    """Construct a proof linkage object connecting a CompliGate bundle to an XRPL transaction."""
+    return {
+        "bundle_hash": bundle_hash,
+        "tx_hash": tx_hash,
+    }
+
+
 class XRPLPaymentRequest(BaseModel):
     destination: str = Field(..., description="Destination XRPL account address.")
     amount: str | float | int = Field(..., description="Amount to send.")
@@ -1143,7 +1151,7 @@ def xrpl_payment(req: XRPLPaymentRequest):
         engine_result,
     )
 
-    return {
+    result = {
         "submitted": True,
         "tx_hash": tx_hash,
         "engine_result": engine_result,
@@ -1153,6 +1161,11 @@ def xrpl_payment(req: XRPLPaymentRequest):
         "amount": amount_value,
         "destination": req.destination,
     }
+
+    if req.memo_bundle_hash:
+        result["proof_link"] = build_proof_link(req.memo_bundle_hash, tx_hash)
+
+    return result
 
 
 @app.post("/v1/proof-artifact", response_model=ProofArtifact)

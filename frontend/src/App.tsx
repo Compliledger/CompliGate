@@ -24,6 +24,10 @@ type XrplPaymentResponse = {
   issuer: string;
   currency: string;
   destination: string;
+  proof_link?: {
+    bundle_hash: string;
+    tx_hash: string;
+  };
 };
 
 type SettlementVerifyNewResponse = {
@@ -738,6 +742,14 @@ export default function App() {
                     {paymentResult.destination}
                   </span>
                 </div>
+                {paymentResult.proof_link && (
+                  <div className="commitRow">
+                    <span className="commitLabel">Proof Link</span>
+                    <span className="commitValue commitValueMono" style={{ wordBreak: "break-all" }}>
+                      {paymentResult.proof_link.bundle_hash} → {paymentResult.proof_link.tx_hash}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           )}
