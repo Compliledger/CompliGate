@@ -35,6 +35,8 @@ type SettlementVerifyNewResponse = {
   decision_result: string;
   reason_codes: string[];
   proof_artifact: Record<string, unknown>;
+  tx_hash?: string;
+  bundle_hash?: string;
 };
 
 type XrplHealth = {
@@ -188,6 +190,8 @@ export default function App() {
     return d === "permit" || d === "allow" || d === "approved";
   }, [settlementResult]);
 
+  const canVerifySettlement = Boolean(permit?.bundle_hash && paymentResult?.tx_hash);
+
   const status = useMemo(() => {
     if (settlementResult && settlementPassed) return { label: "Verified", kind: "anchored" as const };
     if (settlementResult && !settlementPassed) return { label: "Settlement Failed", kind: "bad" as const };
@@ -303,7 +307,7 @@ export default function App() {
   }
 
   async function verifySettlement() {
-    if (!permit || !paymentResult) return;
+    if (!permit?.bundle_hash || !paymentResult?.tx_hash) return;
     setSettlementError(null);
     setSettlementResult(null);
     setVerifying(true);
@@ -776,26 +780,34 @@ export default function App() {
 
         {/* Panel 4: Verify Settlement */}
         <section className="card">
-          <h2><PanelNumber n={4} />Verify Settlement</h2>
+          <h2><PanelNumber n={4} />Settlement Verification</h2>
           <p className="muted">
-            Verify that the XRPL payment satisfies the permit constraints.
+            One-click verification of settlement against permit and payment hashes.
           </p>
 
           <div className="row">
             <button
               className="btn primary"
               onClick={verifySettlement}
-              disabled={!permit || !paymentResult || verifying}
+              disabled={!canVerifySettlement || verifying}
             >
-              {verifying ? "Verifying…" : "Verify Settlement"}
+              {verifying ? "Verifying…" : "One-Click Verify"}
             </button>
           </div>
+          {!canVerifySettlement && (
+            <p className="muted">Requires both a permit bundle hash and a submitted payment tx hash.</p>
+          )}
 
           {settlementResult && (() => {
             const artifact = settlementResult.proof_artifact;
-            // Prefer hashes from the proof artifact; fall back to local state if the API omits them
-            const txHash = typeof artifact.tx_hash === "string" ? artifact.tx_hash : paymentResult?.tx_hash;
-            const bundleHash = typeof artifact.bundle_hash === "string" ? artifact.bundle_hash : permit?.bundle_hash;
+            const txHash =
+              (typeof settlementResult.tx_hash === "string" && settlementResult.tx_hash) ||
+              (typeof artifact.tx_hash === "string" && artifact.tx_hash) ||
+              paymentResult?.tx_hash;
+            const bundleHash =
+              (typeof settlementResult.bundle_hash === "string" && settlementResult.bundle_hash) ||
+              (typeof artifact.bundle_hash === "string" && artifact.bundle_hash) ||
+              permit?.bundle_hash;
             return (
               <div className="verifyResult">
                 <div className={`verifyHeader ${settlementPassed ? "good" : "bad"}`}>
@@ -806,6 +818,15 @@ export default function App() {
                 </div>
 
                 <div className="verifyRows">
+                  <div className="verifyRow">
+                    <span className={checkClass(settlementPassed)}>
+                      {checkSymbol(settlementPassed)}
+                    </span>
+                    <span className="summaryLabel">Decision Result</span>
+                    <span className={`summaryValue${settlementPassed ? " textGood" : " textBad"}`}>
+                      {settlementResult.decision_result}
+                    </span>
+                  </div>
                   {txHash && (
                     <div className="verifyRow">
                       <span className="check">✔</span>
@@ -836,16 +857,16 @@ export default function App() {
                   )}
                 </div>
 
-                {settlementResult.reason_codes.length > 0 && (
-                  <div className="reasonCodes">
-                    <div className="reasonCodesTitle">Reason Codes</div>
-                    <div className="reasonCodesList">
-                      {settlementResult.reason_codes.map((rc) => (
-                        <span key={rc} className="reasonCode">{rc}</span>
-                      ))}
-                    </div>
+                <div className="reasonCodes">
+                  <div className="reasonCodesTitle">Reason Codes</div>
+                  <div className="reasonCodesList">
+                    {settlementResult.reason_codes.length > 0 ? settlementResult.reason_codes.map((rc) => (
+                      <span key={rc} className="reasonCode">{rc}</span>
+                    )) : (
+                      <span className="reasonCode">none</span>
+                    )}
                   </div>
-                )}
+                </div>
 
                 <div className="proofArtifactBlock">
                   <details className="proofArtifactDetails">
@@ -868,92 +889,6 @@ export default function App() {
               </div>
             );
           })()}
-          {settlementResult && (
-            <div className="verifyResult">
-              <div className={`verifyHeader ${settlementPassed ? "good" : "bad"}`}>
-                <span className={`verifyIcon ${settlementPassed ? "good" : "bad"}`}>
-                  {settlementPassed ? "✔" : "✘"}
-                </span>
-                {settlementPassed ? "PASS" : "FAIL"}
-              </div>
-
-              <div className="verifyRows">
-                <div className="verifyRow">
-                  <span className={checkClass(settlementPassed)}>
-                    {checkSymbol(settlementPassed)}
-                  </span>
-                  <span className="summaryLabel">Decision result</span>
-                  <span className={`summaryValue${settlementPassed ? " textGood" : " textBad"}`}>
-                    {settlementResult.decision_result}
-                  </span>
-                </div>
-
-                {paymentResult?.tx_hash && (
-                  <div className="verifyRow">
-                    <span className="check">✔</span>
-                    <span className="summaryLabel">TX hash</span>
-                    <span className="summaryValue commitValueMono breakAll">
-                      {paymentResult.tx_hash}
-                    </span>
-                    <button
-                      className="copyBtn"
-                      onClick={() => copyToClipboard(paymentResult.tx_hash, "settlement_tx_hash")}
-                      title="Copy TX hash"
-                    >
-                      {copied === "settlement_tx_hash" ? "✔ Copied" : "Copy"}
-                    </button>
-                  </div>
-                )}
-
-                {permit?.bundle_hash && (
-                  <div className="verifyRow">
-                    <span className="check">✔</span>
-                    <span className="summaryLabel">Bundle hash</span>
-                    <span className="summaryValue commitValueMono breakAll">
-                      {permit.bundle_hash}
-                    </span>
-                    <button
-                      className="copyBtn"
-                      onClick={() => copyToClipboard(permit.bundle_hash, "settlement_bundle_hash")}
-                      title="Copy bundle hash"
-                    >
-                      {copied === "settlement_bundle_hash" ? "✔ Copied" : "Copy"}
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {settlementResult.reason_codes.length > 0 && (
-                <div className="reasonCodes">
-                  <div className="reasonCodesTitle">Reason codes</div>
-                  <div className="reasonCodesList">
-                    {settlementResult.reason_codes.map((rc) => (
-                      <span key={rc} className="reasonCode">{rc}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <details className="proofArtifactDetails">
-                <summary className="proofArtifactSummary">
-                  Proof Artifact
-                  <button
-                    className="copyBtn"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      copyToClipboard(JSON.stringify(settlementResult.proof_artifact, null, 2), "settlement_proof");
-                    }}
-                    title="Copy proof artifact"
-                  >
-                    {copied === "settlement_proof" ? "✔ Copied" : "Copy"}
-                  </button>
-                </summary>
-                <div className="proofArtifactBody">
-                  <pre>{JSON.stringify(settlementResult.proof_artifact, null, 2)}</pre>
-                </div>
-              </details>
-            </div>
-          )}
 
           {settlementError && <div className="alert bad">{settlementError}</div>}
         </section>
