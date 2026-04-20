@@ -15,6 +15,7 @@ try:
     from xrpl.wallet import Wallet
     from xrpl.models.transactions import Payment, Memo
     from xrpl.models.amounts import IssuedCurrencyAmount
+    from xrpl.models.requests import AccountInfo, AccountLines, Tx
     from xrpl.transaction import submit_and_wait
     _XRPL_SDK_AVAILABLE = True
 except ImportError:
@@ -47,6 +48,7 @@ RLUSD_ISSUER = os.getenv("RLUSD_ISSUER", "")
 RLUSD_CURRENCY = os.getenv("RLUSD_CURRENCY", "RLUSD")
 XRPL_DEMO_WALLET_SEED = os.getenv("XRPL_DEMO_WALLET_SEED", "")
 XRPL_ENFORCE_RLUSD_ONLY = os.getenv("XRPL_ENFORCE_RLUSD_ONLY", "false").lower() in ("true", "1", "yes")
+XRPL_REQUIRE_TRUSTLINE = os.getenv("XRPL_REQUIRE_TRUSTLINE", "false").lower() in ("true", "1", "yes")
 PERMIT_TTL_SECONDS = int(os.getenv("PERMIT_TTL_SECONDS", "300"))
 
 
@@ -183,6 +185,87 @@ def get_demo_wallet() -> "Wallet | None":
         logger.info("XRPL_DEMO_WALLET_SEED is not configured – demo wallet unavailable")
         return None
     return Wallet.from_seed(XRPL_DEMO_WALLET_SEED)
+
+
+def get_account_info(address: str) -> dict:
+    """Fetch account information from the XRPL network using xrpl-py.
+
+    Returns the ``result`` dict from the RPC response.  When the XRPL
+    client is unavailable (SDK not installed or ``XRPL_RPC_URL`` not
+    configured) a structured error dict is returned instead of raising
+    so that callers can handle the failure gracefully.
+
+    :param address: XRPL account address (e.g. ``rN7n347…``).
+    :returns: Account info dict **or** an error dict with ``error`` and
+        ``reason`` keys.
+    """
+    client = get_xrpl_client()
+    if client is None:
+        return {"error": "xrpl_not_configured", "reason": "XRPL client is not available"}
+    try:
+        response = client.request(AccountInfo(account=address))
+        return response.result
+    except Exception as exc:
+        logger.error("get_account_info failed for %s: %s", address, exc)
+        return {"error": "xrpl_request_failed", "reason": str(exc)}
+
+
+def get_account_lines(address: str) -> dict:
+    """Fetch trust lines for an XRPL account using xrpl-py.
+
+    Returns the ``result`` dict from the RPC response.  When the XRPL
+    client is unavailable a structured error dict is returned instead of
+    raising.
+
+    :param address: XRPL account address.
+    :returns: Account lines dict **or** an error dict with ``error`` and
+        ``reason`` keys.
+    """
+    client = get_xrpl_client()
+    if client is None:
+        return {"error": "xrpl_not_configured", "reason": "XRPL client is not available"}
+    try:
+        response = client.request(AccountLines(account=address))
+        return response.result
+    except Exception as exc:
+        logger.error("get_account_lines failed for %s: %s", address, exc)
+        return {"error": "xrpl_request_failed", "reason": str(exc)}
+
+
+def get_transaction(tx_hash: str) -> dict:
+    """Fetch a transaction from the XRPL ledger using xrpl-py.
+
+    Returns the ``result`` dict from the RPC response.  When the XRPL
+    client is unavailable a structured error dict is returned instead of
+    raising.
+
+    :param tx_hash: XRPL transaction hash.
+    :returns: Transaction data dict **or** an error dict with ``error``
+        and ``reason`` keys.
+    """
+    client = get_xrpl_client()
+    if client is None:
+        return {"error": "xrpl_not_configured", "reason": "XRPL client is not available"}
+    try:
+        response = client.request(Tx(transaction=tx_hash))
+        return response.result
+    except Exception as exc:
+        logger.error("get_transaction failed for %s: %s", tx_hash, exc)
+        return {"error": "xrpl_request_failed", "reason": str(exc)}
+
+
+def normalize_amount(value: str | dict) -> dict:
+    """Normalise an XRPL amount value into a consistent dict.
+
+    This is a convenience alias for :func:`normalize_xrpl_amount` that
+    provides a shorter, more reusable name.
+
+    :param value: An amount value from an XRPL transaction – either a
+        string (drops of XRP) or a dict (issued currency).
+    :returns: A normalised dict with ``currency``, ``value``, and
+        ``issuer`` keys.
+    """
+    return normalize_xrpl_amount(value)
 
 
 def normalize_xrpl_amount(amount_obj: str | dict) -> dict:
