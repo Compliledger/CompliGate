@@ -50,6 +50,7 @@ XRPL_DEMO_WALLET_SEED = os.getenv("XRPL_DEMO_WALLET_SEED", "")
 XRPL_ENFORCE_RLUSD_ONLY = os.getenv("XRPL_ENFORCE_RLUSD_ONLY", "false").lower() in ("true", "1", "yes")
 XRPL_REQUIRE_TRUSTLINE = os.getenv("XRPL_REQUIRE_TRUSTLINE", "false").lower() in ("true", "1", "yes")
 PERMIT_TTL_SECONDS = int(os.getenv("PERMIT_TTL_SECONDS", "300"))
+PERMIT_CONTEXT_CACHE_MAX_ITEMS = int(os.getenv("PERMIT_CONTEXT_CACHE_MAX_ITEMS", "1000"))
 
 
 # -----------------------
@@ -365,6 +366,40 @@ class VerifyRequest(BaseModel):
 
 
 # -----------------------
+# MVP in-memory permit context cache
+# -----------------------
+
+RECENT_PERMITS_BY_BUNDLE_HASH: dict[str, dict] = {}
+
+
+def _store_recent_permit_context(
+    *,
+    bundle_hash: str,
+    bundle: dict,
+    proof_artifact: ProofArtifact,
+    issued_at: int,
+) -> None:
+    """Store a recently issued permit context in memory (MVP-only cache)."""
+    RECENT_PERMITS_BY_BUNDLE_HASH[bundle_hash] = {
+        "bundle_hash": bundle_hash,
+        "bundle": bundle,
+        "proof_artifact": proof_artifact.model_dump(),
+        "issued_at": issued_at,
+    }
+    if len(RECENT_PERMITS_BY_BUNDLE_HASH) > PERMIT_CONTEXT_CACHE_MAX_ITEMS:
+        oldest_key = min(
+            RECENT_PERMITS_BY_BUNDLE_HASH,
+            key=lambda key: RECENT_PERMITS_BY_BUNDLE_HASH[key]["issued_at"],
+        )
+        RECENT_PERMITS_BY_BUNDLE_HASH.pop(oldest_key, None)
+
+
+def _get_recent_permit_context(bundle_hash: str) -> dict | None:
+    """Return a cached permit context for a bundle hash, if present."""
+    return RECENT_PERMITS_BY_BUNDLE_HASH.get(bundle_hash)
+
+
+# -----------------------
 # App Setup
 # -----------------------
 
@@ -594,6 +629,12 @@ def create_permit(req: PermitRequest):
         anchor_metadata={},
     )
 
+    _store_recent_permit_context(
+        bundle_hash=bundle_hash,
+        bundle=bundle,
+        proof_artifact=proof_artifact,
+        issued_at=now,
+    )
     logger.info("permit_issued subject=%s action=%s exp=%d", req.subject, req.action, exp)
     return PermitResponse(
         summary=summary,
@@ -1244,7 +1285,10 @@ class SettlementVerifyByHashResponse(BaseModel):
     proof_artifact: ProofArtifact
 
 
-def _evaluate_settlement_constraints(tx_data: dict) -> tuple[str, list[str], dict]:
+def _evaluate_settlement_constraints(
+    tx_data: dict,
+    permit_bundle: dict | None = None,
+) -> tuple[str, list[str], dict]:
     """Evaluate an XRPL transaction against CompliGate settlement constraints.
 
     This function checks a completed XRPL transaction against the policy
@@ -1252,6 +1296,7 @@ def _evaluate_settlement_constraints(tx_data: dict) -> tuple[str, list[str], dic
     the transaction — it only verifies outcomes.
 
     :param tx_data: Parsed XRPL transaction data from the RPC.
+    :param permit_bundle: Optional original permit bundle for context-aware checks.
     :returns: A 3-tuple of:
         - **decision_result** (str): ``"SETTLED_COMPLIANT"`` or
           ``"SETTLEMENT_NON_COMPLIANT"``.
@@ -1271,13 +1316,31 @@ def _evaluate_settlement_constraints(tx_data: dict) -> tuple[str, list[str], dic
         reason_codes.append("TX_NOT_VALIDATED")
         compliant = False
 
-    # -- Transaction type must be Payment --
+    # -- Transaction type must match permit action when available --
     tx_type = tx_data.get("TransactionType", "")
+    action_map = {"transfer": "Payment", "trustset": "TrustSet"}
+    permit_action = (permit_bundle or {}).get("action", "transfer")
+    expected_tx_type = action_map.get(permit_action, "Payment")
+    tx_type_matches_permit = tx_type == expected_tx_type
+    constraints_verified["tx_type_matches_permit"] = tx_type_matches_permit
+    if tx_type_matches_permit:
+        reason_codes.append("TX_TYPE_MATCHES_PERMIT")
+    else:
+        reason_codes.append("TX_TYPE_MISMATCH_PERMIT" if permit_bundle else "TX_TYPE_NOT_PAYMENT")
+        compliant = False
     is_payment = tx_type == "Payment"
     constraints_verified["tx_type_payment"] = is_payment
-    if not is_payment:
-        reason_codes.append("TX_TYPE_NOT_PAYMENT")
-        compliant = False
+
+    # -- Subject must match permit subject when available --
+    permit_subject = (permit_bundle or {}).get("subject")
+    if permit_subject:
+        subject_match = tx_data.get("Account", "") == permit_subject
+        constraints_verified["subject_match"] = subject_match
+        if subject_match:
+            reason_codes.append("SUBJECT_MATCH")
+        else:
+            reason_codes.append("SUBJECT_MISMATCH")
+            compliant = False
 
     # -- Extract amount details --
     amount_raw = tx_data.get("Amount", {})
@@ -1292,8 +1355,12 @@ def _evaluate_settlement_constraints(tx_data: dict) -> tuple[str, list[str], dic
 
     tx_destination = tx_data.get("Destination", "")
 
-    # -- Currency must be RLUSD --
-    currency_match = tx_currency == RLUSD_CURRENCY
+    permit_asset = (permit_bundle or {}).get("asset", {})
+    expected_currency = permit_asset.get("currency", RLUSD_CURRENCY)
+    expected_issuer = permit_asset.get("issuer", RLUSD_ISSUER)
+
+    # -- Currency must match expected permit asset currency --
+    currency_match = tx_currency == expected_currency
     constraints_verified["currency_match"] = currency_match
     if currency_match:
         reason_codes.append("CURRENCY_MATCH")
@@ -1301,9 +1368,9 @@ def _evaluate_settlement_constraints(tx_data: dict) -> tuple[str, list[str], dic
         reason_codes.append("CURRENCY_MISMATCH")
         compliant = False
 
-    # -- Issuer must match RLUSD_ISSUER (when configured) --
-    if RLUSD_ISSUER:
-        issuer_ok = tx_issuer == RLUSD_ISSUER
+    # -- Issuer must match expected permit asset issuer (when configured) --
+    if expected_issuer:
+        issuer_ok = tx_issuer == expected_issuer
         constraints_verified["issuer_match"] = issuer_ok
         if issuer_ok:
             reason_codes.append("ISSUER_MATCH")
@@ -1344,8 +1411,10 @@ def _evaluate_settlement_constraints(tx_data: dict) -> tuple[str, list[str], dic
     constraints_verified["jurisdiction_match"] = True
     reason_codes.append("JURISDICTION_MATCH")
 
-    # -- Amount within limit --
-    amount_ok = tx_value <= MAX_AMOUNT
+    # -- Amount within limit (permit max when present) --
+    permit_constraints = (permit_bundle or {}).get("constraints", {})
+    max_amount = permit_constraints.get("max_amount", MAX_AMOUNT)
+    amount_ok = tx_value <= max_amount
     constraints_verified["amount_within_limit"] = amount_ok
     if amount_ok:
         reason_codes.append("AMOUNT_WITHIN_LIMIT")
@@ -1353,10 +1422,21 @@ def _evaluate_settlement_constraints(tx_data: dict) -> tuple[str, list[str], dic
         reason_codes.append("AMOUNT_EXCEEDS_LIMIT")
         compliant = False
 
+    # -- Counterparty must match permit destination when constrained --
+    allowed_counterparty = permit_constraints.get("allowed_counterparty")
+    if allowed_counterparty:
+        counterparty_match = tx_destination == allowed_counterparty
+        constraints_verified["counterparty_match"] = counterparty_match
+        if counterparty_match:
+            reason_codes.append("COUNTERPARTY_MATCH")
+        else:
+            reason_codes.append("COUNTERPARTY_MISMATCH")
+            compliant = False
+
     # -- Trustline required (policy requirement) --
     if XRPL_REQUIRE_TRUSTLINE:
         # For a validated on-ledger Payment the trustline must have existed
-        trustline_satisfied = tx_validated and is_payment
+        trustline_satisfied = tx_validated and tx_type_matches_permit
         constraints_verified["trustline_required"] = trustline_satisfied
         if trustline_satisfied:
             reason_codes.append("TRUSTLINE_REQUIRED")
@@ -1393,12 +1473,18 @@ def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
     transactions — it checks that a completed settlement conforms
     to the defined policy constraints.
     """
+    permit_context = _get_recent_permit_context(req.bundle_hash)
+    permit_bundle = permit_context["bundle"] if permit_context else None
+
     # 1. Fetch the XRPL transaction
     tx_data = fetch_xrpl_transaction(req.tx_hash)
     tx_payload = _extract_tx_payload(tx_data)
 
-    # 2. Evaluate against CompliGate constraints
-    decision_result, reason_codes, constraints_verified = _evaluate_settlement_constraints(tx_payload)
+    # 2. Evaluate against CompliGate constraints using original permit context when found
+    decision_result, reason_codes, constraints_verified = _evaluate_settlement_constraints(
+        tx_payload,
+        permit_bundle=permit_bundle,
+    )
 
     # 3. Extract transaction metadata for evaluation context
     amount_info = normalize_xrpl_amount(tx_payload.get("Amount", {}))
@@ -1420,6 +1506,7 @@ def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
 
     evaluation_context = {
         "bundle_hash": req.bundle_hash,
+        "permit_context_used": bool(permit_context),
         "tx_hash": req.tx_hash,
         "source_account": tx_payload.get("Account", ""),
         "source": tx_payload.get("Account", ""),
@@ -1445,6 +1532,10 @@ def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
         },
         "constraints_verified": constraints_verified,
     }
+    if permit_context:
+        evaluation_context["permit_issued_at"] = permit_context["issued_at"]
+        evaluation_context["permit_bundle"] = permit_context["bundle"]
+        evaluation_context["permit_proof_artifact"] = permit_context["proof_artifact"]
 
     # 4. Build proof artifact
     anchor_metadata: dict = {

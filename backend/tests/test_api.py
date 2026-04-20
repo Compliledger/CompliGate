@@ -1337,6 +1337,7 @@ SAMPLE_BUNDLE_HASH = "abc123def456"
 
 
 def _make_compliant_rlusd_tx(
+    account="rSender123456789012345678901",
     destination="rDestination12345678901234567",
     currency="RLUSD",
     value="500",
@@ -1345,7 +1346,7 @@ def _make_compliant_rlusd_tx(
 ):
     """Build a mock XRPL RLUSD Payment transaction."""
     return {
-        "Account": "rSender123456789012345678901",
+        "Account": account,
         "Destination": destination,
         "TransactionType": "Payment",
         "Amount": {"currency": currency, "value": str(value), "issuer": issuer},
@@ -1373,6 +1374,60 @@ def test_settlement_verify_compliant_rlusd():
     assert "JURISDICTION_MATCH" in data["reason_codes"]
     assert "AMOUNT_WITHIN_LIMIT" in data["reason_codes"]
     assert "TRUSTLINE_NOT_REQUIRED" in data["reason_codes"]
+
+
+def test_settlement_verify_uses_cached_permit_context():
+    counterparty = "rCounterparty1234567890123456789"
+    permit_response = client.post(
+        "/v1/permit",
+        json={"subject": VALID_SUBJECT, "action": "transfer", "amount": 500, "counterparty": counterparty},
+    )
+    assert permit_response.status_code == 200
+    permit = permit_response.json()
+
+    tx_data = _make_compliant_rlusd_tx(
+        account=VALID_SUBJECT,
+        destination=counterparty,
+        value="500",
+        issuer=permit["bundle"]["asset"]["issuer"],
+    )
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": permit["bundle_hash"], "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "SETTLED_COMPLIANT"
+    ctx = data["proof_artifact"]["evaluation_context"]
+    assert ctx["permit_context_used"] is True
+    assert ctx["permit_bundle"]["bundle_id"] == permit["bundle"]["bundle_id"]
+    assert "SUBJECT_MATCH" in data["reason_codes"]
+    assert "COUNTERPARTY_MATCH" in data["reason_codes"]
+
+
+def test_settlement_verify_fails_when_subject_mismatches_cached_permit():
+    permit_response = client.post(
+        "/v1/permit",
+        json={"subject": VALID_SUBJECT, "action": "transfer", "amount": 500},
+    )
+    assert permit_response.status_code == 200
+    permit = permit_response.json()
+
+    tx_data = _make_compliant_rlusd_tx(
+        account="rWrongAccount12345678901234567",
+        value="500",
+        issuer=permit["bundle"]["asset"]["issuer"],
+    )
+    with patch("main.fetch_xrpl_transaction", return_value=tx_data):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": permit["bundle_hash"], "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "SETTLEMENT_NON_COMPLIANT"
+    assert "SUBJECT_MISMATCH" in data["reason_codes"]
 
 
 def test_settlement_verify_response_has_proof_artifact():
