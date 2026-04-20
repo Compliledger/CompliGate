@@ -726,42 +726,42 @@ export default function App() {
 
               <div className="commitRows">
                 <div className="commitRow">
-                  <span className="commitLabel">Submitted</span>
+                  <span className="commitLabel">submitted</span>
                   <span className="commitValue">{paymentResult.submitted ? "Yes" : "No"}</span>
                 </div>
                 <div className="commitRow">
-                  <span className="commitLabel">TX Hash</span>
+                  <span className="commitLabel">tx_hash</span>
                   <span className="commitValue commitValueMono" style={{ wordBreak: "break-all" }}>
                     {paymentResult.tx_hash}
                   </span>
                 </div>
                 <div className="commitRow">
-                  <span className="commitLabel">Engine Result</span>
+                  <span className="commitLabel">engine_result</span>
                   <span className="commitValue">{paymentResult.engine_result}</span>
                 </div>
                 <div className="commitRow">
-                  <span className="commitLabel">Amount</span>
-                  <span className="commitValue">{paymentResult.amount}</span>
+                  <span className="commitLabel">currency</span>
+                  <span className="commitValue">{paymentResult.currency}</span>
                 </div>
                 <div className="commitRow">
-                  <span className="commitLabel">Issuer</span>
+                  <span className="commitLabel">issuer</span>
                   <span className="commitValue commitValueMono" style={{ wordBreak: "break-all" }}>
                     {paymentResult.issuer}
                   </span>
                 </div>
                 <div className="commitRow">
-                  <span className="commitLabel">Currency</span>
-                  <span className="commitValue">{paymentResult.currency}</span>
+                  <span className="commitLabel">amount</span>
+                  <span className="commitValue">{paymentResult.amount}</span>
                 </div>
                 <div className="commitRow">
-                  <span className="commitLabel">Destination</span>
+                  <span className="commitLabel">destination</span>
                   <span className="commitValue commitValueMono" style={{ wordBreak: "break-all" }}>
                     {paymentResult.destination}
                   </span>
                 </div>
                 {paymentResult.proof_link && (
                   <div className="commitRow">
-                    <span className="commitLabel">Proof Link</span>
+                    <span className="commitLabel">proof_link</span>
                     <span className="commitValue commitValueMono" style={{ wordBreak: "break-all" }}>
                       {paymentResult.proof_link.bundle_hash} → {paymentResult.proof_link.tx_hash}
                     </span>
