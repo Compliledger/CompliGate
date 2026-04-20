@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from fastapi import HTTPException
 from unittest.mock import patch, MagicMock
 import logging
-from main import app, evaluate_governance, evaluate_eligibility, evaluate_constraints, verify_settlement_against_permit, _evaluate_settlement_constraints, check_rlusd_trustline, validate_trustline, build_proof_link
+from main import app, evaluate_governance, evaluate_eligibility, evaluate_constraints, verify_settlement_against_permit, _evaluate_settlement_constraints, check_rlusd_trustline, validate_trustline, build_proof_link, MAX_AMOUNT
 
 client = TestClient(app)
 
@@ -2491,3 +2491,202 @@ def test_validate_trustline_rpc_failure():
         mock_post.side_effect = req_lib.RequestException("connection refused")
         with pytest.raises(Exception):
             validate_trustline(VALID_SUBJECT, "rISSUER", "RLUSD")
+
+
+# -----------------------
+# XRPL integration flow tests (mocked XRPL responses)
+# -----------------------
+
+MOCK_XRPL_ISSUER = "rISSUER"
+MOCK_OTHER_ISSUER = "rOTHER"
+MOCK_TRUSTLINE_LIMIT = "1000"
+MOCK_TRUSTLINE_BALANCE = "10"
+MOCK_SETTLEMENT_SENDER = VALID_SUBJECT
+MOCK_SETTLEMENT_DESTINATION = VALID_DESTINATION
+
+
+def test_xrpl_integration_health_configured():
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    with patch("main.XRPL_RPC_URL", "https://mock.xrpl.local"), patch(
+        "main.http_requests.post", return_value=mock_resp
+    ):
+        response = client.get("/v1/xrpl/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["configured"] is True
+    assert data["reachable"] is True
+
+
+def test_xrpl_integration_health_unconfigured():
+    with patch("main.XRPL_RPC_URL", ""):
+        response = client.get("/v1/xrpl/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["configured"] is False
+    assert data["reachable"] is False
+
+
+def test_xrpl_integration_trustline_check_success():
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {
+        "result": {
+            "lines": [
+                {
+                    "currency": "RLUSD",
+                    "account": MOCK_XRPL_ISSUER,
+                    "limit": MOCK_TRUSTLINE_LIMIT,
+                    "balance": MOCK_TRUSTLINE_BALANCE,
+                }
+            ]
+        }
+    }
+    with patch("main.XRPL_RPC_URL", "https://mock.xrpl.local"), patch(
+        "main.http_requests.post", return_value=mock_resp
+    ):
+        response = client.post("/v1/xrpl/trustline/check", json={"address": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["trustline_exists"] is True
+    assert data["currency"] == "RLUSD"
+    assert data["raw_lines_checked"] == 1
+
+
+def test_xrpl_integration_trustline_check_no_trustline():
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {
+        "result": {"lines": [{"currency": "USD", "account": MOCK_OTHER_ISSUER}]}
+    }
+    with patch("main.XRPL_RPC_URL", "https://mock.xrpl.local"), patch(
+        "main.http_requests.post", return_value=mock_resp
+    ):
+        response = client.post("/v1/xrpl/trustline/check", json={"address": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["trustline_exists"] is False
+    assert data["raw_lines_checked"] == 1
+
+
+def test_xrpl_integration_payment_missing_demo_wallet_config():
+    with patch("main.get_xrpl_client", return_value=MagicMock()), patch(
+        "main.get_demo_wallet", return_value=None
+    ):
+        response = client.post(
+            "/v1/xrpl/payment",
+            json={"destination": VALID_DESTINATION, "amount": "10"},
+        )
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "demo_wallet_not_configured"
+
+
+def test_xrpl_integration_payment_trustline_required_failure():
+    with patch("main.get_xrpl_client", return_value=MagicMock()), patch(
+        "main.get_demo_wallet", return_value=_mock_demo_wallet()
+    ), patch(
+        "main.submit_and_wait", side_effect=Exception("tecNO_LINE: trustline required")
+    ):
+        response = client.post(
+            "/v1/xrpl/payment",
+            json={"destination": VALID_DESTINATION, "amount": "10"},
+        )
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert detail["error"] == "xrpl_submit_failed"
+    assert "trustline" in detail["reason"].lower()
+
+
+def test_xrpl_integration_payment_success_with_memo_bundle_hash():
+    mock_response = MagicMock()
+    mock_response.result = {
+        "hash": "FLOWMEMOTXHASH",
+        "meta": {"TransactionResult": "tesSUCCESS"},
+    }
+    with patch("main.get_xrpl_client", return_value=MagicMock()), patch(
+        "main.get_demo_wallet", return_value=_mock_demo_wallet()
+    ), patch("main.submit_and_wait", return_value=mock_response) as mock_submit:
+        response = client.post(
+            "/v1/xrpl/payment",
+            json={
+                "destination": VALID_DESTINATION,
+                "amount": "15",
+                "memo_bundle_hash": "bundlehash-flow-001",
+            },
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["submitted"] is True
+    assert data["tx_hash"] == "FLOWMEMOTXHASH"
+    assert data["proof_link"]["bundle_hash"] == "bundlehash-flow-001"
+    assert data["proof_link"]["tx_hash"] == "FLOWMEMOTXHASH"
+    payment_obj = mock_submit.call_args[0][0]
+    assert payment_obj.memos is not None
+    assert len(payment_obj.memos) == 1
+
+
+def test_xrpl_integration_settlement_verify_success():
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {
+        "result": {
+            "validated": True,
+            "Account": MOCK_SETTLEMENT_SENDER,
+            "Destination": MOCK_SETTLEMENT_DESTINATION,
+            "TransactionType": "Payment",
+            "Amount": {"currency": "RLUSD", "value": "500", "issuer": MOCK_XRPL_ISSUER},
+        }
+    }
+    with patch("main.http_requests.post", return_value=mock_resp):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    assert response.json()["decision_result"] == "SETTLED_COMPLIANT"
+
+
+def test_xrpl_integration_settlement_verify_asset_mismatch_failure():
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {
+        "result": {
+            "validated": True,
+            "Account": MOCK_SETTLEMENT_SENDER,
+            "Destination": MOCK_SETTLEMENT_DESTINATION,
+            "TransactionType": "Payment",
+            "Amount": {"currency": "USD", "value": "500", "issuer": MOCK_XRPL_ISSUER},
+        }
+    }
+    with patch("main.http_requests.post", return_value=mock_resp):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "SETTLEMENT_NON_COMPLIANT"
+    assert "ASSET_NOT_RLUSD" in data["reason_codes"]
+
+
+def test_xrpl_integration_settlement_verify_amount_limit_failure():
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {
+        "result": {
+            "validated": True,
+            "Account": MOCK_SETTLEMENT_SENDER,
+            "Destination": MOCK_SETTLEMENT_DESTINATION,
+            "TransactionType": "Payment",
+            "Amount": {"currency": "RLUSD", "value": str(MAX_AMOUNT + 1), "issuer": MOCK_XRPL_ISSUER},
+        }
+    }
+    with patch("main.http_requests.post", return_value=mock_resp):
+        response = client.post(
+            "/v1/settlement/verify",
+            json={"bundle_hash": SAMPLE_BUNDLE_HASH, "tx_hash": SAMPLE_TX_HASH},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "SETTLEMENT_NON_COMPLIANT"
+    assert "AMOUNT_EXCEEDS_LIMIT" in data["reason_codes"]
