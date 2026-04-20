@@ -1097,7 +1097,7 @@ def xrpl_trustline_check(req: TrustlineCheckRequest):
 
 
 # -----------------------
-# XRPL Demo Payment
+# XRPL Optional Demo Helper
 # -----------------------
 
 
@@ -1137,9 +1137,11 @@ class XRPLPaymentResponse(BaseModel):
 
 @app.post("/v1/xrpl/payment", response_model=XRPLPaymentResponse)
 def xrpl_payment(req: XRPLPaymentRequest):
-    """Submit a demo RLUSD payment on the XRPL testnet.
+    """Optional local helper: submit a demo RLUSD payment on the XRPL testnet.
 
-    This endpoint is intended for demo / test purposes only.  It uses the
+    This endpoint is intended for demo / test purposes only and is **not**
+    part of CompliGate's core authorization, constraint verification, or
+    proof flow. It uses the
     configured ``XRPL_DEMO_WALLET_SEED`` to sign and submit a ``Payment``
     transaction on the XRPL testnet.
     """

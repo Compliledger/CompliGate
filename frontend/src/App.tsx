@@ -17,20 +17,6 @@ type VerifyResponse = {
   reason_codes?: string[];
 };
 
-type XrplPaymentResponse = {
-  submitted: boolean;
-  tx_hash: string;
-  engine_result: string;
-  amount: string;
-  issuer: string;
-  currency: string;
-  destination: string;
-  proof_link?: {
-    bundle_hash: string;
-    tx_hash: string;
-  };
-};
-
 type SettlementVerifyNewResponse = {
   decision_result: string;
   reason_codes: string[];
@@ -115,11 +101,6 @@ function xrplNetworkLabel(health: XrplHealth | null): string {
   return health.network || "Unknown";
 }
 
-function demoWalletLabel(health: XrplHealth | null): string {
-  if (!health) return "Checking...";
-  return health.demo_wallet_configured ? "Demo Wallet Configured" : "Demo Wallet Not Configured";
-}
-
 function PanelNumber({ n }: { n: number }) {
   return <span className="panelNumber">{n}</span>;
 }
@@ -131,11 +112,7 @@ export default function App() {
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [xrplHealth, setXrplHealth] = useState<XrplHealth | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
-  const [destination, setDestination] = useState("");
-  const [amount, setAmount] = useState("");
-  const [paymentResult, setPaymentResult] = useState<XrplPaymentResponse | null>(null);
-  const [paymentError, setPaymentError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [settledTxHash, setSettledTxHash] = useState("");
   const [settlementResult, setSettlementResult] = useState<SettlementVerifyNewResponse | null>(null);
   const [settlementError, setSettlementError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
@@ -190,7 +167,7 @@ export default function App() {
     return d === "permit" || d === "allow" || d === "approved";
   }, [settlementResult]);
 
-  const canVerifySettlement = Boolean(permit?.bundle_hash && paymentResult?.tx_hash);
+  const canVerifySettlement = Boolean(permit?.bundle_hash && settledTxHash.trim());
 
   const status = useMemo(() => {
     if (settlementResult && settlementPassed) return { label: "Verified", kind: "anchored" as const };
@@ -264,50 +241,8 @@ export default function App() {
     }
   }
 
-  async function submitXrplPayment() {
-    if (!destination.trim() || !amount.trim()) return;
-    setPaymentError(null);
-    setPaymentResult(null);
-    setSubmitting(true);
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    try {
-      const payload: Record<string, string> = {
-        destination: destination.trim(),
-        amount: amount.trim(),
-      };
-      if (permit?.bundle_hash) {
-        payload.memo_bundle_hash = permit.bundle_hash;
-      }
-
-      const res = await fetch(`${API_BASE}/v1/xrpl/payment`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setPaymentError(extractErrorMessage(data, "Failed to submit XRPL payment."));
-      } else {
-        setPaymentResult(data as XrplPaymentResponse);
-      }
-    } catch (e: unknown) {
-      if (e instanceof Error && e.name === "AbortError") {
-        setPaymentError("Request timed out. Please try again.");
-      } else {
-        setPaymentError(e instanceof Error ? e.message : "Network error calling XRPL payment endpoint.");
-      }
-    } finally {
-      clearTimeout(timeout);
-      setSubmitting(false);
-    }
-  }
-
   async function verifySettlement() {
-    if (!permit?.bundle_hash || !paymentResult?.tx_hash) return;
+    if (!permit?.bundle_hash || !settledTxHash.trim()) return;
     setSettlementError(null);
     setSettlementResult(null);
     setVerifying(true);
@@ -320,7 +255,7 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           bundle_hash: permit.bundle_hash,
-          tx_hash: paymentResult.tx_hash,
+          tx_hash: settledTxHash.trim(),
         }),
         signal: controller.signal,
       });
@@ -458,10 +393,6 @@ export default function App() {
           <span className="badgeDot" />
           {xrplHealth === null ? "Checking..." : xrplHealth.rlusd_configured ? "RLUSD Configured" : "RLUSD Not Configured"}
         </span>
-        <span className={`badge ${xrplHealth === null ? "neutral" : xrplHealth.demo_wallet_configured ? "good" : "bad"}`}>
-          <span className="badgeDot" />
-          {demoWalletLabel(xrplHealth)}
-        </span>
       </div>
 
       <main className="grid">
@@ -471,8 +402,7 @@ export default function App() {
             setPermit(p);
             setVerifyResult(null);
             setVerifyError(null);
-            setPaymentResult(null);
-            setPaymentError(null);
+            setSettledTxHash("");
             setSettlementResult(null);
             setSettlementError(null);
           }}
@@ -480,12 +410,9 @@ export default function App() {
             setPermit(null);
             setVerifyResult(null);
             setVerifyError(null);
-            setPaymentResult(null);
-            setPaymentError(null);
             setSettlementResult(null);
             setSettlementError(null);
-            setDestination("");
-            setAmount("");
+            setSettledTxHash("");
           }}
         />
 
@@ -684,112 +611,65 @@ export default function App() {
           )}
         </section>
 
-        {/* Panel 3: Submit XRPL Payment */}
+        {/* Panel 3: Provide Settled XRPL Transaction */}
         <section className="card" style={{ order: 3 }}>
-          <h2><PanelNumber n={3} />Submit XRPL Payment</h2>
+          <h2><PanelNumber n={3} />Provide Settled XRPL Transaction Hash</h2>
           <p className="muted">
-            Submit an XRPL payment transaction. If a permit exists, its bundle hash will be included as a memo.
+            Settle from your own XRPL wallet, then paste the settled transaction hash for verification.
           </p>
 
-          <label className="label">Destination</label>
+          <label className="label">Settled Transaction Hash</label>
           <input
             className="input"
-            value={destination}
-            onChange={(e) => setDestination(e.target.value)}
-            placeholder="Enter destination address..."
-            spellCheck={false}
-          />
-
-          <label className="label">Amount</label>
-          <input
-            className="input"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="Enter amount..."
+            value={settledTxHash}
+            onChange={(e) => setSettledTxHash(e.target.value)}
+            placeholder="Enter XRPL transaction hash..."
             spellCheck={false}
           />
 
           <div className="row">
             <button
               className="btn primary"
-              onClick={submitXrplPayment}
-              disabled={!destination.trim() || !amount.trim() || submitting}
+              onClick={() => verifySettlement()}
+              disabled={!canVerifySettlement || verifying}
             >
-              {submitting ? "Submitting…" : "Submit XRPL Payment"}
+              {verifying ? "Verifying…" : "Verify Settlement"}
+            </button>
+            <button
+              className="btn"
+              onClick={() => {
+                setSettledTxHash("");
+                setSettlementResult(null);
+                setSettlementError(null);
+              }}
+            >
+              Clear
             </button>
           </div>
 
-          {paymentResult && (
-            <div className="commitResult">
-              <div className="commitResultHeader">
-                <span className="badge anchored">
-                  <span className="badgeDot" />
-                  Payment Submitted
-                </span>
-              </div>
-
-              <div className="commitRows">
-                <div className="commitRow">
-                  <span className="commitLabel">submitted</span>
-                  <span className="commitValue">{paymentResult.submitted ? "Yes" : "No"}</span>
-                </div>
-                <div className="commitRow">
-                  <span className="commitLabel">tx_hash</span>
-                  <span className="commitValue commitValueMono" style={{ wordBreak: "break-all" }}>
-                    {paymentResult.tx_hash}
-                  </span>
-                  <button
-                    className="copyBtn"
-                    onClick={() => copyToClipboard(paymentResult.tx_hash, "tx_hash")}
-                    title="Copy tx_hash"
-                  >
-                    {copied === "tx_hash" ? "✔ Copied" : "Copy"}
-                  </button>
-                </div>
-                <div className="commitRow">
-                  <span className="commitLabel">engine_result</span>
-                  <span className="commitValue">{paymentResult.engine_result}</span>
-                </div>
-                <div className="commitRow">
-                  <span className="commitLabel">currency</span>
-                  <span className="commitValue">{paymentResult.currency}</span>
-                </div>
-                <div className="commitRow">
-                  <span className="commitLabel">issuer</span>
-                  <span className="commitValue commitValueMono" style={{ wordBreak: "break-all" }}>
-                    {paymentResult.issuer}
-                  </span>
-                </div>
-                <div className="commitRow">
-                  <span className="commitLabel">amount</span>
-                  <span className="commitValue">{paymentResult.amount}</span>
-                </div>
-                <div className="commitRow">
-                  <span className="commitLabel">destination</span>
-                  <span className="commitValue commitValueMono" style={{ wordBreak: "break-all" }}>
-                    {paymentResult.destination}
-                  </span>
-                </div>
-                {paymentResult.proof_link && (
-                  <div className="commitRow">
-                    <span className="commitLabel">proof_link</span>
-                    <span className="commitValue commitValueMono" style={{ wordBreak: "break-all" }}>
-                      {paymentResult.proof_link.bundle_hash} → {paymentResult.proof_link.tx_hash}
-                    </span>
-                  </div>
-                )}
+          {settledTxHash.trim() && (
+            <div className="verifyRows">
+              <div className="verifyRow">
+                <span className="check">✔</span>
+                <span className="summaryLabel">TX Hash</span>
+                <span className="summaryValue commitValueMono breakAll">{settledTxHash.trim()}</span>
+                <button
+                  className="copyBtn"
+                  onClick={() => copyToClipboard(settledTxHash.trim(), "provided_tx_hash")}
+                  title="Copy tx_hash"
+                >
+                  {copied === "provided_tx_hash" ? "✔ Copied" : "Copy"}
+                </button>
               </div>
             </div>
           )}
-
-          {paymentError && <div className="alert bad">{paymentError}</div>}
         </section>
 
         {/* Panel 4: Verify Settlement */}
         <section className="card" style={{ order: 4 }}>
           <h2><PanelNumber n={4} />Verify Settlement</h2>
           <p className="muted">
-            One-click verification of settlement against permit and payment hashes.
+            Verification of a settled XRPL transaction against permit hash and constraints.
           </p>
 
           <div className="row">
@@ -802,7 +682,7 @@ export default function App() {
             </button>
           </div>
           {!canVerifySettlement && (
-            <p className="muted">Requires both a permit bundle hash and a submitted payment tx hash.</p>
+            <p className="muted">Requires both a permit bundle hash and a settled XRPL transaction hash.</p>
           )}
 
           {settlementResult && (() => {
@@ -810,7 +690,7 @@ export default function App() {
             const txHash =
               (typeof settlementResult.tx_hash === "string" && settlementResult.tx_hash) ||
               (typeof artifact.tx_hash === "string" && artifact.tx_hash) ||
-              paymentResult?.tx_hash;
+              settledTxHash.trim();
             const bundleHash =
               (typeof settlementResult.bundle_hash === "string" && settlementResult.bundle_hash) ||
               (typeof artifact.bundle_hash === "string" && artifact.bundle_hash) ||
@@ -1183,6 +1063,14 @@ export default function App() {
             >
               Clear
             </button>
+            {txLookupResult?.tx_hash && (
+              <button
+                className="btn"
+                onClick={() => setSettledTxHash(txLookupResult.tx_hash)}
+              >
+                Use Hash for Verification
+              </button>
+            )}
           </div>
 
           {txLookupResult && (
@@ -1265,7 +1153,7 @@ export default function App() {
 
       <footer className="footer">
         <span className="muted">
-          MVP · Permits are signed &amp; time-bound · On-chain enforcement is a future phase
+          MVP · Authorization and constraints are signed and time-bound · CompliGate verifies settled XRPL outcomes
         </span>
       </footer>
     </div>
