@@ -2428,7 +2428,10 @@ def test_validate_trustline_rpc_failure():
 # -----------------------
 
 MOCK_XRPL_ISSUER = "rISSUER"
-MOCK_SETTLEMENT_ACCOUNT = "rSender123456789012345678901"
+MOCK_OTHER_ISSUER = "rOTHER"
+MOCK_TRUSTLINE_LIMIT = "1000"
+MOCK_TRUSTLINE_BALANCE = "10"
+MOCK_SETTLEMENT_SENDER = "rSender123456789012345678901"
 MOCK_SETTLEMENT_DESTINATION = "rDestination12345678901234567"
 
 
@@ -2459,7 +2462,14 @@ def test_xrpl_integration_trustline_check_success():
     mock_resp.raise_for_status.return_value = None
     mock_resp.json.return_value = {
         "result": {
-            "lines": [{"currency": "RLUSD", "account": MOCK_XRPL_ISSUER, "limit": "1000", "balance": "10"}]
+            "lines": [
+                {
+                    "currency": "RLUSD",
+                    "account": MOCK_XRPL_ISSUER,
+                    "limit": MOCK_TRUSTLINE_LIMIT,
+                    "balance": MOCK_TRUSTLINE_BALANCE,
+                }
+            ]
         }
     }
     with patch("main.XRPL_RPC_URL", "https://mock.xrpl.local"), patch(
@@ -2470,12 +2480,15 @@ def test_xrpl_integration_trustline_check_success():
     data = response.json()
     assert data["trustline_exists"] is True
     assert data["currency"] == "RLUSD"
+    assert data["raw_lines_checked"] == 1
 
 
 def test_xrpl_integration_trustline_check_no_trustline():
     mock_resp = MagicMock()
     mock_resp.raise_for_status.return_value = None
-    mock_resp.json.return_value = {"result": {"lines": [{"currency": "USD", "account": "rOTHER"}]}}
+    mock_resp.json.return_value = {
+        "result": {"lines": [{"currency": "USD", "account": MOCK_OTHER_ISSUER}]}
+    }
     with patch("main.XRPL_RPC_URL", "https://mock.xrpl.local"), patch(
         "main.http_requests.post", return_value=mock_resp
     ):
@@ -2483,6 +2496,7 @@ def test_xrpl_integration_trustline_check_no_trustline():
     assert response.status_code == 200
     data = response.json()
     assert data["trustline_exists"] is False
+    assert data["raw_lines_checked"] == 1
 
 
 def test_xrpl_integration_payment_missing_demo_wallet_config():
@@ -2547,7 +2561,7 @@ def test_xrpl_integration_settlement_verify_success():
     mock_resp.json.return_value = {
         "result": {
             "validated": True,
-            "Account": MOCK_SETTLEMENT_ACCOUNT,
+            "Account": MOCK_SETTLEMENT_SENDER,
             "Destination": MOCK_SETTLEMENT_DESTINATION,
             "TransactionType": "Payment",
             "Amount": {"currency": "RLUSD", "value": "500", "issuer": MOCK_XRPL_ISSUER},
@@ -2568,7 +2582,7 @@ def test_xrpl_integration_settlement_verify_asset_mismatch_failure():
     mock_resp.json.return_value = {
         "result": {
             "validated": True,
-            "Account": MOCK_SETTLEMENT_ACCOUNT,
+            "Account": MOCK_SETTLEMENT_SENDER,
             "Destination": MOCK_SETTLEMENT_DESTINATION,
             "TransactionType": "Payment",
             "Amount": {"currency": "USD", "value": "500", "issuer": MOCK_XRPL_ISSUER},
@@ -2593,7 +2607,7 @@ def test_xrpl_integration_settlement_verify_amount_limit_failure():
     mock_resp.json.return_value = {
         "result": {
             "validated": True,
-            "Account": MOCK_SETTLEMENT_ACCOUNT,
+            "Account": MOCK_SETTLEMENT_SENDER,
             "Destination": MOCK_SETTLEMENT_DESTINATION,
             "TransactionType": "Payment",
             "Amount": {"currency": "RLUSD", "value": str(MAX_AMOUNT + 1), "issuer": MOCK_XRPL_ISSUER},
