@@ -1238,7 +1238,7 @@ def test_xrpl_payment_trustline_required_allows_submission_with_trustline():
     """When trustline is required and present, payment is submitted."""
     mock_response = MagicMock()
     mock_response.result = {
-        "hash": "TRUSTLINETXHASH",
+        "hash": "VALIDPAYMENTHASH",
         "meta": {"TransactionResult": "tesSUCCESS"},
     }
 
@@ -1265,7 +1265,7 @@ def test_xrpl_payment_trustline_required_allows_submission_with_trustline():
     assert response.status_code == 200
     data = response.json()
     assert data["submitted"] is True
-    assert data["tx_hash"] == "TRUSTLINETXHASH"
+    assert data["tx_hash"] == "VALIDPAYMENTHASH"
     mock_validate.assert_called_once()
     mock_submit.assert_called_once()
 
