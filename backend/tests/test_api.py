@@ -1983,6 +1983,15 @@ def test_trustline_check_found():
     """POST returns trustline_exists=True when trustline is present."""
     lines = [
         {"currency": "RLUSD", "account": "rISSUER123", "limit": "1000000", "balance": "500"},
+# validate_trustline unit tests
+# -----------------------
+
+
+def test_validate_trustline_found():
+    """validate_trustline returns trustline_exists=True when a matching line exists."""
+    lines = [
+        {"currency": "RLUSD", "account": "rISSUER_MATCH", "limit": "1000000", "balance": "250"},
+        {"currency": "USD", "account": "rOTHER", "limit": "50000", "balance": "0"},
     ]
     mock_resp = MagicMock()
     mock_resp.raise_for_status.return_value = None
@@ -2000,6 +2009,16 @@ def test_trustline_check_found():
 
 def test_trustline_check_not_found():
     """POST returns trustline_exists=False when no matching trustline."""
+        result = validate_trustline(VALID_SUBJECT, "rISSUER_MATCH", "RLUSD")
+
+    assert result["trustline_exists"] is True
+    assert result["issuer"] == "rISSUER_MATCH"
+    assert result["currency"] == "RLUSD"
+    assert result["raw_lines_checked"] == 2
+
+
+def test_validate_trustline_not_found():
+    """validate_trustline returns trustline_exists=False when no matching line exists."""
     lines = [
         {"currency": "USD", "account": "rOTHER", "limit": "50000", "balance": "100"},
     ]
@@ -2017,6 +2036,16 @@ def test_trustline_check_not_found():
 
 def test_trustline_check_empty_lines():
     """POST returns trustline_exists=False when account has no lines."""
+        result = validate_trustline(VALID_SUBJECT, "rISSUER_MATCH", "RLUSD")
+
+    assert result["trustline_exists"] is False
+    assert result["issuer"] == "rISSUER_MATCH"
+    assert result["currency"] == "RLUSD"
+    assert result["raw_lines_checked"] == 1
+
+
+def test_validate_trustline_empty_lines():
+    """validate_trustline returns trustline_exists=False when account has no lines."""
     mock_resp = MagicMock()
     mock_resp.raise_for_status.return_value = None
     mock_resp.json.return_value = {"result": {"lines": []}}
@@ -2077,6 +2106,14 @@ def test_trustline_check_rpc_failure():
 
 def test_trustline_check_issuer_enforcement():
     """When RLUSD_ISSUER is set, only matching issuer counts."""
+        result = validate_trustline(VALID_SUBJECT, "rISSUER", "RLUSD")
+
+    assert result["trustline_exists"] is False
+    assert result["raw_lines_checked"] == 0
+
+
+def test_validate_trustline_wrong_issuer():
+    """validate_trustline returns False when currency matches but issuer does not."""
     lines = [
         {"currency": "RLUSD", "account": "rWRONG_ISSUER", "limit": "1000000", "balance": "0"},
     ]
@@ -2116,6 +2153,17 @@ def test_validate_trustline_not_found():
     """validate_trustline returns trustline_exists=False when no match."""
     lines = [
         {"currency": "USD", "account": "rOTHER", "limit": "1000", "balance": "0"},
+    with patch("main.http_requests.post", return_value=mock_resp):
+        result = validate_trustline(VALID_SUBJECT, "rCORRECT_ISSUER", "RLUSD")
+
+    assert result["trustline_exists"] is False
+    assert result["raw_lines_checked"] == 1
+
+
+def test_validate_trustline_wrong_currency():
+    """validate_trustline returns False when issuer matches but currency does not."""
+    lines = [
+        {"currency": "USD", "account": "rISSUER", "limit": "1000000", "balance": "0"},
     ]
     mock_resp = MagicMock()
     mock_resp.raise_for_status.return_value = None
@@ -2123,6 +2171,8 @@ def test_validate_trustline_not_found():
 
     with patch("main.http_requests.post", return_value=mock_resp):
         result = validate_trustline("rN7n3473SaZBCG4dFL83w7PB5XDnEHyMQX", "rISSUER", "RLUSD")
+        result = validate_trustline(VALID_SUBJECT, "rISSUER", "RLUSD")
+
     assert result["trustline_exists"] is False
     assert result["raw_lines_checked"] == 1
 
@@ -2140,3 +2190,11 @@ def test_validate_trustline_empty_issuer():
         result = validate_trustline("rN7n3473SaZBCG4dFL83w7PB5XDnEHyMQX", "", "RLUSD")
     assert result["trustline_exists"] is True
 
+def test_validate_trustline_rpc_failure():
+    """validate_trustline propagates HTTPException on RPC failure."""
+    import requests as req_lib
+
+    with patch("main.http_requests.post") as mock_post:
+        mock_post.side_effect = req_lib.RequestException("connection refused")
+        with pytest.raises(Exception):
+            validate_trustline(VALID_SUBJECT, "rISSUER", "RLUSD")
