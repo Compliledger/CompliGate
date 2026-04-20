@@ -489,10 +489,10 @@ export default function App() {
           }}
         />
 
-        {/* Panel 2: Show Constraints */}
-        <section className="card">
+        {/* Supplemental: Permit Constraints Snapshot */}
+        <section className="card" style={{ order: 6 }}>
           <div className="summaryHeader">
-            <h2><PanelNumber n={2} />Constraints</h2>
+            <h2>Permit Constraints Snapshot</h2>
             <span className={`badge ${status.kind}`}>
               <span className="badgeDot" />
               {status.label}
@@ -684,9 +684,9 @@ export default function App() {
           )}
         </section>
 
-        {/* Panel 3: XRPL Payment */}
-        <section className="card">
-          <h2><PanelNumber n={3} />XRPL Payment</h2>
+        {/* Panel 3: Submit XRPL Payment */}
+        <section className="card" style={{ order: 3 }}>
+          <h2><PanelNumber n={3} />Submit XRPL Payment</h2>
           <p className="muted">
             Submit an XRPL payment transaction. If a permit exists, its bundle hash will be included as a memo.
           </p>
@@ -738,6 +738,13 @@ export default function App() {
                   <span className="commitValue commitValueMono" style={{ wordBreak: "break-all" }}>
                     {paymentResult.tx_hash}
                   </span>
+                  <button
+                    className="copyBtn"
+                    onClick={() => copyToClipboard(paymentResult.tx_hash, "tx_hash")}
+                    title="Copy tx_hash"
+                  >
+                    {copied === "tx_hash" ? "✔ Copied" : "Copy"}
+                  </button>
                 </div>
                 <div className="commitRow">
                   <span className="commitLabel">engine_result</span>
@@ -779,8 +786,8 @@ export default function App() {
         </section>
 
         {/* Panel 4: Verify Settlement */}
-        <section className="card">
-          <h2><PanelNumber n={4} />Settlement Verification</h2>
+        <section className="card" style={{ order: 4 }}>
+          <h2><PanelNumber n={4} />Verify Settlement</h2>
           <p className="muted">
             One-click verification of settlement against permit and payment hashes.
           </p>
@@ -791,7 +798,7 @@ export default function App() {
               onClick={verifySettlement}
               disabled={!canVerifySettlement || verifying}
             >
-              {verifying ? "Verifying…" : "One-Click Verify"}
+              {verifying ? "Verifying…" : "Verify Settlement"}
             </button>
           </div>
           {!canVerifySettlement && (
@@ -893,12 +900,12 @@ export default function App() {
           {settlementError && <div className="alert bad">{settlementError}</div>}
         </section>
 
-        {/* Panel 5: Show Proof */}
-        <section className="card spanFull">
-          <h2><PanelNumber n={5} />Show Proof</h2>
+        {/* Panel 5: View Proof Artifact */}
+        <section className="card spanFull" style={{ order: 5 }}>
+          <h2><PanelNumber n={5} />View Proof Artifact</h2>
           {!permit ? (
             <p className="muted">
-              Proof bundle details will appear here after a permit is issued.
+              Proof and signature artifact details will appear here after a permit is issued.
             </p>
           ) : (
             <>
@@ -1053,9 +1060,9 @@ export default function App() {
           )}
         </section>
 
-        {/* Panel 6: XRPL Trustline Check */}
-        <section className="card">
-          <h2><PanelNumber n={6} />XRPL Trustline Check</h2>
+        {/* Panel 2: Check Trustline */}
+        <section className="card" style={{ order: 2 }}>
+          <h2><PanelNumber n={2} />Check Trustline</h2>
           <p className="muted">
             Check whether an XRPL address currently has the expected trustline.
           </p>
@@ -1139,9 +1146,9 @@ export default function App() {
           {trustlineError && <div className="alert bad">{trustlineError}</div>}
         </section>
 
-        {/* Panel 7: XRPL Transaction Lookup */}
-        <section className="card">
-          <h2><PanelNumber n={7} />Transaction Lookup</h2>
+        {/* Supplemental: XRPL Transaction Lookup */}
+        <section className="card" style={{ order: 7 }}>
+          <h2>Transaction Lookup</h2>
           <p className="muted">
             Look up a real XRPL transaction by hash to inspect its details.
           </p>
