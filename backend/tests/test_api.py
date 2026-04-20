@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from fastapi import HTTPException
 from unittest.mock import patch, MagicMock
 import logging
-from main import app, evaluate_governance, evaluate_eligibility, evaluate_constraints, verify_settlement_against_permit, _evaluate_settlement_constraints, check_rlusd_trustline, validate_trustline, build_proof_link
+from main import app, evaluate_governance, evaluate_eligibility, evaluate_constraints, verify_settlement_against_permit, _evaluate_settlement_constraints, check_rlusd_trustline, validate_trustline, build_proof_link, MAX_AMOUNT
 
 client = TestClient(app)
 
@@ -2431,8 +2431,8 @@ MOCK_XRPL_ISSUER = "rISSUER"
 MOCK_OTHER_ISSUER = "rOTHER"
 MOCK_TRUSTLINE_LIMIT = "1000"
 MOCK_TRUSTLINE_BALANCE = "10"
-MOCK_SETTLEMENT_SENDER = "rSender123456789012345678901"
-MOCK_SETTLEMENT_DESTINATION = "rDestination12345678901234567"
+MOCK_SETTLEMENT_SENDER = VALID_SUBJECT
+MOCK_SETTLEMENT_DESTINATION = VALID_DESTINATION
 
 
 def test_xrpl_integration_health_configured():
@@ -2600,8 +2600,6 @@ def test_xrpl_integration_settlement_verify_asset_mismatch_failure():
 
 
 def test_xrpl_integration_settlement_verify_amount_limit_failure():
-    from main import MAX_AMOUNT
-
     mock_resp = MagicMock()
     mock_resp.raise_for_status.return_value = None
     mock_resp.json.return_value = {
