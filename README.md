@@ -1,57 +1,231 @@
-# CompliGate
+CompliGate
 
-CompliGate is the transaction-time authorization and constraint verification layer of CompliLedger. It issues time-bound, cryptographically signed permits that determine whether a transaction is authorized, define the constraints under which it may proceed, and specify when the authorization is valid.
+Deterministic Compliance Authorization for XRPL
 
-## Repository Structure
+CompliGate is a compliance authorization layer for the XRP Ledger (XRPL) that defines the conditions under which transactions are allowed to execute—and produces verifiable proof that those conditions were met.
 
-- `backend/` — FastAPI service that issues and verifies signed Proof Bundles (Ed25519), with post-settlement verification against the XRP Ledger
-- `frontend/` — UI for requesting permits, displaying proof summaries, verifying authorization status, and verifying XRPL settlement outcomes
+⸻
 
-## Backend
+⚖️ Core Principle
 
-See [`backend/README.md`](backend/README.md) for full documentation including API reference, Proof Bundle format, environment variables, and deployment instructions.
+CompliGate does not execute transactions.
+It defines the conditions under which transactions are valid.
 
-## Quickstart
+⸻
 
-```bash
+🚨 Why This Matters
+
+Regulatory frameworks including:
+	•	SEC/CFTC Tokenization Framework (Release 33-11412)
+	•	GENIUS Act (stablecoin requirements)
+	•	CLARITY Act (jurisdiction + AML/KYC)
+
+require:
+	•	transaction-level compliance
+	•	real-time enforcement
+	•	audit-ready evidence
+
+⸻
+
+❌ The Problem
+
+XRPL provides:
+	•	trust lines
+	•	issuer controls
+	•	freeze / clawback
+
+But lacks:
+	•	deterministic compliance logic
+	•	policy-based activation
+	•	verifiable compliance outputs
+
+⸻
+
+✅ The Solution
+
+CompliGate introduces:
+	•	Deterministic policy evaluation
+	•	Transaction constraints
+	•	Cryptographic proof artifacts
+	•	XRPL-native integration
+
+⸻
+
+🧩 Architecture
+User → CompliGate → XRPL → CompliGate → Proof Artifact
+Flow
+	1.	Request Permit
+	2.	Evaluate Compliance
+	3.	Generate Constraints
+	4.	Execute Transaction (XRPL)
+	5.	Verify Settlement
+	6.	Produce Proof
+
+⸻
+
+🔗 XRPL Integration (LIVE)
+
+CompliGate is integrated with XRPL Testnet:
+
+Features
+	•	✅ Real XRPL transaction submission
+	•	✅ RLUSD issued asset support
+	•	✅ Trustline validation
+	•	✅ Transaction memo linking (bundle_hash → tx_hash)
+	•	✅ Settlement verification using live XRPL data
+
+⸻
+
+Example Flow
+
+1. Request Permit
+{
+  "subject": "r...",
+  "action": "transfer",
+  "amount": "100"
+}
+2. CompliGate Evaluates
+
+Checks:
+	•	Asset classification
+	•	Jurisdiction (KYC / sanctions placeholder)
+	•	Transaction limits
+	•	Reserve signals (policy-driven)
+	•	Trustline requirement
+
+⸻
+
+3. Constraint Output
+This transaction is valid only if:
+- trustline exists
+- amount < threshold
+- asset = compliant
+- issuer = approved
+4. XRPL Transaction
+	•	Payment submitted to XRPL Testnet
+	•	RLUSD issued currency
+	•	bundle_hash embedded as memo
+
+⸻
+
+5. Settlement Verification
+
+CompliGate validates:
+	•	transaction details
+	•	asset + issuer
+	•	compliance conditions
+
+⸻
+
+6. Proof Artifact
+{
+  "module": "CompliGate",
+  "entity_id": "<tx_hash>",
+  "rule_version_used": "v1",
+  "decision_result": "SETTLED_COMPLIANT",
+  "reason_codes": [],
+  "timestamp": 1234567890,
+  "bundle_hash": "...",
+  "anchor_metadata": {
+    "network": "xrpl-testnet",
+    "tx_hash": "...",
+    "ledger_index": 123456
+  }
+}
+🔐 Compliance Coverage (MVP)
+
+CompliGate currently evaluates:
+
+✔ Asset Classification
+	•	stablecoin / RWA (policy-defined)
+
+✔ 1:1 Backing (Policy Signal)
+	•	reserve verification placeholder
+
+✔ Jurisdiction Controls
+	•	KYC / sanctions placeholders
+
+✔ Transaction Limits
+	•	policy thresholds
+
+✔ XRPL Trustlines
+	•	enforced at ledger level
+
+⸻
+
+⚠️ Important Note
+
+CompliGate is:
+	•	NOT a broker
+	•	NOT an intermediary
+	•	NOT executing trades
+
+It is:
+
+An authorization and verification layer
+
+⸻
+
+🏗️ Deployment Models
+
+🟢 Hosted (Attestation)
+	•	CompliGate evaluates + proves
+	•	no execution control
+
+🟡 Self-Hosted (Institutional)
+	•	deployed inside broker-dealer
+	•	institution enforces
+
+🔵 Hybrid
+	•	CompliGate signals
+	•	institution executes
+
+⸻
+
+🚀 Local Development
+
+Backend
 cd backend
-python3 -m venv .venv
-source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-uvicorn main:app --reload --port 8000
-```
-
-The API will be available at `http://localhost:8000`. Interactive docs at `http://localhost:8000/docs`.
-
-## Frontend
-
-### Prerequisites
-
-Node.js 18+ and npm.
-
-### Development
-
-```bash
-cd frontend
-cp .env.example .env          # set VITE_API_BASE to the backend URL
-npm install
-npm run dev                   # http://localhost:5173
-```
-
-### Production build
-
-```bash
+uvicorn main:app --reload
+Frontend
 cd frontend
 npm install
-VITE_API_BASE=https://your-api.example.com npm run build
-# Serve the dist/ directory with any static-file host (Nginx, S3, Vercel, etc.)
-```
+npm run dev
+⚙️ Environment Variables
+XRPL_RPC_URL=
+XRPL_NETWORK=testnet
+XRPL_DEMO_WALLET_SEED=
+RLUSD_ISSUER=
+RLUSD_CURRENCY=RLUSD
+XRPL_REQUIRE_TRUSTLINE=true
+🧪 Key Endpoints
+Endpoint
+Description
+/v1/permit
+Generate compliance authorization
+/v1/verify
+Verify signature + expiration
+/v1/xrpl/health
+XRPL connectivity
+/v1/xrpl/trustline/check
+Validate trustline
+/v1/xrpl/payment
+Submit XRPL transaction
+/v1/settlement/verify
+Verify settlement compliance
+🧠 Strategic Positioning
 
-**Required environment variable:**
+XRPL provides:
+	•	execution
+	•	settlement
 
-| Variable | Description |
-|---|---|
-| `VITE_API_BASE` | URL of the CompliGate backend (e.g. `https://api.example.com`). If not set, falls back to `http://localhost:8000`. |
+CompliGate provides:
+	•	authorization
+	•	compliance
 
-> **Note:** `VITE_API_BASE` is baked into the JS bundle at build time by Vite. Set it before running `npm run build`.
+⸻
+
+Final Model
+Authorization → Execution → Verification → Proof
