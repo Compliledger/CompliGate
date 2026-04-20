@@ -1447,7 +1447,6 @@ def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
     # Backward-compatible aliases for existing clients/tests.
     evaluation_context.update({
         "source": evaluation_context["source_account"],
-        "asset": amount_info["currency"],
     })
 
     # 4. Build proof artifact
