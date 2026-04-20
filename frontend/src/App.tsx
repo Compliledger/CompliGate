@@ -1148,7 +1148,7 @@ export default function App() {
                     {checkSymbol(trustlineResult.trustline_exists)}
                   </span>
                   <span className="summaryLabel">Trustline Exists</span>
-                  <span className="summaryValue">{String(trustlineResult.trustline_exists)}</span>
+                  <span className="summaryValue">{trustlineResult.trustline_exists ? "Yes" : "No"}</span>
                 </div>
                 <div className="verifyRow">
                   <span className={checkClass(Boolean(trustlineResult.issuer))}>
@@ -1167,8 +1167,8 @@ export default function App() {
                   <span className="summaryValue">{trustlineResult.currency ?? "—"}</span>
                 </div>
                 <div className="verifyRow">
-                  <span className={checkClass(trustlineResult.raw_lines_checked > 0)}>
-                    {checkSymbol(trustlineResult.raw_lines_checked > 0)}
+                  <span className={checkClass(true)}>
+                    {checkSymbol(true)}
                   </span>
                   <span className="summaryLabel">Raw Lines Checked</span>
                   <span className="summaryValue">{trustlineResult.raw_lines_checked}</span>
