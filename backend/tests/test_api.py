@@ -1975,6 +1975,14 @@ def test_check_rlusd_trustline_empty():
 
 
 # -----------------------
+# POST /v1/xrpl/trustline/check tests
+# -----------------------
+
+
+def test_trustline_check_found():
+    """POST returns trustline_exists=True when trustline is present."""
+    lines = [
+        {"currency": "RLUSD", "account": "rISSUER123", "limit": "1000000", "balance": "500"},
 # validate_trustline unit tests
 # -----------------------
 
@@ -1990,6 +1998,17 @@ def test_validate_trustline_found():
     mock_resp.json.return_value = {"result": {"lines": lines}}
 
     with patch("main.http_requests.post", return_value=mock_resp):
+        response = client.post("/v1/xrpl/trustline/check", json={"address": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["address"] == VALID_SUBJECT
+    assert data["trustline_exists"] is True
+    assert data["currency"] == "RLUSD"
+    assert data["raw_lines_checked"] == 1
+
+
+def test_trustline_check_not_found():
+    """POST returns trustline_exists=False when no matching trustline."""
         result = validate_trustline(VALID_SUBJECT, "rISSUER_MATCH", "RLUSD")
 
     assert result["trustline_exists"] is True
@@ -2008,6 +2027,15 @@ def test_validate_trustline_not_found():
     mock_resp.json.return_value = {"result": {"lines": lines}}
 
     with patch("main.http_requests.post", return_value=mock_resp):
+        response = client.post("/v1/xrpl/trustline/check", json={"address": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["trustline_exists"] is False
+    assert data["raw_lines_checked"] == 1
+
+
+def test_trustline_check_empty_lines():
+    """POST returns trustline_exists=False when account has no lines."""
         result = validate_trustline(VALID_SUBJECT, "rISSUER_MATCH", "RLUSD")
 
     assert result["trustline_exists"] is False
@@ -2023,6 +2051,61 @@ def test_validate_trustline_empty_lines():
     mock_resp.json.return_value = {"result": {"lines": []}}
 
     with patch("main.http_requests.post", return_value=mock_resp):
+        response = client.post("/v1/xrpl/trustline/check", json={"address": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["trustline_exists"] is False
+    assert data["raw_lines_checked"] == 0
+
+
+def test_trustline_check_invalid_address_no_r():
+    """POST rejects addresses not starting with 'r'."""
+    response = client.post("/v1/xrpl/trustline/check", json={"address": "X" * 30})
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "invalid_address"
+
+
+def test_trustline_check_invalid_address_too_short():
+    """POST rejects addresses that are too short."""
+    response = client.post("/v1/xrpl/trustline/check", json={"address": "rShort"})
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "invalid_address"
+
+
+def test_trustline_check_invalid_address_too_long():
+    """POST rejects addresses that are too long."""
+    response = client.post("/v1/xrpl/trustline/check", json={"address": "r" + "A" * 40})
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "invalid_address"
+
+
+def test_trustline_check_missing_address():
+    """POST rejects request with missing address field."""
+    response = client.post("/v1/xrpl/trustline/check", json={})
+    assert response.status_code == 422
+
+
+def test_trustline_check_xrpl_not_configured():
+    """POST returns 400 when XRPL_RPC_URL is not set."""
+    with patch("main.XRPL_RPC_URL", ""):
+        response = client.post("/v1/xrpl/trustline/check", json={"address": VALID_SUBJECT})
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "xrpl_not_configured"
+
+
+def test_trustline_check_rpc_failure():
+    """POST returns 502 when XRPL RPC fails."""
+    import requests as req_lib
+
+    with patch("main.http_requests.post") as mock_post:
+        mock_post.side_effect = req_lib.RequestException("connection refused")
+        response = client.post("/v1/xrpl/trustline/check", json={"address": VALID_SUBJECT})
+    assert response.status_code == 502
+    assert response.json()["detail"]["error"] == "xrpl_rpc_failed"
+
+
+def test_trustline_check_issuer_enforcement():
+    """When RLUSD_ISSUER is set, only matching issuer counts."""
         result = validate_trustline(VALID_SUBJECT, "rISSUER", "RLUSD")
 
     assert result["trustline_exists"] is False
@@ -2038,6 +2121,38 @@ def test_validate_trustline_wrong_issuer():
     mock_resp.raise_for_status.return_value = None
     mock_resp.json.return_value = {"result": {"lines": lines}}
 
+    with patch("main.RLUSD_ISSUER", "rCORRECT_ISSUER"), \
+         patch("main.http_requests.post", return_value=mock_resp):
+        response = client.post("/v1/xrpl/trustline/check", json={"address": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["trustline_exists"] is False
+
+
+# -----------------------
+# validate_trustline unit tests
+# -----------------------
+
+
+def test_validate_trustline_found():
+    """validate_trustline returns trustline_exists=True when match exists."""
+    lines = [
+        {"currency": "RLUSD", "account": "rISSUER", "limit": "500000", "balance": "100"},
+    ]
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {"result": {"lines": lines}}
+
+    with patch("main.http_requests.post", return_value=mock_resp):
+        result = validate_trustline("rN7n3473SaZBCG4dFL83w7PB5XDnEHyMQX", "rISSUER", "RLUSD")
+    assert result["trustline_exists"] is True
+    assert result["raw_lines_checked"] == 1
+
+
+def test_validate_trustline_not_found():
+    """validate_trustline returns trustline_exists=False when no match."""
+    lines = [
+        {"currency": "USD", "account": "rOTHER", "limit": "1000", "balance": "0"},
     with patch("main.http_requests.post", return_value=mock_resp):
         result = validate_trustline(VALID_SUBJECT, "rCORRECT_ISSUER", "RLUSD")
 
@@ -2055,11 +2170,25 @@ def test_validate_trustline_wrong_currency():
     mock_resp.json.return_value = {"result": {"lines": lines}}
 
     with patch("main.http_requests.post", return_value=mock_resp):
+        result = validate_trustline("rN7n3473SaZBCG4dFL83w7PB5XDnEHyMQX", "rISSUER", "RLUSD")
         result = validate_trustline(VALID_SUBJECT, "rISSUER", "RLUSD")
 
     assert result["trustline_exists"] is False
     assert result["raw_lines_checked"] == 1
 
+
+def test_validate_trustline_empty_issuer():
+    """validate_trustline matches any issuer when issuer is empty."""
+    lines = [
+        {"currency": "RLUSD", "account": "rANY_ISSUER", "limit": "500000", "balance": "50"},
+    ]
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {"result": {"lines": lines}}
+
+    with patch("main.http_requests.post", return_value=mock_resp):
+        result = validate_trustline("rN7n3473SaZBCG4dFL83w7PB5XDnEHyMQX", "", "RLUSD")
+    assert result["trustline_exists"] is True
 
 def test_validate_trustline_rpc_failure():
     """validate_trustline propagates HTTPException on RPC failure."""

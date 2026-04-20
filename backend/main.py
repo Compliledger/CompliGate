@@ -988,6 +988,75 @@ def xrpl_account_trustlines(address: str):
 
 
 # -----------------------
+# XRPL Trustline Check (POST)
+# -----------------------
+
+
+def validate_trustline(address: str, issuer: str, currency: str) -> dict:
+    """Validate whether *address* has a trust line for *currency* / *issuer*.
+
+    Fetches the account's trust lines via the XRPL RPC and checks each one
+    against the given *currency* and *issuer*.
+
+    :returns: A dict with ``trustline_exists``, ``issuer``, ``currency``,
+              and ``raw_lines_checked``.
+    """
+    lines = fetch_account_lines(address)
+    for line in lines:
+        line_currency = line.get("currency", "")
+        line_issuer = line.get("account", "")
+        currency_match = line_currency == currency
+        issuer_match = (not issuer) or (line_issuer == issuer)
+        if currency_match and issuer_match:
+            return {
+                "trustline_exists": True,
+                "issuer": line_issuer,
+                "currency": line_currency,
+                "raw_lines_checked": len(lines),
+            }
+    return {
+        "trustline_exists": False,
+        "issuer": issuer,
+        "currency": currency,
+        "raw_lines_checked": len(lines),
+    }
+
+
+class TrustlineCheckRequest(BaseModel):
+    address: str = Field(..., description="XRPL account address to check.")
+
+
+@app.post("/v1/xrpl/trustline/check")
+def xrpl_trustline_check(req: TrustlineCheckRequest):
+    """Check whether an XRPL account has the RLUSD trust line.
+
+    Validates the address, calls :func:`validate_trustline` with the
+    configured ``RLUSD_ISSUER`` and ``RLUSD_CURRENCY``, and returns a
+    structured result.
+    """
+    address = req.address
+    if not address.startswith("r"):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_address", "reason": "address must be a string starting with 'r'"},
+        )
+    if not (25 <= len(address) <= 35):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_address", "reason": "address length must be 25-35 chars"},
+        )
+    if not XRPL_RPC_URL:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "xrpl_not_configured", "reason": "XRPL_RPC_URL is not configured"},
+        )
+
+    result = validate_trustline(address, RLUSD_ISSUER, RLUSD_CURRENCY)
+    result["address"] = address
+    return result
+
+
+# -----------------------
 # XRPL Demo Payment
 # -----------------------
 
