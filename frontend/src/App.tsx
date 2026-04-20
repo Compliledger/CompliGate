@@ -44,20 +44,11 @@ type XrplHealth = {
   demo_wallet_configured: boolean;
 };
 
-type TrustlineCheckResult = {
-  has_trustline: boolean;
-  currency: string;
-  issuer: string;
-  limit: string;
-  balance: string;
-};
-
-type TrustlinesResponse = {
-  address: string;
-  network: string;
-  trustline_count: number;
-  rlusd_trustline: TrustlineCheckResult;
-  lines: Record<string, unknown>[];
+type TrustlineCheckResponse = {
+  trustline_exists: boolean;
+  issuer: string | null;
+  currency: string | null;
+  raw_lines_checked: number;
 };
 
 type TxLookupAmount = {
@@ -146,7 +137,7 @@ export default function App() {
   const [settlementError, setSettlementError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [trustlineAddress, setTrustlineAddress] = useState("");
-  const [trustlineResult, setTrustlineResult] = useState<TrustlinesResponse | null>(null);
+  const [trustlineResult, setTrustlineResult] = useState<TrustlineCheckResponse | null>(null);
   const [trustlineError, setTrustlineError] = useState<string | null>(null);
   const [trustlineLoading, setTrustlineLoading] = useState(false);
   const [txLookupHash, setTxLookupHash] = useState("");
@@ -370,21 +361,23 @@ export default function App() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      const res = await fetch(
-        `${API_BASE}/v1/xrpl/account/${encodeURIComponent(trustlineAddress.trim())}/trustlines`,
-        { signal: controller.signal },
-      );
+      const res = await fetch(`${API_BASE}/v1/xrpl/trustline/check`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: trustlineAddress.trim() }),
+        signal: controller.signal,
+      });
       const data = await res.json();
       if (!res.ok) {
-        setTrustlineError(extractErrorMessage(data, "Failed to check trustlines."));
+        setTrustlineError(extractErrorMessage(data, "Failed to check trustline."));
       } else {
-        setTrustlineResult(data as TrustlinesResponse);
+        setTrustlineResult(data as TrustlineCheckResponse);
       }
     } catch (e: unknown) {
       if (e instanceof Error && e.name === "AbortError") {
         setTrustlineError("Request timed out. Please try again.");
       } else {
-        setTrustlineError(e instanceof Error ? e.message : "Network error checking trustlines.");
+        setTrustlineError(e instanceof Error ? e.message : "Network error checking trustline.");
       }
     } finally {
       clearTimeout(timeout);
@@ -1122,9 +1115,9 @@ export default function App() {
 
         {/* Panel 6: XRPL Trustline Check */}
         <section className="card">
-          <h2><PanelNumber n={6} />Trustline Check</h2>
+          <h2><PanelNumber n={6} />XRPL Trustline Check</h2>
           <p className="muted">
-            Verify that an XRPL account has an RLUSD trustline before or after a transfer.
+            Check whether an XRPL address currently has the expected trustline.
           </p>
 
           <label className="label">Account Address</label>
@@ -1145,7 +1138,7 @@ export default function App() {
               onClick={checkTrustlines}
               disabled={!trustlineAddress.trim() || trustlineLoading}
             >
-              {trustlineLoading ? "Checking…" : "Check Trustlines"}
+              {trustlineLoading ? "Checking…" : "Check Trustline"}
             </button>
             <button
               className="btn"
@@ -1161,56 +1154,44 @@ export default function App() {
 
           {trustlineResult && (
             <div className="verifyResult">
-              <div className={`verifyHeader ${trustlineResult.rlusd_trustline.has_trustline ? "good" : "bad"}`}>
-                <span className={`verifyIcon ${trustlineResult.rlusd_trustline.has_trustline ? "good" : "bad"}`}>
-                  {trustlineResult.rlusd_trustline.has_trustline ? "✔" : "✘"}
+              <div className={`verifyHeader ${trustlineResult.trustline_exists ? "good" : "bad"}`}>
+                <span className={`verifyIcon ${trustlineResult.trustline_exists ? "good" : "bad"}`}>
+                  {trustlineResult.trustline_exists ? "✔" : "✘"}
                 </span>
-                {trustlineResult.rlusd_trustline.has_trustline ? "RLUSD Trustline Found" : "No RLUSD Trustline"}
+                {trustlineResult.trustline_exists ? "Trustline Found" : "Trustline Not Found"}
               </div>
 
               <div className="verifyRows">
                 <div className="verifyRow">
-                  <span className="check">✔</span>
-                  <span className="summaryLabel">Address</span>
-                  <span className="summaryValue commitValueMono breakAll">{trustlineResult.address}</span>
+                  <span className={checkClass(trustlineResult.trustline_exists)}>
+                    {checkSymbol(trustlineResult.trustline_exists)}
+                  </span>
+                  <span className="summaryLabel">Trustline Exists</span>
+                  <span className="summaryValue">{trustlineResult.trustline_exists ? "Yes" : "No"}</span>
                 </div>
                 <div className="verifyRow">
-                  <span className="check">✔</span>
-                  <span className="summaryLabel">Network</span>
-                  <span className="summaryValue">{trustlineResult.network}</span>
+                  <span className={checkClass(Boolean(trustlineResult.issuer))}>
+                    {checkSymbol(Boolean(trustlineResult.issuer))}
+                  </span>
+                  <span className="summaryLabel">Issuer</span>
+                  <span className="summaryValue commitValueMono breakAll">
+                    {trustlineResult.issuer ?? "—"}
+                  </span>
                 </div>
                 <div className="verifyRow">
-                  <span className="check">✔</span>
-                  <span className="summaryLabel">Total trustlines</span>
-                  <span className="summaryValue">{trustlineResult.trustline_count}</span>
+                  <span className={checkClass(Boolean(trustlineResult.currency))}>
+                    {checkSymbol(Boolean(trustlineResult.currency))}
+                  </span>
+                  <span className="summaryLabel">Currency</span>
+                  <span className="summaryValue">{trustlineResult.currency ?? "—"}</span>
                 </div>
-                {trustlineResult.rlusd_trustline.has_trustline && (
-                  <>
-                    <div className="verifyRow">
-                      <span className={checkClass(true)}>
-                        {checkSymbol(true)}
-                      </span>
-                      <span className="summaryLabel">RLUSD Issuer</span>
-                      <span className="summaryValue commitValueMono breakAll">
-                        {trustlineResult.rlusd_trustline.issuer}
-                      </span>
-                    </div>
-                    <div className="verifyRow">
-                      <span className={checkClass(true)}>
-                        {checkSymbol(true)}
-                      </span>
-                      <span className="summaryLabel">Limit</span>
-                      <span className="summaryValue">{trustlineResult.rlusd_trustline.limit}</span>
-                    </div>
-                    <div className="verifyRow">
-                      <span className={checkClass(true)}>
-                        {checkSymbol(true)}
-                      </span>
-                      <span className="summaryLabel">Balance</span>
-                      <span className="summaryValue">{trustlineResult.rlusd_trustline.balance}</span>
-                    </div>
-                  </>
-                )}
+                <div className="verifyRow">
+                  <span className={checkClass(true)}>
+                    {checkSymbol(true)}
+                  </span>
+                  <span className="summaryLabel">Raw Lines Checked</span>
+                  <span className="summaryValue">{trustlineResult.raw_lines_checked}</span>
+                </div>
               </div>
             </div>
           )}
