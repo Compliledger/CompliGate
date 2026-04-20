@@ -795,12 +795,14 @@ def xrpl_health():
     """Check XRPL network connectivity and configuration."""
     rpc_url = XRPL_RPC_URL
     rlusd_configured = bool(RLUSD_ISSUER and RLUSD_CURRENCY)
+    demo_wallet_configured = bool(XRPL_DEMO_WALLET_SEED)
     if not rpc_url:
         return {
             "configured": False,
             "reachable": False,
             "network": XRPL_NETWORK,
             "rlusd_configured": rlusd_configured,
+            "demo_wallet_configured": demo_wallet_configured,
         }
     try:
         resp = http_requests.post(
@@ -817,6 +819,7 @@ def xrpl_health():
         "reachable": reachable,
         "network": XRPL_NETWORK,
         "rlusd_configured": rlusd_configured,
+        "demo_wallet_configured": demo_wallet_configured,
     }
 
 
