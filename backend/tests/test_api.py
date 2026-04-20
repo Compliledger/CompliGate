@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from fastapi import HTTPException
 from unittest.mock import patch, MagicMock
 import logging
-from main import app, evaluate_governance, evaluate_eligibility, evaluate_constraints, verify_settlement_against_permit, _evaluate_settlement_constraints, check_rlusd_trustline, validate_trustline
+from main import app, evaluate_governance, evaluate_eligibility, evaluate_constraints, verify_settlement_against_permit, _evaluate_settlement_constraints, check_rlusd_trustline, validate_trustline, build_proof_link
 
 client = TestClient(app)
 
@@ -1098,6 +1098,26 @@ def test_enrich_proof_artifact_accepts_empty_anchor_metadata():
 
 
 # -----------------------
+# build_proof_link helper tests
+# -----------------------
+
+
+def test_build_proof_link_returns_correct_structure():
+    """build_proof_link returns a dict with bundle_hash and tx_hash."""
+    result = build_proof_link("bundlehash123", "txhash456")
+    assert result == {"bundle_hash": "bundlehash123", "tx_hash": "txhash456"}
+
+
+def test_build_proof_link_preserves_values():
+    """build_proof_link preserves exact input values."""
+    bh = "abc" * 20
+    th = "def" * 20
+    result = build_proof_link(bh, th)
+    assert result["bundle_hash"] == bh
+    assert result["tx_hash"] == th
+
+
+# -----------------------
 # XRPL Payment Endpoint Tests
 # -----------------------
 
@@ -1181,7 +1201,7 @@ def test_xrpl_payment_success():
 
 
 def test_xrpl_payment_with_memo():
-    """When memo_bundle_hash is provided, submit is called with memos."""
+    """When memo_bundle_hash is provided, submit is called with memos and proof_link is returned."""
     mock_response = MagicMock()
     mock_response.result = {
         "hash": "MEMOTXHASH",
@@ -1207,6 +1227,11 @@ def test_xrpl_payment_with_memo():
     assert data["submitted"] is True
     assert data["tx_hash"] == "MEMOTXHASH"
 
+    # Verify proof_link is returned with correct values
+    assert "proof_link" in data
+    assert data["proof_link"]["bundle_hash"] == "abc123hash"
+    assert data["proof_link"]["tx_hash"] == "MEMOTXHASH"
+
     # Verify that the Payment object passed to submit_and_wait had memos
     call_args = mock_submit.call_args
     payment_obj = call_args[0][0]
@@ -1215,7 +1240,7 @@ def test_xrpl_payment_with_memo():
 
 
 def test_xrpl_payment_without_memo():
-    """When memo_bundle_hash is not provided, memos should be None."""
+    """When memo_bundle_hash is not provided, memos should be None and proof_link absent."""
     mock_response = MagicMock()
     mock_response.result = {
         "hash": "NOMEMOTXHASH",
@@ -1233,6 +1258,8 @@ def test_xrpl_payment_without_memo():
         )
 
     assert response.status_code == 200
+    data = response.json()
+    assert "proof_link" not in data
     call_args = mock_submit.call_args
     payment_obj = call_args[0][0]
     assert payment_obj.memos is None
@@ -2094,6 +2121,50 @@ def test_trustline_check_empty_lines():
     assert data["raw_lines_checked"] == 0
 
 
+# -----------------------
+# validate_trustline unit tests
+# -----------------------
+
+
+def test_validate_trustline_found_unit():
+    """validate_trustline returns trustline_exists=True when a matching line exists."""
+    lines = [
+        {"currency": "RLUSD", "account": "rISSUER_MATCH", "limit": "1000000", "balance": "250"},
+        {"currency": "USD", "account": "rOTHER", "limit": "50000", "balance": "0"},
+    ]
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {"result": {"lines": lines}}
+
+    with patch("main.http_requests.post", return_value=mock_resp):
+        result = validate_trustline(VALID_SUBJECT, "rISSUER_MATCH", "RLUSD")
+
+    assert result["trustline_exists"] is True
+    assert result["issuer"] == "rISSUER_MATCH"
+    assert result["currency"] == "RLUSD"
+    assert result["raw_lines_checked"] == 2
+
+
+def test_validate_trustline_not_found_unit():
+    """validate_trustline returns trustline_exists=False when no matching line exists."""
+    lines = [
+        {"currency": "USD", "account": "rOTHER", "limit": "50000", "balance": "100"},
+    ]
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {"result": {"lines": lines}}
+
+    with patch("main.http_requests.post", return_value=mock_resp):
+        result = validate_trustline(VALID_SUBJECT, "rISSUER_MATCH", "RLUSD")
+
+    with patch("main.http_requests.post", return_value=mock_resp):
+        response = client.post("/v1/xrpl/trustline/check", json={"address": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["trustline_exists"] is False
+    assert data["raw_lines_checked"] == 0
+
+
 def test_validate_trustline_empty_lines():
     """validate_trustline returns trustline_exists=False when account has no lines."""
     mock_resp = MagicMock()
@@ -2164,6 +2235,7 @@ def test_trustline_check_issuer_enforcement():
     mock_resp.json.return_value = {"result": {"lines": lines}}
 
     with patch("main.RLUSD_ISSUER", "rCORRECT_ISSUER"), \
+    with patch("main.RLUSD_ISSUER", "rISSUER"), \
          patch("main.http_requests.post", return_value=mock_resp):
         response = client.post("/v1/xrpl/trustline/check", json={"address": VALID_SUBJECT})
     assert response.status_code == 200
@@ -2235,6 +2307,7 @@ def test_validate_trustline_wrong_currency():
 
     with patch("main.http_requests.post", return_value=mock_resp):
         result = validate_trustline(VALID_SUBJECT, "rISSUER", "RLUSD")
+        result = validate_trustline("rN7n3473SaZBCG4dFL83w7PB5XDnEHyMQX", "rISSUER", "RLUSD")
 
     assert result["trustline_exists"] is False
     assert result["raw_lines_checked"] == 1
