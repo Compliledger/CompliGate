@@ -6,13 +6,13 @@ from fastapi import HTTPException
 from app.core import config
 from app.core.logging import get_logger
 from app.models.xrpl import XRPLPaymentRequest
+from app.services.xrpl_signer_service import sign_payment_transaction
 
 try:
     from xrpl.clients import JsonRpcClient
     from xrpl.models.amounts import IssuedCurrencyAmount
     from xrpl.models.requests import AccountInfo, AccountLines, Tx
     from xrpl.models.transactions import Memo, Payment
-    from xrpl.transaction import submit_and_wait
     from xrpl.wallet import Wallet
 
     _XRPL_SDK_AVAILABLE = True
@@ -21,7 +21,6 @@ except ImportError:
     IssuedCurrencyAmount = None
     Memo = None
     Payment = None
-    submit_and_wait = None
 
 logger = get_logger("main")
 
@@ -44,29 +43,6 @@ def get_demo_wallet() -> "Wallet | None":
         logger.info("XRPL_DEMO_WALLET_SEED is not configured – demo wallet unavailable")
         return None
     return Wallet.from_seed(config.XRPL_DEMO_WALLET_SEED)
-
-
-def get_signing_wallet() -> "Wallet | None":
-    if not _XRPL_SDK_AVAILABLE:
-        logger.warning("xrpl-py SDK is not installed – signing wallet unavailable")
-        return None
-    if config.XRPL_SIGNING_SEED:
-        try:
-            return Wallet.from_seed(config.XRPL_SIGNING_SEED)
-        except Exception:
-            logger.error("invalid_xrpl_signing_seed")
-            return None
-    if config.XRPL_DEMO_WALLET_SEED:
-        if config.XRPL_NETWORK.lower() == "mainnet":
-            logger.error("demo_seed_refused_on_mainnet")
-            return None
-        logger.warning("xrpl_signing_seed_not_set_falling_back_to_demo_seed")
-        try:
-            return Wallet.from_seed(config.XRPL_DEMO_WALLET_SEED)
-        except Exception:
-            logger.error("invalid_xrpl_demo_wallet_seed")
-            return None
-    return None
 
 
 def get_account_info(address: str) -> dict:
@@ -204,7 +180,7 @@ def lookup_xrpl_transaction(tx_hash: str) -> dict:
 
 
 def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
-    if submit_and_wait is None or IssuedCurrencyAmount is None or Memo is None or Payment is None:
+    if IssuedCurrencyAmount is None or Memo is None or Payment is None:
         raise HTTPException(
             status_code=400,
             detail={"error": "xrpl_sdk_unavailable", "reason": "xrpl-py SDK is not installed"},
@@ -215,13 +191,6 @@ def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
         raise HTTPException(
             status_code=400,
             detail={"error": "xrpl_not_configured", "reason": "XRPL_RPC_URL is not configured"},
-        )
-
-    wallet = get_signing_wallet()
-    if wallet is None:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "signing_wallet_not_configured", "reason": "XRPL_SIGNING_SEED is not configured"},
         )
 
     amount_value = str(req.amount)
@@ -246,19 +215,13 @@ def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
         )
 
     payment = Payment(
-        account=wallet.address,
+        account="",
         destination=req.destination,
         amount=payment_amount,
         memos=memos if memos else None,
     )
 
-    try:
-        response = submit_and_wait(payment, client, wallet)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=502,
-            detail={"error": "xrpl_submit_failed", "reason": str(exc)},
-        ) from exc
+    response = sign_payment_transaction(payment, client)
 
     engine_result = response.result.get("meta", {}).get("TransactionResult", "unknown")
     tx_hash = response.result.get("hash", "")
