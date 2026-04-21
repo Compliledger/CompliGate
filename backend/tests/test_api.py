@@ -14,21 +14,51 @@ from app.services import permit_service
 
 client = TestClient(app)
 VALID_SUBJECT = "rN7n3473SaZBCG4dFL83w7PB5XDnEHyMQX"
+VALID_API_KEY = "test-valid-api-key"
 
 
 def test_health():
-    response = client.get("/health")
+    with patch.object(config, "AUTH_API_KEYS", [VALID_API_KEY]):
+        response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
 
 def test_public_key():
-    response = client.get("/public-key")
+    with patch.object(config, "AUTH_API_KEYS", [VALID_API_KEY]):
+        response = client.get("/public-key")
     assert response.status_code == 200
     data = response.json()
     assert "public_key_b64" in data
     assert "public_key_hex" in data
     assert data["public_key_hex"].startswith("0x")
+
+
+def test_protected_endpoint_missing_api_key_returns_401():
+    with patch.object(config, "AUTH_API_KEYS", [VALID_API_KEY]):
+        response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": {"error": "unauthorized", "reason": "Missing or invalid API key"}}
+
+
+def test_protected_endpoint_invalid_api_key_returns_401():
+    with patch.object(config, "AUTH_API_KEYS", [VALID_API_KEY]):
+        response = client.post("/v1/permit", json={"subject": VALID_SUBJECT}, headers={"X-API-Key": "invalid-api-key"})
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": {"error": "unauthorized", "reason": "Missing or invalid API key"}}
+
+
+def test_protected_endpoint_valid_api_key_succeeds():
+    with patch.object(config, "AUTH_API_KEYS", [VALID_API_KEY]):
+        response = client.post("/v1/permit", json={"subject": VALID_SUBJECT}, headers={"X-API-Key": VALID_API_KEY})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "bundle" in data
+    assert "signature" in data
+    assert "bundle_hash" in data
 
 
 def test_permit():
@@ -75,7 +105,11 @@ def test_xrpl_health_without_live_network():
         "rlusd_configured": True,
         "demo_wallet_configured": False,
     }
-    with patch.object(xrpl_routes, "get_xrpl_health_status", return_value=expected):
+    with patch.object(config, "AUTH_API_KEYS", [VALID_API_KEY]), patch.object(
+        xrpl_routes,
+        "get_xrpl_health_status",
+        return_value=expected,
+    ):
         response = client.get("/v1/xrpl/health")
 
     assert response.status_code == 200
