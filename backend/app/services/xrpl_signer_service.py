@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import HTTPException
 
 from app.core import config
 from app.core.logging import get_logger
 
 try:
+    from xrpl.models.transactions import Payment
     from xrpl.transaction import submit_and_wait
     from xrpl.wallet import Wallet
 
     _XRPL_SDK_AVAILABLE = True
 except ImportError:
     _XRPL_SDK_AVAILABLE = False
+    Payment = None
     submit_and_wait = None
 
 logger = get_logger("main")
@@ -48,8 +52,14 @@ def get_signing_mode() -> str:
     return "unconfigured"
 
 
-def sign_payment_transaction(payment, client):
-    if submit_and_wait is None:
+def sign_payment_transaction(
+    *,
+    client: Any,
+    destination: str,
+    amount: Any,
+    memos: list[Any] | None = None,
+) -> Any:
+    if submit_and_wait is None or Payment is None:
         raise HTTPException(
             status_code=400,
             detail={"error": "xrpl_sdk_unavailable", "reason": "xrpl-py SDK is not installed"},
@@ -62,13 +72,12 @@ def sign_payment_transaction(payment, client):
             detail={"error": "signing_wallet_not_configured", "reason": "XRPL_SIGNING_SEED is not configured"},
         )
 
-    try:
-        payment.account = wallet.address
-    except Exception:
-        raise HTTPException(
-            status_code=500,
-            detail={"error": "xrpl_payment_build_failed", "reason": "Unable to apply signing account"},
-        )
+    payment = Payment(
+        account=wallet.address,
+        destination=destination,
+        amount=amount,
+        memos=memos,
+    )
 
     try:
         return submit_and_wait(payment, client, wallet)

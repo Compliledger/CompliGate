@@ -12,7 +12,7 @@ try:
     from xrpl.clients import JsonRpcClient
     from xrpl.models.amounts import IssuedCurrencyAmount
     from xrpl.models.requests import AccountInfo, AccountLines, Tx
-    from xrpl.models.transactions import Memo, Payment
+    from xrpl.models.transactions import Memo
     from xrpl.wallet import Wallet
 
     _XRPL_SDK_AVAILABLE = True
@@ -20,7 +20,6 @@ except ImportError:
     _XRPL_SDK_AVAILABLE = False
     IssuedCurrencyAmount = None
     Memo = None
-    Payment = None
 
 logger = get_logger("main")
 
@@ -180,7 +179,7 @@ def lookup_xrpl_transaction(tx_hash: str) -> dict:
 
 
 def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
-    if IssuedCurrencyAmount is None or Memo is None or Payment is None:
+    if IssuedCurrencyAmount is None or Memo is None:
         raise HTTPException(
             status_code=400,
             detail={"error": "xrpl_sdk_unavailable", "reason": "xrpl-py SDK is not installed"},
@@ -214,14 +213,12 @@ def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
             )
         )
 
-    payment = Payment(
-        account="",
+    response = sign_payment_transaction(
+        client=client,
         destination=req.destination,
         amount=payment_amount,
-        memos=memos if memos else None,
+        memos=memos,
     )
-
-    response = sign_payment_transaction(payment, client)
 
     engine_result = response.result.get("meta", {}).get("TransactionResult", "unknown")
     tx_hash = response.result.get("hash", "")
