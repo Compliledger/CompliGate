@@ -9,3 +9,5 @@ requests==2.32.3
 xrpl-py==4.5.0
 sqlalchemy==2.0.36
 psycopg[binary]==3.2.3
+alembic==1.13.2
+psycopg2-binary==2.9.9
