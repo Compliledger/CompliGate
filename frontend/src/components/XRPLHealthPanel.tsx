@@ -59,11 +59,13 @@ function buildXrplHealthBadges(
     },
   ];
 
-  // Demo wallet badge is only rendered if the backend reports it as still
-  // configured — surface it as a warning so operators notice it's present.
+  // Signing-wallet fallback badge: rendered only when the backend reports
+  // that a fallback signing wallet seed is configured. Surfaced as a
+  // warning so operators notice it's still present in a production
+  // deployment.
   if (health.demo_wallet_configured) {
     badges.push({
-      label: "Demo wallet",
+      label: "Signing wallet",
       value: "Configured",
       tone: "warn",
     });

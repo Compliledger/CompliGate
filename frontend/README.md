@@ -65,7 +65,7 @@ When deploying:
 - Set `VITE_API_BASE` to the public backend URL **before** running
   `npm run build` (Vite inlines `VITE_*` vars at build time).
 - Decide whether to ship `VITE_API_KEY` in the build (convenient for
-  internal demos) or require operators to paste a key into the UI
+  internal deployments) or require operators to paste a key into the UI
   (recommended for shared deployments — keys never leave the browser).
 - Ensure the backend's `CORS_ORIGINS` includes the deployed origin.
 
@@ -102,7 +102,7 @@ surface a clear `Unauthorized — check that your API key is set and
 valid.` error. A `403` is reported as `Forbidden — this API key is not
 allowed to perform this action.`
 
-## Demo flow
+## Verification flow
 
 The UI walks through the end-to-end compliance + settlement loop:
 
