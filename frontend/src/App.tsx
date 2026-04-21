@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import RequestPermitPanel from "./RequestPermitPanel";
+import XRPLPaymentPanel from "./components/XRPLPaymentPanel";
 import ApiSettings from "./ApiSettings";
 import EnvWarnings from "./EnvWarnings";
 import { apiGet, apiPost, describeError } from "./lib/api";
@@ -377,7 +378,7 @@ export default function App() {
         />
 
         {/* Supplemental: Permit Constraints Snapshot */}
-        <section className="card" style={{ order: 6 }}>
+        <section className="card" style={{ order: 7 }}>
           <div className="summaryHeader">
             <h2>Permit Constraints Snapshot</h2>
             <span className={`badge ${status.kind}`}>
@@ -571,9 +572,12 @@ export default function App() {
           )}
         </section>
 
-        {/* Panel 3: Provide Settled XRPL Transaction */}
-        <section className="card" style={{ order: 3 }}>
-          <h2><PanelNumber n={3} />Provide Settled XRPL Transaction Hash</h2>
+        {/* Panel 3: Submit XRPL Payment */}
+        <XRPLPaymentPanel permit={permit} panelNumber={3} order={3} />
+
+        {/* Panel 4: Provide Settled XRPL Transaction */}
+        <section className="card" style={{ order: 4 }}>
+          <h2><PanelNumber n={4} />Provide Settled XRPL Transaction Hash</h2>
           <p className="muted">
             Settle from your own XRPL wallet, then paste the settled transaction hash for verification.
           </p>
@@ -625,9 +629,9 @@ export default function App() {
           )}
         </section>
 
-        {/* Panel 4: Verify Settlement */}
-        <section className="card" style={{ order: 4 }}>
-          <h2><PanelNumber n={4} />Verify Settlement</h2>
+        {/* Panel 5: Verify Settlement */}
+        <section className="card" style={{ order: 5 }}>
+          <h2><PanelNumber n={5} />Verify Settlement</h2>
           <p className="muted">
             Verification of a settled XRPL transaction against permit hash and constraints.
           </p>
@@ -773,9 +777,9 @@ export default function App() {
           {settlementError && <div className="alert bad">{settlementError}</div>}
         </section>
 
-        {/* Panel 5: View Proof Artifact */}
-        <section className="card spanFull" style={{ order: 5 }}>
-          <h2><PanelNumber n={5} />View Proof Artifact</h2>
+        {/* Panel 6: View Proof Artifact */}
+        <section className="card spanFull" style={{ order: 6 }}>
+          <h2><PanelNumber n={6} />View Proof Artifact</h2>
           {!permit ? (
             <p className="muted">
               Proof and signature artifact details will appear here after a permit is issued.
@@ -1020,7 +1024,7 @@ export default function App() {
         </section>
 
         {/* Supplemental: XRPL Transaction Lookup */}
-        <section className="card" style={{ order: 7 }}>
+        <section className="card" style={{ order: 8 }}>
           <h2>Transaction Lookup</h2>
           <p className="muted">
             Look up a real XRPL transaction by hash to inspect its details.
