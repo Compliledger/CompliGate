@@ -1,4 +1,5 @@
-from __future__ import annotations
+from app import main as _app_main
+import sys
 
 import base64
 import json
@@ -1705,3 +1706,4 @@ def verify_settlement(req: SettlementVerifyRequest):
         "verified_at": now,
         "proof_artifact": proof_artifact.model_dump(),
     }
+sys.modules[__name__] = _app_main
