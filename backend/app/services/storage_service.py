@@ -2,10 +2,22 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from app.core.logging import get_logger
 from app.db.models import PermitRecord, ProofArtifactRecord
 from app.db.session import get_engine, persistence_enabled
 from app.models.permit import PermitResponse
 from app.models.proof import ProofArtifact
+
+logger = get_logger("main")
+
+
+def _extract_policy_version(bundle: dict) -> str:
+    policy = bundle.get("policy")
+    if isinstance(policy, dict):
+        version = policy.get("version")
+        if isinstance(version, str):
+            return version
+    return ""
 
 
 def _open_session() -> Session | None:
@@ -15,22 +27,23 @@ def _open_session() -> Session | None:
     return Session(bind=engine, future=True)
 
 
-def save_permit(permit: PermitResponse) -> None:
+def save_permit(permit: PermitResponse, db: Session | None = None) -> None:
     if not persistence_enabled():
         return
-    db = _open_session()
-    if db is None:
+    session = db or _open_session()
+    if session is None:
         return
+    should_close_session = db is None
     try:
-        existing = db.query(PermitRecord).filter(PermitRecord.bundle_hash == permit.bundle_hash).first()
+        existing = session.query(PermitRecord).filter(PermitRecord.bundle_hash == permit.bundle_hash).first()
         if existing is None:
-            db.add(
+            session.add(
                 PermitRecord(
                     bundle_id=permit.bundle.get("bundle_id", ""),
                     bundle_hash=permit.bundle_hash,
                     subject=permit.bundle.get("subject", ""),
                     action=permit.bundle.get("action", ""),
-                    policy_version=permit.bundle.get("policy_version", ""),
+                    policy_version=_extract_policy_version(permit.bundle),
                     decision_result=permit.decision_result,
                     reason_codes=permit.reason_codes,
                     bundle_json=permit.bundle,
@@ -42,9 +55,15 @@ def save_permit(permit: PermitResponse) -> None:
                     ),
                 )
             )
-            db.commit()
+            try:
+                session.commit()
+            except Exception:
+                session.rollback()
+                logger.exception("Failed to persist permit record for bundle_hash=%s", permit.bundle_hash)
+                raise
     finally:
-        db.close()
+        if should_close_session:
+            session.close()
 
 
 def save_proof_artifact(*, bundle_hash: str, artifact: ProofArtifact, artifact_type: str) -> None:

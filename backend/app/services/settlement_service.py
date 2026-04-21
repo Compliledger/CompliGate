@@ -300,9 +300,9 @@ def _parse_first_memo(tx_payload: dict) -> str | None:
 
 
 def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerifyByHashResponse:
-    permit_context = get_recent_permit_context(bundle_hash)
+    permit_context = get_permit_context(bundle_hash)
     if permit_context is None:
-        permit_context = get_permit_context(bundle_hash)
+        permit_context = get_recent_permit_context(bundle_hash)
     permit_bundle = permit_context.get("bundle") if permit_context else None
 
     tx_data = fetch_xrpl_transaction(tx_hash)
