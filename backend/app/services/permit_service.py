@@ -140,7 +140,7 @@ def create_permit(req: PermitRequest) -> PermitResponse:
     )
 
 
-def verify_permit(req: VerifyRequest) -> dict:
+def verify_permit_logic(req: VerifyRequest) -> dict:
     try:
         canonical = canonical_json(req.bundle).encode("utf-8")
         sig_bytes = base64.b64decode(req.signature)
