@@ -8,6 +8,15 @@ from app.models.permit import PermitResponse
 from app.models.proof import ProofArtifact
 
 
+def _extract_policy_version(bundle: dict) -> str:
+    policy = bundle.get("policy")
+    if isinstance(policy, dict):
+        version = policy.get("version")
+        if isinstance(version, str):
+            return version
+    return ""
+
+
 def _open_session() -> Session | None:
     engine = get_engine()
     if engine is None:
@@ -31,7 +40,7 @@ def save_permit(permit: PermitResponse, db: Session | None = None) -> None:
                     bundle_hash=permit.bundle_hash,
                     subject=permit.bundle.get("subject", ""),
                     action=permit.bundle.get("action", ""),
-                    policy_version=permit.bundle.get("policy", {}).get("version", ""),
+                    policy_version=_extract_policy_version(permit.bundle),
                     decision_result=permit.decision_result,
                     reason_codes=permit.reason_codes,
                     bundle_json=permit.bundle,
@@ -43,7 +52,11 @@ def save_permit(permit: PermitResponse, db: Session | None = None) -> None:
                     ),
                 )
             )
-            session.commit()
+            try:
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
     finally:
         if owns_session:
             session.close()

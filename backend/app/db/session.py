@@ -75,6 +75,7 @@ def initialize_database() -> None:
 
 
 def get_db() -> Generator[Session | None, None, None]:
+    """Yield a SQLAlchemy session, or None when persistence is disabled."""
     session_factory = _ensure_session_factory()
     if session_factory is None:
         yield None
