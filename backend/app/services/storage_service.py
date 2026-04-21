@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from app.core.logging import get_logger
 from app.db.models import PermitRecord, ProofArtifactRecord
 from app.db.session import get_engine, persistence_enabled
 from app.models.permit import PermitResponse
 from app.models.proof import ProofArtifact
+
+logger = get_logger("main")
 
 
 def _extract_policy_version(bundle: dict) -> str:
@@ -56,6 +59,7 @@ def save_permit(permit: PermitResponse, db: Session | None = None) -> None:
                 session.commit()
             except Exception:
                 session.rollback()
+                logger.exception("permit_persistence_commit_failed bundle_hash=%s", permit.bundle_hash)
                 raise
     finally:
         if owns_session:
