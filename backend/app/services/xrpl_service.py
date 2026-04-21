@@ -6,13 +6,13 @@ from fastapi import HTTPException
 from app.core import config
 from app.core.logging import get_logger
 from app.models.xrpl import XRPLPaymentRequest
+from app.services.xrpl_signer_service import sign_payment_transaction
 
 try:
     from xrpl.clients import JsonRpcClient
     from xrpl.models.amounts import IssuedCurrencyAmount
     from xrpl.models.requests import AccountInfo, AccountLines, Tx
-    from xrpl.models.transactions import Memo, Payment
-    from xrpl.transaction import submit_and_wait
+    from xrpl.models.transactions import Memo
     from xrpl.wallet import Wallet
 
     _XRPL_SDK_AVAILABLE = True
@@ -20,8 +20,6 @@ except ImportError:
     _XRPL_SDK_AVAILABLE = False
     IssuedCurrencyAmount = None
     Memo = None
-    Payment = None
-    submit_and_wait = None
 
 logger = get_logger("main")
 
@@ -351,7 +349,7 @@ def lookup_xrpl_transaction(tx_hash: str) -> dict:
 
 
 def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
-    if submit_and_wait is None or IssuedCurrencyAmount is None or Memo is None or Payment is None:
+    if IssuedCurrencyAmount is None or Memo is None:
         raise HTTPException(
             status_code=400,
             detail={"error": "xrpl_sdk_unavailable", "reason": "xrpl-py SDK is not installed"},
@@ -396,20 +394,12 @@ def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
             )
         )
 
-    payment = Payment(
-        account=wallet.address,
+    response = sign_payment_transaction(
+        client=client,
         destination=req.destination,
         amount=payment_amount,
-        memos=memos if memos else None,
+        memos=memos,
     )
-
-    try:
-        response = submit_and_wait(payment, client, wallet)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=502,
-            detail={"error": "xrpl_submit_failed", "reason": str(exc)},
-        ) from exc
 
     engine_result = response.result.get("meta", {}).get("TransactionResult", "unknown")
     tx_hash = response.result.get("hash", "")
