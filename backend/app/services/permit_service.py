@@ -7,11 +7,11 @@ from uuid import uuid4
 
 from app.core import config
 from app.core.logging import get_logger
-from app.core.security import SIGNING_KEY
-from app.models.permit import PermitRequest, PermitResponse
-from app.models.proof import ProofArtifact, build_proof_artifact
-from app.services.policy_service import MAX_AMOUNT, evaluate_constraints, evaluate_eligibility, evaluate_governance, validate_subject
-from app.services.proof_service import random_hex
+from app.core.security import SIGNING_KEY, VERIFY_KEY
+from app.models.permit import PermitRequest, PermitResponse, VerifyRequest
+from app.models.proof import ProofArtifact
+from app.services.policy_service import MAX_AMOUNT, evaluate_permit_policy, validate_subject
+from app.services.proof_service import create_permit_proof_artifact, random_hex
 from app.utils.canonical_json import canonical_json
 from app.utils.hashing import proof_hash
 
@@ -45,20 +45,13 @@ def get_recent_permit_context(bundle_hash: str) -> dict | None:
 def create_permit(req: PermitRequest) -> PermitResponse:
     validate_subject(req.subject)
 
-    gov = evaluate_governance()
-    elig = evaluate_eligibility()
-    constraint_codes = evaluate_constraints(req.action, req.amount, req.counterparty)
-
-    reason_codes: list[str] = []
-    if gov["state_status"] == "active":
-        reason_codes.append("POLICY_ACTIVE")
-    if elig["participant_eligible"]:
-        reason_codes.append("PARTICIPANT_ELIGIBLE")
-    if elig["asset_admitted"]:
-        reason_codes.append("ASSET_ADMITTED")
-    reason_codes.extend(constraint_codes)
-
-    decision_result = "allow"
+    policy_result = evaluate_permit_policy(
+        action=req.action,
+        amount=req.amount,
+        counterparty=req.counterparty,
+    )
+    reason_codes = policy_result["reason_codes"]
+    decision_result = policy_result["decision_result"]
 
     now = int(time.time())
     exp = now + config.PERMIT_TTL_SECONDS
@@ -118,34 +111,11 @@ def create_permit(req: PermitRequest) -> PermitResponse:
         "expires_in_seconds": config.PERMIT_TTL_SECONDS,
     }
 
-    proof_artifact = build_proof_artifact(
-        module="CompliGate",
-        entity_id=bundle["bundle_id"],
-        rule_version_used=bundle["policy"]["version"],
-        decision_result="allow",
-        evaluation_context={
-            "subject": bundle["subject"],
-            "action": bundle["action"],
-            "asset": bundle["asset"]["currency"],
-            "policy_id": bundle["asset"]["policy_id"],
-            "classification": bundle["asset"]["classification"],
-            "regulatory_treatment": bundle["asset"]["regulatory_treatment"],
-            "reserve_backed": bundle["constraints"]["reserve_backed"],
-            "liquidity_verified": bundle["constraints"]["liquidity_verified"],
-            "kyc_verified": bundle["constraints"]["kyc_verified"],
-            "sanctions_check": bundle["constraints"]["sanctions_check"],
-            "jurisdiction": bundle["constraints"]["jurisdiction"],
-            "amount": bundle["constraints"]["amount"],
-            "max_amount": bundle["constraints"]["max_amount"],
-            "within_limit": bundle["constraints"]["within_limit"],
-            "freeze_possible": bundle["constraints"]["freeze_possible"],
-            "clawback_possible": bundle["constraints"]["clawback_possible"],
-            "trustline_required": bundle["constraints"]["trustline_required"],
-        },
+    proof_artifact = create_permit_proof_artifact(
+        bundle=bundle,
         reason_codes=reason_codes,
         timestamp=now,
         bundle_hash=bundle_hash,
-        anchor_metadata={},
     )
 
     store_recent_permit_context(
@@ -168,3 +138,35 @@ def create_permit(req: PermitRequest) -> PermitResponse:
         reason_codes=reason_codes,
         proof_artifact=proof_artifact,
     )
+
+
+def verify_permit(req: VerifyRequest) -> dict:
+    try:
+        canonical = canonical_json(req.bundle).encode("utf-8")
+        sig_bytes = base64.b64decode(req.signature)
+        VERIFY_KEY.verify(canonical, sig_bytes)
+        signature_valid = True
+    except Exception:
+        signature_valid = False
+
+    now = int(time.time())
+    exp = req.bundle.get("exp", 0)
+    not_expired = now < exp
+
+    subject = req.bundle.get("subject")
+    logger.info(
+        "permit_verified subject=%s signature_valid=%s not_expired=%s",
+        subject,
+        signature_valid,
+        not_expired,
+    )
+
+    return {
+        "signature_valid": signature_valid,
+        "not_expired": not_expired,
+        "subject": req.bundle.get("subject"),
+        "policy_version": req.bundle.get("policy", {}).get("version"),
+        "action": req.bundle.get("action"),
+        "bundle_hash": proof_hash(req.bundle),
+        "constraints": req.bundle.get("constraints", {}),
+    }

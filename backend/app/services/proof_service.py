@@ -59,3 +59,41 @@ def create_proof_artifact_from_permit_req(req) -> ProofArtifact:
         artifact_hash,
     )
     return build_proof_artifact(**core, bundle_hash=artifact_hash)
+
+
+def create_permit_proof_artifact(
+    *,
+    bundle: dict,
+    reason_codes: list[str],
+    timestamp: int,
+    bundle_hash: str,
+) -> ProofArtifact:
+    return build_proof_artifact(
+        module="CompliGate",
+        entity_id=bundle["bundle_id"],
+        rule_version_used=bundle["policy"]["version"],
+        decision_result="allow",
+        evaluation_context={
+            "subject": bundle["subject"],
+            "action": bundle["action"],
+            "asset": bundle["asset"]["currency"],
+            "policy_id": bundle["asset"]["policy_id"],
+            "classification": bundle["asset"]["classification"],
+            "regulatory_treatment": bundle["asset"]["regulatory_treatment"],
+            "reserve_backed": bundle["constraints"]["reserve_backed"],
+            "liquidity_verified": bundle["constraints"]["liquidity_verified"],
+            "kyc_verified": bundle["constraints"]["kyc_verified"],
+            "sanctions_check": bundle["constraints"]["sanctions_check"],
+            "jurisdiction": bundle["constraints"]["jurisdiction"],
+            "amount": bundle["constraints"]["amount"],
+            "max_amount": bundle["constraints"]["max_amount"],
+            "within_limit": bundle["constraints"]["within_limit"],
+            "freeze_possible": bundle["constraints"]["freeze_possible"],
+            "clawback_possible": bundle["constraints"]["clawback_possible"],
+            "trustline_required": bundle["constraints"]["trustline_required"],
+        },
+        reason_codes=reason_codes,
+        timestamp=timestamp,
+        bundle_hash=bundle_hash,
+        anchor_metadata={},
+    )
