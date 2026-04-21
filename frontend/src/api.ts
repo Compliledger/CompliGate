@@ -2,26 +2,24 @@
  * Centralized API client for the CompliGate frontend.
  *
  * Responsibilities:
- *  - Resolve the backend base URL from VITE_API_BASE.
+ *  - Resolve the backend base URL from the shared config module
+ *    (which in turn reads VITE_API_BASE).
  *  - Inject the API key (X-API-Key header) on every request, sourced from
- *    localStorage with a fallback to VITE_API_KEY (useful for local dev /
- *    deployment-time defaults).
+ *    localStorage with a fallback to the build-time VITE_API_KEY value
+ *    (also exposed via the shared config module).
  *  - Provide consistent timeout, JSON parsing and structured error handling
  *    so feature components do not duplicate fetch boilerplate.
  */
 
-export const API_BASE: string =
-  (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, "") ??
-  "http://localhost:8000";
+import { API_BASE, API_KEY, DEFAULT_TIMEOUT_MS } from "./config";
 
-export const DEFAULT_TIMEOUT_MS = 15_000;
+export { API_BASE, DEFAULT_TIMEOUT_MS };
 
 const API_KEY_STORAGE_KEY = "compligate.apiKey";
 const API_KEY_EVENT = "compligate:api-key-changed";
 
 function envApiKey(): string {
-  const value = import.meta.env.VITE_API_KEY as string | undefined;
-  return (value ?? "").trim();
+  return API_KEY;
 }
 
 function safeStorage(): Storage | null {
