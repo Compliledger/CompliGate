@@ -44,6 +44,172 @@ def get_demo_wallet() -> "Wallet | None":
     return Wallet.from_seed(config.XRPL_DEMO_WALLET_SEED)
 
 
+def get_signing_wallet() -> "Wallet | None":
+    """Return a signing Wallet for the configured ``XRPL_SIGNING_MODE``.
+
+    Returns ``None`` when no wallet is available for any reason (signing
+    disabled, unsupported mode, missing seed, invalid seed, or the xrpl-py
+    SDK not being installed). Callers are responsible for translating that
+    into a structured error response; use :func:`resolve_signer` for richer
+    diagnostics.
+    """
+    signer = resolve_signer()
+    return signer.wallet
+
+
+class SignerResolution:
+    """Outcome of resolving the configured XRPL signer.
+
+    ``wallet`` is set only for modes that produce a usable local wallet
+    (currently only ``seed``). ``error`` describes why a wallet could not
+    be produced and is intended for use in HTTP error responses.
+    """
+
+    __slots__ = ("mode", "wallet", "error")
+
+    def __init__(
+        self,
+        mode: str,
+        wallet: "Wallet | None" = None,
+        error: dict | None = None,
+    ) -> None:
+        self.mode = mode
+        self.wallet = wallet
+        self.error = error
+
+
+def _signer_error(code: str, reason: str, *, mode: str) -> dict:
+    return {"error": code, "reason": reason, "signing_mode": mode}
+
+
+def resolve_signer() -> SignerResolution:
+    """Resolve the configured XRPL signer without raising.
+
+    This is the single place where signing-mode policy is enforced so that
+    local seed signing is no longer hardcoded into the payment flow.
+    """
+    mode = (config.XRPL_SIGNING_MODE or "seed").lower()
+
+    if not config.XRPL_SIGNING_ENABLED:
+        return SignerResolution(
+            mode=mode,
+            error=_signer_error(
+                "xrpl_signing_disabled",
+                "XRPL signing is disabled (XRPL_SIGNING_ENABLED=false)",
+                mode=mode,
+            ),
+        )
+
+    if mode == "disabled":
+        return SignerResolution(
+            mode=mode,
+            error=_signer_error(
+                "xrpl_signing_disabled",
+                "XRPL signing is disabled (XRPL_SIGNING_MODE=disabled)",
+                mode=mode,
+            ),
+        )
+
+    if mode == "external":
+        # Placeholder for a future HSM / custody signer integration. The
+        # interface is intentionally not implemented yet.
+        return SignerResolution(
+            mode=mode,
+            error=_signer_error(
+                "xrpl_signer_not_implemented",
+                "External XRPL signer integration is not implemented yet",
+                mode=mode,
+            ),
+        )
+
+    if mode != "seed":
+        return SignerResolution(
+            mode=mode,
+            error=_signer_error(
+                "xrpl_signing_mode_unsupported",
+                f"Unsupported XRPL signing mode: {mode!r}",
+                mode=mode,
+            ),
+        )
+
+    # mode == "seed"
+    if not _XRPL_SDK_AVAILABLE:
+        logger.warning("xrpl-py SDK is not installed – signing wallet unavailable")
+        return SignerResolution(
+            mode=mode,
+            error=_signer_error(
+                "xrpl_sdk_unavailable",
+                "xrpl-py SDK is not installed",
+                mode=mode,
+            ),
+        )
+
+    seed = config.XRPL_SIGNER_SEED or config.XRPL_SIGNING_SEED
+    if seed:
+        try:
+            wallet = Wallet.from_seed(seed)
+        except Exception:
+            logger.error("invalid_xrpl_signer_seed")
+            return SignerResolution(
+                mode=mode,
+                error=_signer_error(
+                    "xrpl_signer_seed_invalid",
+                    "Configured XRPL signer seed is invalid",
+                    mode=mode,
+                ),
+            )
+        if config.XRPL_SIGNER_ADDRESS and wallet.address != config.XRPL_SIGNER_ADDRESS:
+            logger.error(
+                "xrpl_signer_address_mismatch expected=%s actual=%s",
+                config.XRPL_SIGNER_ADDRESS,
+                wallet.address,
+            )
+            return SignerResolution(
+                mode=mode,
+                error=_signer_error(
+                    "xrpl_signer_address_mismatch",
+                    "Configured XRPL_SIGNER_ADDRESS does not match the seed-derived address",
+                    mode=mode,
+                ),
+            )
+        return SignerResolution(mode=mode, wallet=wallet)
+
+    if config.XRPL_DEMO_WALLET_SEED:
+        if config.XRPL_NETWORK.lower() == "mainnet":
+            logger.error("demo_seed_refused_on_mainnet")
+            return SignerResolution(
+                mode=mode,
+                error=_signer_error(
+                    "xrpl_demo_seed_refused_on_mainnet",
+                    "Demo wallet seed cannot be used on mainnet",
+                    mode=mode,
+                ),
+            )
+        logger.warning("xrpl_signer_seed_not_set_falling_back_to_demo_seed")
+        try:
+            wallet = Wallet.from_seed(config.XRPL_DEMO_WALLET_SEED)
+        except Exception:
+            logger.error("invalid_xrpl_demo_wallet_seed")
+            return SignerResolution(
+                mode=mode,
+                error=_signer_error(
+                    "xrpl_demo_seed_invalid",
+                    "Configured XRPL demo wallet seed is invalid",
+                    mode=mode,
+                ),
+            )
+        return SignerResolution(mode=mode, wallet=wallet)
+
+    return SignerResolution(
+        mode=mode,
+        error=_signer_error(
+            "xrpl_signer_seed_not_configured",
+            "XRPL_SIGNER_SEED is not configured",
+            mode=mode,
+        ),
+    )
+
+
 def get_account_info(address: str) -> dict:
     client = get_xrpl_client()
     if client is None:
@@ -129,6 +295,8 @@ def get_xrpl_health_status() -> dict:
             "network": config.XRPL_NETWORK,
             "rlusd_configured": rlusd_configured,
             "demo_wallet_configured": demo_wallet_configured,
+            "signing_mode": config.XRPL_SIGNING_MODE,
+            "signing_enabled": config.XRPL_SIGNING_ENABLED,
         }
     try:
         resp = http_requests.post(
@@ -146,6 +314,8 @@ def get_xrpl_health_status() -> dict:
         "network": config.XRPL_NETWORK,
         "rlusd_configured": rlusd_configured,
         "demo_wallet_configured": demo_wallet_configured,
+        "signing_mode": config.XRPL_SIGNING_MODE,
+        "signing_enabled": config.XRPL_SIGNING_ENABLED,
     }
 
 
@@ -191,6 +361,17 @@ def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
             status_code=400,
             detail={"error": "xrpl_not_configured", "reason": "XRPL_RPC_URL is not configured"},
         )
+
+    signer = resolve_signer()
+    if signer.wallet is None:
+        error_detail = signer.error or {
+            "error": "signing_wallet_not_configured",
+            "reason": "XRPL signer is not available",
+            "signing_mode": signer.mode,
+        }
+        status_code = 501 if error_detail.get("error") == "xrpl_signer_not_implemented" else 400
+        raise HTTPException(status_code=status_code, detail=error_detail)
+    wallet = signer.wallet
 
     amount_value = str(req.amount)
 

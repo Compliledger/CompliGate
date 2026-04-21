@@ -10,6 +10,16 @@ load_dotenv()
 _TRUE_VALUES = ("true", "1", "yes")
 _DEFAULT_API_KEY_HEADER_NAME = "X-API-Key"
 
+# Supported XRPL signing modes.
+# - "seed":     local seed-based signing (suitable for dev / staging only)
+# - "disabled": signing is intentionally turned off; payment endpoints must
+#               return a structured error rather than attempting to sign
+# - "external": placeholder for a future HSM / custody signer integration;
+#               not implemented yet, payment endpoints must return a
+#               structured "not implemented" error
+XRPL_SIGNING_MODES = ("seed", "disabled", "external")
+_DEFAULT_XRPL_SIGNING_MODE = "seed"
+
 
 def _get_bool(name: str, default: str) -> bool:
     return os.getenv(name, default).strip().lower() in _TRUE_VALUES
@@ -35,6 +45,13 @@ def _get_api_key_header_name() -> str:
     return os.getenv("API_KEY_HEADER_NAME", _DEFAULT_API_KEY_HEADER_NAME).strip() or _DEFAULT_API_KEY_HEADER_NAME
 
 
+def _get_xrpl_signing_mode() -> str:
+    raw = os.getenv("XRPL_SIGNING_MODE", _DEFAULT_XRPL_SIGNING_MODE).strip().lower()
+    if raw not in XRPL_SIGNING_MODES:
+        return _DEFAULT_XRPL_SIGNING_MODE
+    return raw
+
+
 @dataclass(frozen=True)
 class Settings:
     POLICY_VERSION: str
@@ -58,6 +75,10 @@ class Settings:
     DATABASE_URL: str
     AUTH_API_KEYS: list[str]
     XRPL_SIGNING_SEED: str
+    XRPL_SIGNING_MODE: str
+    XRPL_SIGNER_ADDRESS: str
+    XRPL_SIGNER_SEED: str
+    XRPL_SIGNING_ENABLED: bool
 
 
 def _build_settings() -> Settings:
@@ -85,6 +106,10 @@ def _build_settings() -> Settings:
         DATABASE_URL=os.getenv("DATABASE_URL", "").strip(),
         AUTH_API_KEYS=api_keys,
         XRPL_SIGNING_SEED=os.getenv("XRPL_SIGNING_SEED", "").strip(),
+        XRPL_SIGNING_MODE=_get_xrpl_signing_mode(),
+        XRPL_SIGNER_ADDRESS=os.getenv("XRPL_SIGNER_ADDRESS", "").strip(),
+        XRPL_SIGNER_SEED=os.getenv("XRPL_SIGNER_SEED", "").strip(),
+        XRPL_SIGNING_ENABLED=_get_bool("XRPL_SIGNING_ENABLED", "true"),
     )
 
 
@@ -113,3 +138,7 @@ API_KEYS = _get_api_keys()
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 AUTH_API_KEYS = API_KEYS
 XRPL_SIGNING_SEED = os.getenv("XRPL_SIGNING_SEED", "").strip()
+XRPL_SIGNING_MODE = _get_xrpl_signing_mode()
+XRPL_SIGNER_ADDRESS = os.getenv("XRPL_SIGNER_ADDRESS", "").strip()
+XRPL_SIGNER_SEED = os.getenv("XRPL_SIGNER_SEED", "").strip()
+XRPL_SIGNING_ENABLED = _get_bool("XRPL_SIGNING_ENABLED", "true")
