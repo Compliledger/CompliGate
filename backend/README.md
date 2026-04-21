@@ -110,7 +110,10 @@ A Proof Bundle is the output of a successful permit issuance. It contains:
 | `ISSUER_ADDRESS` | Issuer address bound to the permit |
 | `COMPLIGATE_PRIVATE_KEY_B64` | Base64-encoded Ed25519 seed (32 bytes). If blank, an ephemeral key is generated on startup. |
 | `CORS_ORIGINS` | Comma-separated list of allowed CORS origins |
-| `AUTH_API_KEYS` | Optional comma-separated API keys for protected `/v1/*` routes. If empty, auth is disabled. |
+| `API_KEY_ENABLED` | Enables API key auth configuration. Set to `false` to disable in local development. |
+| `API_KEY_HEADER_NAME` | Header name used for API key auth (default: `X-API-Key`). |
+| `API_KEYS` | Comma-separated API keys used by auth configuration. |
+| `AUTH_API_KEYS` | Legacy fallback for API keys; use `API_KEYS` for new deployments. |
 | `DATABASE_URL` | PostgreSQL connection URL used to persist permits and proof artifacts (e.g., `postgresql+psycopg://...`) |
 | `XRPL_RPC_URL` | XRPL JSON-RPC URL for settlement verification (default: XRPL Testnet) |
 | `XRPL_NETWORK` | XRPL network name used in verification metadata (e.g., `xrpl_testnet`) |

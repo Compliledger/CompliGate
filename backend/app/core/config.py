@@ -40,12 +40,19 @@ class Settings:
     XRPL_REQUIRE_TRUSTLINE: bool
     PERMIT_TTL_SECONDS: int
     PERMIT_CONTEXT_CACHE_MAX_ITEMS: int
+    API_KEY_ENABLED: bool
+    API_KEY_HEADER_NAME: str
+    API_KEYS: list[str]
     DATABASE_URL: str
     AUTH_API_KEYS: list[str]
     XRPL_SIGNING_SEED: str
 
 
 def _build_settings() -> Settings:
+    api_keys = _get_csv("API_KEYS", "")
+    if not api_keys:
+        api_keys = _get_csv("AUTH_API_KEYS", "")
+
     return Settings(
         POLICY_VERSION=os.getenv("POLICY_VERSION", "RLUSD_US_v1"),
         JURISDICTION=os.getenv("JURISDICTION", "US"),
@@ -62,8 +69,11 @@ def _build_settings() -> Settings:
         XRPL_REQUIRE_TRUSTLINE=_get_bool("XRPL_REQUIRE_TRUSTLINE", "false"),
         PERMIT_TTL_SECONDS=_get_int("PERMIT_TTL_SECONDS", "300"),
         PERMIT_CONTEXT_CACHE_MAX_ITEMS=_get_int("PERMIT_CONTEXT_CACHE_MAX_ITEMS", "1000"),
+        API_KEY_ENABLED=_get_bool("API_KEY_ENABLED", "true"),
+        API_KEY_HEADER_NAME=os.getenv("API_KEY_HEADER_NAME", "X-API-Key").strip() or "X-API-Key",
+        API_KEYS=api_keys,
         DATABASE_URL=os.getenv("DATABASE_URL", "").strip(),
-        AUTH_API_KEYS=_get_csv("AUTH_API_KEYS", ""),
+        AUTH_API_KEYS=api_keys,
         XRPL_SIGNING_SEED=os.getenv("XRPL_SIGNING_SEED", "").strip(),
     )
 
@@ -87,6 +97,11 @@ XRPL_ENFORCE_RLUSD_ONLY = os.getenv("XRPL_ENFORCE_RLUSD_ONLY", "false").lower() 
 XRPL_REQUIRE_TRUSTLINE = os.getenv("XRPL_REQUIRE_TRUSTLINE", "false").lower() in ("true", "1", "yes")
 PERMIT_TTL_SECONDS = int(os.getenv("PERMIT_TTL_SECONDS", "300"))
 PERMIT_CONTEXT_CACHE_MAX_ITEMS = int(os.getenv("PERMIT_CONTEXT_CACHE_MAX_ITEMS", "1000"))
+API_KEY_ENABLED = _get_bool("API_KEY_ENABLED", "true")
+API_KEY_HEADER_NAME = os.getenv("API_KEY_HEADER_NAME", "X-API-Key").strip() or "X-API-Key"
+API_KEYS = _get_csv("API_KEYS", "")
+if not API_KEYS:
+    API_KEYS = _get_csv("AUTH_API_KEYS", "")
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-AUTH_API_KEYS = _get_csv("AUTH_API_KEYS", "")
+AUTH_API_KEYS = API_KEYS
 XRPL_SIGNING_SEED = os.getenv("XRPL_SIGNING_SEED", "").strip()
