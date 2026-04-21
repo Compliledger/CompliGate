@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import time
+
 from app.core import config
+from app.models.proof import build_proof_artifact
+from app.models.xrpl import SettlementVerifyByHashResponse
+from app.services.permit_service import get_recent_permit_context
 from app.services.policy_service import ASSET_CLASSIFICATION_REGULATED_STABLECOIN, MAX_AMOUNT
 from app.services.xrpl_service import normalize_xrpl_amount
 
@@ -293,3 +298,97 @@ def build_proof_link(bundle_hash: str, tx_hash: str) -> dict:
         "bundle_hash": bundle_hash,
         "tx_hash": tx_hash,
     }
+
+
+def _parse_first_memo(tx_payload: dict) -> str | None:
+    memos_raw = tx_payload.get("Memos", [])
+    if not (memos_raw and isinstance(memos_raw, list)):
+        return None
+    first_memo = memos_raw[0]
+    memo_obj = first_memo.get("Memo", first_memo) if isinstance(first_memo, dict) else {}
+    memo_data_hex = memo_obj.get("MemoData", "")
+    if not memo_data_hex:
+        return None
+    try:
+        return bytes.fromhex(memo_data_hex).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return memo_data_hex
+
+
+def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerifyByHashResponse:
+    permit_context = get_recent_permit_context(bundle_hash)
+    permit_bundle = permit_context.get("bundle") if permit_context else None
+
+    tx_data = fetch_xrpl_transaction(tx_hash)
+    tx_payload = _extract_tx_payload(tx_data)
+
+    decision_result, reason_codes, constraints_verified = _evaluate_settlement_constraints(
+        tx_payload,
+        permit_bundle=permit_bundle,
+    )
+
+    amount_info = normalize_xrpl_amount(tx_payload.get("Amount", {}))
+    memo = _parse_first_memo(tx_payload)
+    now = int(time.time())
+
+    evaluation_context = {
+        "bundle_hash": bundle_hash,
+        "permit_context_used": bool(permit_context),
+        "tx_hash": tx_hash,
+        "source_account": tx_payload.get("Account", ""),
+        "source": tx_payload.get("Account", ""),
+        "destination_account": tx_payload.get("Destination", ""),
+        "currency": amount_info["currency"],
+        "amount": amount_info["value"],
+        "issuer": amount_info["issuer"],
+        "memo": memo,
+        "asset_classification": ASSET_CLASSIFICATION_REGULATED_STABLECOIN,
+        "asset": amount_info["currency"],
+        "destination": tx_payload.get("Destination", ""),
+        "jurisdiction": config.JURISDICTION,
+        "kyc_verified": True,
+        "sanctions_check": "passed",
+        "reserve_backed": True,
+        "liquidity_verified": True,
+        "policy_conditions": {
+            "jurisdiction": config.JURISDICTION,
+            "kyc_verified": True,
+            "sanctions": "passed",
+            "reserve_backed": True,
+            "liquidity_verified": True,
+        },
+        "constraints_verified": constraints_verified,
+    }
+    if permit_context:
+        evaluation_context["permit_issued_at"] = permit_context["issued_at"]
+        evaluation_context["permit_bundle"] = permit_context["bundle"]
+        evaluation_context["permit_proof_artifact"] = permit_context["proof_artifact"]
+
+    anchor_metadata: dict = {
+        "network": config.XRPL_NETWORK,
+        "tx_hash": tx_hash,
+        "verified_at": now,
+    }
+    ledger_index = tx_data.get("ledger_index") or tx_data.get("inLedger")
+    if ledger_index is None:
+        ledger_index = tx_payload.get("ledger_index") or tx_payload.get("inLedger")
+    if ledger_index is not None:
+        anchor_metadata["ledger_index"] = ledger_index
+
+    proof_artifact = build_proof_artifact(
+        module="CompliGate",
+        entity_id=tx_hash,
+        rule_version_used=config.POLICY_VERSION,
+        decision_result=decision_result,
+        evaluation_context=evaluation_context,
+        reason_codes=reason_codes,
+        timestamp=now,
+        bundle_hash=bundle_hash,
+        anchor_metadata=anchor_metadata,
+    )
+
+    return SettlementVerifyByHashResponse(
+        decision_result=decision_result,
+        reason_codes=reason_codes,
+        proof_artifact=proof_artifact,
+    )

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import time
 
 from fastapi import APIRouter, HTTPException
 
@@ -10,10 +9,7 @@ from app.core.logging import get_logger
 from app.core.security import VERIFY_KEY
 from app.models.proof import build_proof_artifact
 from app.models.xrpl import SettlementVerifyByHashRequest, SettlementVerifyByHashResponse, SettlementVerifyRequest
-from app.services.permit_service import get_recent_permit_context
-from app.services.policy_service import ASSET_CLASSIFICATION_REGULATED_STABLECOIN
-from app.services.settlement_service import _evaluate_settlement_constraints, _extract_tx_payload, fetch_xrpl_transaction, verify_settlement_against_permit
-from app.services.xrpl_service import normalize_xrpl_amount
+from app.services.settlement_service import fetch_xrpl_transaction, verify_settlement_against_permit, verify_settlement_by_hash as verify_settlement_by_hash_service
 from app.utils.canonical_json import canonical_json
 from app.utils.hashing import proof_hash
 
@@ -104,98 +100,11 @@ def verify_settlement(req: SettlementVerifyRequest):
 
 @router.post("/v1/settlement/verify", response_model=SettlementVerifyByHashResponse)
 def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
-    permit_context = get_recent_permit_context(req.bundle_hash)
-    permit_bundle = permit_context.get("bundle") if permit_context else None
-
-    tx_data = fetch_xrpl_transaction(req.tx_hash)
-    tx_payload = _extract_tx_payload(tx_data)
-
-    decision_result, reason_codes, constraints_verified = _evaluate_settlement_constraints(
-        tx_payload,
-        permit_bundle=permit_bundle,
-    )
-
-    amount_info = normalize_xrpl_amount(tx_payload.get("Amount", {}))
-
-    memos_raw = tx_payload.get("Memos", [])
-    memo = None
-    if memos_raw and isinstance(memos_raw, list):
-        first_memo = memos_raw[0]
-        memo_obj = first_memo.get("Memo", first_memo) if isinstance(first_memo, dict) else {}
-        memo_data_hex = memo_obj.get("MemoData", "")
-        if memo_data_hex:
-            try:
-                memo = bytes.fromhex(memo_data_hex).decode("utf-8")
-            except (ValueError, UnicodeDecodeError):
-                memo = memo_data_hex
-
-    now = int(time.time())
-
-    evaluation_context = {
-        "bundle_hash": req.bundle_hash,
-        "permit_context_used": bool(permit_context),
-        "tx_hash": req.tx_hash,
-        "source_account": tx_payload.get("Account", ""),
-        "source": tx_payload.get("Account", ""),
-        "destination_account": tx_payload.get("Destination", ""),
-        "currency": amount_info["currency"],
-        "amount": amount_info["value"],
-        "issuer": amount_info["issuer"],
-        "memo": memo,
-        "asset_classification": ASSET_CLASSIFICATION_REGULATED_STABLECOIN,
-        "asset": amount_info["currency"],
-        "destination": tx_payload.get("Destination", ""),
-        "jurisdiction": config.JURISDICTION,
-        "kyc_verified": True,
-        "sanctions_check": "passed",
-        "reserve_backed": True,
-        "liquidity_verified": True,
-        "policy_conditions": {
-            "jurisdiction": config.JURISDICTION,
-            "kyc_verified": True,
-            "sanctions": "passed",
-            "reserve_backed": True,
-            "liquidity_verified": True,
-        },
-        "constraints_verified": constraints_verified,
-    }
-    if permit_context:
-        evaluation_context["permit_issued_at"] = permit_context["issued_at"]
-        evaluation_context["permit_bundle"] = permit_context["bundle"]
-        evaluation_context["permit_proof_artifact"] = permit_context["proof_artifact"]
-
-    anchor_metadata: dict = {
-        "network": config.XRPL_NETWORK,
-        "tx_hash": req.tx_hash,
-        "verified_at": now,
-    }
-    ledger_index = tx_data.get("ledger_index") or tx_data.get("inLedger")
-    if ledger_index is None:
-        ledger_index = tx_payload.get("ledger_index") or tx_payload.get("inLedger")
-    if ledger_index is not None:
-        anchor_metadata["ledger_index"] = ledger_index
-
-    proof_artifact = build_proof_artifact(
-        module="CompliGate",
-        entity_id=req.tx_hash,
-        rule_version_used=config.POLICY_VERSION,
-        decision_result=decision_result,
-        evaluation_context=evaluation_context,
-        reason_codes=reason_codes,
-        timestamp=now,
-        bundle_hash=req.bundle_hash,
-        anchor_metadata=anchor_metadata,
-    )
-
+    result = verify_settlement_by_hash_service(req.bundle_hash, req.tx_hash)
     logger.info(
         "settlement_verify tx_hash=%s bundle_hash=%s decision=%s",
         req.tx_hash,
         req.bundle_hash,
-        decision_result,
+        result.decision_result,
     )
-
-    return SettlementVerifyByHashResponse(
-        decision_result=decision_result,
-        reason_codes=reason_codes,
-        proof_artifact=proof_artifact,
-    )
+    return result
