@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
+
 import "./App.css";
-import RequestPermitPanel from "./RequestPermitPanel";
-import XRPLPaymentPanel from "./components/XRPLPaymentPanel";
 import ApiSettings from "./ApiSettings";
 import EnvWarnings from "./EnvWarnings";
+import PermitSummaryPanel, { type PermitStatus } from "./components/PermitSummaryPanel";
+import PermitVerificationPanel from "./components/PermitVerificationPanel";
+import RequestPermitPanel from "./components/RequestPermitPanel";
+import SettlementVerificationPanel from "./components/SettlementVerificationPanel";
+import TechnicalProofPanel from "./components/TechnicalProofPanel";
+import TransactionLookupPanel from "./components/TransactionLookupPanel";
 import TrustlineCheckPanel from "./components/TrustlineCheckPanel";
 import TransactionLookupPanel from "./components/TransactionLookupPanel";
 import StatusMessage from "./components/StatusMessage";
@@ -130,16 +135,26 @@ function buildXrplHealthBadges(
   return badges;
 }
 
+import XRPLHealthPanel from "./components/XRPLHealthPanel";
+import XRPLPaymentPanel from "./components/XRPLPaymentPanel";
+import { formatSeconds } from "./lib/format";
+import type { PermitResponse, SettlementVerifyResponse } from "./types/api";
+
+/**
+ * App
+ *
+ * Page-level orchestrator. Owns only the state that is shared across
+ * panels (the active permit, the settled XRPL transaction hash and its
+ * verification result, plus a one-second timer used for the expiry
+ * countdown), wires data flow between panels, and renders the high
+ * level layout (header, health bar, settings, panel grid, footer).
+ *
+ * All domain logic, fetching and presentation now lives in the
+ * dedicated panel components under `./components/`.
+ */
 export default function App() {
   const [permit, setPermit] = useState<PermitResponse | null>(null);
   const [now, setNow] = useState<number>(() => Math.floor(Date.now() / 1000));
-  const [verifyResult, setVerifyResult] = useState<VerifyResponse | null>(null);
-  const [verifyError, setVerifyError] = useState<string | null>(null);
-  const [verifyingPermit, setVerifyingPermit] = useState(false);
-  const [xrplHealth, setXrplHealth] = useState<XRPLHealthResponse | null>(null);
-  const [xrplHealthLoading, setXrplHealthLoading] = useState(true);
-  const [xrplHealthError, setXrplHealthError] = useState(false);
-  const { copied, copy: copyToClipboard } = useCopyToClipboard();
   const [settledTxHash, setSettledTxHash] = useState("");
   const [settlementResult, setSettlementResult] = useState<SettlementVerifyResponse | null>(null);
   const [settlementError, setSettlementError] = useState<string | null>(null);
@@ -150,30 +165,6 @@ export default function App() {
   useEffect(() => {
     const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
     return () => clearInterval(t);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    setXrplHealthLoading(true);
-    setXrplHealthError(false);
-    apiGet<XRPLHealthResponse>("/v1/xrpl/health")
-      .then((d) => {
-        if (cancelled) return;
-        setXrplHealth(d);
-        setXrplHealthError(false);
-      })
-      .catch((err) => {
-        console.error("Failed to fetch XRPL health:", err);
-        if (cancelled) return;
-        setXrplHealth(null);
-        setXrplHealthError(true);
-      })
-      .finally(() => {
-        if (!cancelled) setXrplHealthLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   const remaining = useMemo(() => {
@@ -187,84 +178,25 @@ export default function App() {
     return d === "permit" || d === "allow" || d === "approved";
   }, [settlementResult]);
 
-  const canVerifySettlement = Boolean(permit?.bundle_hash && settledTxHash.trim());
-
-  const status = useMemo(() => {
-    if (settlementResult && settlementPassed) return { label: "Verified", kind: "anchored" as const };
-    if (settlementResult && !settlementPassed) return { label: "Settlement Failed", kind: "bad" as const };
-    if (!permit) return { label: "No Permit", kind: "neutral" as const };
-    if (remaining <= 0) return { label: "Expired", kind: "bad" as const };
-    if (remaining < 60) return { label: "Expiring Soon", kind: "warn" as const };
-    return { label: "Active", kind: "good" as const };
+  const status = useMemo<PermitStatus>(() => {
+    if (settlementResult && settlementPassed) return { label: "Verified", kind: "anchored" };
+    if (settlementResult && !settlementPassed) return { label: "Settlement Failed", kind: "bad" };
+    if (!permit) return { label: "No Permit", kind: "neutral" };
+    if (remaining <= 0) return { label: "Expired", kind: "bad" };
+    if (remaining < 60) return { label: "Expiring Soon", kind: "warn" };
+    return { label: "Active", kind: "good" };
   }, [permit, remaining, settlementResult, settlementPassed]);
 
-  const expiryPercent = useMemo(() => {
-    if (!permit || remaining <= 0 || permit.expires_in_seconds <= 0) return 0;
-    return Math.min(100, (remaining / permit.expires_in_seconds) * 100);
-  }, [permit, remaining]);
-
-  const regulatoryControlsJson = useMemo(() => {
-    if (!permit) return "";
-    return JSON.stringify({
-      asset_classification: permit.bundle.asset.classification,
-      regulatory_treatment: permit.bundle.asset.regulatory_treatment,
-      reserve_backed: permit.bundle.constraints.reserve_backed,
-      liquidity_verified: permit.bundle.constraints.liquidity_verified,
-      kyc_verified: permit.bundle.constraints.kyc_verified,
-      sanctions_check: permit.bundle.constraints.sanctions_check,
-      jurisdiction: permit.bundle.constraints.jurisdiction,
-      max_amount: permit.bundle.constraints.max_amount,
-      freeze_possible: permit.bundle.constraints.freeze_possible,
-      clawback_possible: permit.bundle.constraints.clawback_possible,
-      trustline_required: permit.bundle.constraints.trustline_required,
-    }, null, 2);
-  }, [permit]);
-
-  async function verifyPermit() {
-    if (!permit) return;
-    setVerifyError(null);
-    setVerifyResult(null);
-    setVerifyingPermit(true);
-
-    try {
-      const data = await apiPost<unknown>("/v1/verify", {
-        bundle: permit.bundle,
-        signature: permit.signature,
-      });
-      if (
-        !data ||
-        typeof data !== "object" ||
-        typeof (data as Record<string, unknown>).signature_valid !== "boolean" ||
-        typeof (data as Record<string, unknown>).not_expired !== "boolean"
-      ) {
-        setVerifyError("Unexpected response from server.");
-        return;
-      }
-      setVerifyResult(data as VerifyResponse);
-    } catch (e: unknown) {
-      setVerifyError(describeError(e, "Failed to verify permit."));
-    } finally {
-      setVerifyingPermit(false);
-    }
+  function handlePermit(p: PermitResponse) {
+    setPermit(p);
+    setSettledTxHash("");
+    setSettlementResult(null);
   }
 
-  async function verifySettlement() {
-    if (!permit?.bundle_hash || !settledTxHash.trim()) return;
-    setSettlementError(null);
+  function handleClearPermit() {
+    setPermit(null);
+    setSettledTxHash("");
     setSettlementResult(null);
-    setVerifying(true);
-
-    try {
-      const data = await apiPost<SettlementVerifyResponse>("/v1/settlement/verify", {
-        bundle_hash: permit.bundle_hash,
-        tx_hash: settledTxHash.trim(),
-      });
-      setSettlementResult(data);
-    } catch (e: unknown) {
-      setSettlementError(describeError(e, "Failed to verify settlement."));
-    } finally {
-      setVerifying(false);
-    }
   }
 
   return (
@@ -286,16 +218,7 @@ export default function App() {
         </div>
       </header>
 
-      <div className="adapterBar">
-        <span className="adapterBarLabel">XRPL Network</span>
-        {buildXrplHealthBadges(xrplHealth, xrplHealthLoading, xrplHealthError).map((badge) => (
-          <span key={badge.label} className={`badge ${badge.tone}`} title={badge.label}>
-            <span className="badgeDot" />
-            <span className="badgeLabel">{badge.label}:</span>
-            <span className="badgeValue">{badge.value}</span>
-          </span>
-        ))}
-      </div>
+      <XRPLHealthPanel />
 
       <EnvWarnings />
 
@@ -917,6 +840,7 @@ export default function App() {
             </>
           )}
         </section>
+        <RequestPermitPanel onPermit={handlePermit} onClear={handleClearPermit} />
 
         {/* Panel 2: Check Trustline */}
         <section className="card" style={{ order: 2 }}>
@@ -929,6 +853,33 @@ export default function App() {
 
         {/* Supplemental: XRPL Transaction Lookup */}
         <TransactionLookupPanel onUseHash={setSettledTxHash} />
+        {/* Panel 3: Submit XRPL Payment */}
+        <XRPLPaymentPanel permit={permit} panelNumber={3} order={3} />
+
+        {/* Panels 4 + 5: Settlement Verification (settled tx hash + verify) */}
+        <SettlementVerificationPanel
+          permit={permit}
+          settledTxHash={settledTxHash}
+          onSettledTxHashChange={setSettledTxHash}
+          settlementResult={settlementResult}
+          onSettlementResult={setSettlementResult}
+          inputOrder={4}
+          verifyOrder={5}
+          inputPanelNumber={4}
+          verifyPanelNumber={5}
+        />
+
+        {/* Panel 6: Permit Verification */}
+        <PermitVerificationPanel permit={permit} panelNumber={6} order={6} />
+
+        {/* Panel 7: Permit Constraints Snapshot */}
+        <PermitSummaryPanel permit={permit} status={status} remaining={remaining} order={7} />
+
+        {/* Panel 8: Transaction Lookup (supplemental) */}
+        <TransactionLookupPanel onUseHash={setSettledTxHash} order={8} />
+
+        {/* Panel 9: Technical Proof Artifact */}
+        <TechnicalProofPanel permit={permit} order={9} />
       </main>
 
       <footer className="footer">
