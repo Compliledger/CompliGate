@@ -1,43 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
-import RequestPermitPanel, { type PermitResponse, type PermitConstraints } from "./RequestPermitPanel";
+import RequestPermitPanel from "./RequestPermitPanel";
 import ApiSettings from "./ApiSettings";
 import { apiGet, apiPost, describeError } from "./lib/api";
-
-type VerifyResponse = {
-  signature_valid: boolean;
-  not_expired: boolean;
-  subject?: string;
-  policy_version?: string;
-  action?: string;
-  bundle_hash?: string;
-  constraints?: PermitConstraints;
-  decision_result?: string;
-  reason_codes?: string[];
-};
-
-type SettlementVerifyNewResponse = {
-  decision_result: string;
-  reason_codes: string[];
-  proof_artifact: Record<string, unknown>;
-  tx_hash?: string;
-  bundle_hash?: string;
-};
-
-type XrplHealth = {
-  configured: boolean;
-  reachable: boolean;
-  network: string;
-  rlusd_configured: boolean;
-  demo_wallet_configured: boolean;
-};
-
-type TrustlineCheckResponse = {
-  trustline_exists: boolean;
-  issuer: string | null;
-  currency: string | null;
-  raw_lines_checked: number;
-};
+import type {
+  PermitResponse,
+  SettlementVerifyResponse,
+  TrustlineCheckResponse,
+  VerifyResponse,
+  XRPLHealthResponse,
+} from "./types/api";
 
 type TxLookupAmount = {
   currency: string;
@@ -70,17 +42,17 @@ function checkSymbol(valid: boolean) {
   return valid ? "✔" : "✘";
 }
 
-function xrplConfiguredLabel(health: XrplHealth | null): string {
+function xrplConfiguredLabel(health: XRPLHealthResponse | null): string {
   if (!health) return "Checking...";
   return health.configured ? "Configured" : "Not Configured";
 }
 
-function xrplReachableLabel(health: XrplHealth | null): string {
+function xrplReachableLabel(health: XRPLHealthResponse | null): string {
   if (!health) return "Checking...";
   return health.reachable ? "Reachable" : "Unreachable";
 }
 
-function xrplNetworkLabel(health: XrplHealth | null): string {
+function xrplNetworkLabel(health: XRPLHealthResponse | null): string {
   if (!health) return "Checking...";
   return health.network || "Unknown";
 }
@@ -94,10 +66,10 @@ export default function App() {
   const [now, setNow] = useState<number>(() => Math.floor(Date.now() / 1000));
   const [verifyResult, setVerifyResult] = useState<VerifyResponse | null>(null);
   const [verifyError, setVerifyError] = useState<string | null>(null);
-  const [xrplHealth, setXrplHealth] = useState<XrplHealth | null>(null);
+  const [xrplHealth, setXrplHealth] = useState<XRPLHealthResponse | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [settledTxHash, setSettledTxHash] = useState("");
-  const [settlementResult, setSettlementResult] = useState<SettlementVerifyNewResponse | null>(null);
+  const [settlementResult, setSettlementResult] = useState<SettlementVerifyResponse | null>(null);
   const [settlementError, setSettlementError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [trustlineAddress, setTrustlineAddress] = useState("");
@@ -123,7 +95,7 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    apiGet<XrplHealth>("/v1/xrpl/health")
+    apiGet<XRPLHealthResponse>("/v1/xrpl/health")
       .then((d) => {
         if (!cancelled) setXrplHealth(d);
       })
@@ -220,7 +192,7 @@ export default function App() {
     setVerifying(true);
 
     try {
-      const data = await apiPost<SettlementVerifyNewResponse>("/v1/settlement/verify", {
+      const data = await apiPost<SettlementVerifyResponse>("/v1/settlement/verify", {
         bundle_hash: permit.bundle_hash,
         tx_hash: settledTxHash.trim(),
       });
