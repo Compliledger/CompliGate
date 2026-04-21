@@ -123,6 +123,43 @@ def test_xrpl_health_is_public_when_api_key_auth_enabled():
     assert response.status_code == 200
 
 
+def test_xrpl_health_includes_signing_fields_without_exposing_seed():
+    from app.services import xrpl_service
+
+    with patch.object(config, "AUTH_API_KEYS", [VALID_API_KEY]), patch.object(
+        xrpl_service.config, "XRPL_RPC_URL", ""
+    ), patch.object(xrpl_service.config, "XRPL_SIGNING_MODE", "seed"), patch.object(
+        xrpl_service.config, "XRPL_SIGNING_ENABLED", True
+    ), patch.object(xrpl_service.config, "XRPL_SIGNER_SEED", "sEdSecretValue"), patch.object(
+        xrpl_service.config, "XRPL_SIGNING_SEED", ""
+    ):
+        response = client.get("/v1/xrpl/health")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["signing_enabled"] is True
+    assert data["signing_mode"] == "seed"
+    assert data["signer_configured"] is True
+    # The seed itself must never be exposed in the health payload.
+    assert "sEdSecretValue" not in response.text
+    for key in data:
+        assert "seed" not in key.lower()
+
+
+def test_xrpl_health_signer_configured_false_when_no_seed():
+    from app.services import xrpl_service
+
+    with patch.object(config, "AUTH_API_KEYS", [VALID_API_KEY]), patch.object(
+        xrpl_service.config, "XRPL_RPC_URL", ""
+    ), patch.object(xrpl_service.config, "XRPL_SIGNER_SEED", ""), patch.object(
+        xrpl_service.config, "XRPL_SIGNING_SEED", ""
+    ):
+        response = client.get("/v1/xrpl/health")
+
+    assert response.status_code == 200
+    assert response.json()["signer_configured"] is False
+
+
 def test_xrpl_trustline_check_requires_api_key_when_auth_enabled():
     expected = {
         "address": VALID_SUBJECT,
