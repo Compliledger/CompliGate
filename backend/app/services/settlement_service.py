@@ -2,29 +2,12 @@ from __future__ import annotations
 
 from app.core import config
 from app.services.policy_service import ASSET_CLASSIFICATION_REGULATED_STABLECOIN, MAX_AMOUNT
+from app.services.xrpl_service import fetch_xrpl_transaction as _fetch_xrpl_transaction
 from app.services.xrpl_service import normalize_xrpl_amount
 
 
 def fetch_xrpl_transaction(tx_hash: str) -> dict:
-    import requests as http_requests
-    from fastapi import HTTPException
-
-    payload = {
-        "method": "tx",
-        "params": [{"transaction": tx_hash, "binary": False}],
-    }
-    try:
-        resp = http_requests.post(config.XRPL_RPC_URL, json=payload, timeout=10)
-        resp.raise_for_status()
-        result = resp.json()
-        if "result" in result:
-            return result["result"]
-        return result
-    except http_requests.RequestException as exc:
-        raise HTTPException(
-            status_code=502,
-            detail={"error": "xrpl_rpc_failed", "reason": str(exc)},
-        ) from exc
+    return _fetch_xrpl_transaction(tx_hash)
 
 
 def verify_settlement_against_permit(

@@ -1,28 +1,13 @@
 from __future__ import annotations
 
-import requests as http_requests
+from collections.abc import Callable
+
 from fastapi import HTTPException
 
 from app.core import config
+from app.core.logging import get_logger
 
-
-def fetch_account_lines(address: str) -> list[dict]:
-    payload = {
-        "method": "account_lines",
-        "params": [{"account": address}],
-    }
-    try:
-        resp = http_requests.post(config.XRPL_RPC_URL, json=payload, timeout=10)
-        resp.raise_for_status()
-        result = resp.json()
-        if "result" in result:
-            return result["result"].get("lines", [])
-        return result.get("lines", [])
-    except http_requests.RequestException as exc:
-        raise HTTPException(
-            status_code=502,
-            detail={"error": "xrpl_rpc_failed", "reason": str(exc)},
-        ) from exc
+logger = get_logger("main")
 
 
 def check_rlusd_trustline(lines: list[dict]) -> dict:
@@ -51,8 +36,7 @@ def check_rlusd_trustline(lines: list[dict]) -> dict:
     }
 
 
-def validate_trustline(address: str, issuer: str, currency: str) -> dict:
-    lines = fetch_account_lines(address)
+def _validate_trustline_lines(lines: list[dict], issuer: str, currency: str) -> dict:
     for line in lines:
         line_currency = line.get("currency", "")
         line_issuer = line.get("account", "")
@@ -71,3 +55,96 @@ def validate_trustline(address: str, issuer: str, currency: str) -> dict:
         "currency": currency,
         "raw_lines_checked": len(lines),
     }
+
+
+def validate_trustline(
+    address: str,
+    issuer: str,
+    currency: str,
+    fetch_account_lines_func: Callable[[str], list[dict]],
+) -> dict:
+    lines = fetch_account_lines_func(address)
+    return _validate_trustline_lines(lines, issuer, currency)
+
+
+def validate_trustline_check(
+    address: str,
+    issuer: str,
+    currency: str,
+    fetch_account_lines_func: Callable[[str], list[dict]],
+) -> dict:
+    if not address.startswith("r"):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_address", "reason": "address must be a string starting with 'r'"},
+        )
+    if not (25 <= len(address) <= 35):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_address", "reason": "address length must be 25-35 chars"},
+        )
+    if not config.XRPL_RPC_URL:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "xrpl_not_configured", "reason": "XRPL_RPC_URL is not configured"},
+        )
+
+    result = validate_trustline(address, issuer, currency, fetch_account_lines_func)
+    result["address"] = address
+    return result
+
+
+def get_account_trustlines_summary(
+    address: str,
+    fetch_account_lines_func: Callable[[str], list[dict]],
+) -> dict:
+    if not config.XRPL_RPC_URL:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "xrpl_not_configured", "reason": "XRPL_RPC_URL is not configured"},
+        )
+
+    lines = fetch_account_lines_func(address)
+    rlusd_check = check_rlusd_trustline(lines)
+
+    logger.info(
+        "xrpl_trustline_check address=%s has_rlusd_trustline=%s",
+        address,
+        rlusd_check["has_trustline"],
+    )
+
+    return {
+        "address": address,
+        "network": config.XRPL_NETWORK,
+        "trustline_count": len(lines),
+        "rlusd_trustline": rlusd_check,
+        "lines": lines,
+    }
+
+
+def enforce_destination_trustline(
+    destination: str,
+    issuer: str,
+    currency: str,
+    fetch_account_lines_func: Callable[[str], list[dict]],
+) -> None:
+    if not config.XRPL_REQUIRE_TRUSTLINE:
+        return
+
+    trustline_result = validate_trustline(destination, issuer, currency, fetch_account_lines_func)
+    if trustline_result.get("trustline_exists", False):
+        return
+
+    reason_codes = ["TRUSTLINE_REQUIRED", "TRUSTLINE_NOT_SATISFIED"]
+    raise HTTPException(
+        status_code=400,
+        detail={
+            "error": "trustline_required",
+            "reason": "destination must have trustline for configured RLUSD issuer/currency",
+            "reason_codes": reason_codes,
+            "destination": destination,
+            "issuer": issuer,
+            "currency": currency,
+            "raw_lines_checked": trustline_result.get("raw_lines_checked", 0),
+        },
+    )
