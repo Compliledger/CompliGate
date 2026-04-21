@@ -20,6 +20,7 @@ except ImportError:
     _XRPL_SDK_AVAILABLE = False
     IssuedCurrencyAmount = None
     Memo = None
+    Wallet = None  # type: ignore[assignment]
     Wallet = None
 
 logger = get_logger("main")
@@ -406,6 +407,7 @@ def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
         destination=req.destination,
         amount=payment_amount,
         memos=memos,
+        wallet=wallet,
     )
 
     engine_result = response.result.get("meta", {}).get("TransactionResult", "unknown")
