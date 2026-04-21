@@ -13,12 +13,14 @@ try:
     from xrpl.models.amounts import IssuedCurrencyAmount
     from xrpl.models.requests import AccountInfo, AccountLines, Tx
     from xrpl.models.transactions import Memo
+    from xrpl.wallet import Wallet
 
     _XRPL_SDK_AVAILABLE = True
 except ImportError:
     _XRPL_SDK_AVAILABLE = False
     IssuedCurrencyAmount = None
     Memo = None
+    Wallet = None  # type: ignore[assignment]
 
 logger = get_logger("main")
 
@@ -404,6 +406,7 @@ def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
         destination=req.destination,
         amount=payment_amount,
         memos=memos,
+        wallet=wallet,
     )
 
     engine_result = response.result.get("meta", {}).get("TransactionResult", "unknown")

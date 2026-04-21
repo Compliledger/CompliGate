@@ -102,6 +102,7 @@ def sign_payment_transaction(
     destination: str,
     amount: Any,
     memos: list[Any] | None = None,
+    wallet: "Wallet | None" = None,
 ) -> Any:
     if not _XRPL_SDK_AVAILABLE or submit_and_wait is None or Payment is None:
         raise HTTPException(
@@ -112,7 +113,8 @@ def sign_payment_transaction(
             },
         )
 
-    wallet = get_signing_wallet()
+    if wallet is None:
+        wallet = get_signing_wallet()
     if wallet is None:
         raise HTTPException(
             status_code=400,
