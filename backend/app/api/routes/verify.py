@@ -9,5 +9,5 @@ router = APIRouter()
 
 
 @router.post("/v1/verify")
-def verify_permit_route(req: VerifyRequest):
+def verify_permit(req: VerifyRequest):
     return verify_service(req)
