@@ -27,21 +27,29 @@ type Props = {
   panelNumber?: number;
   /** Optional CSS flex order, used to position among sibling panels. */
   order?: number;
+  /**
+   * XRPL payment result, owned by the parent so other panels and the
+   * top-level UI can react to it. The panel keeps the destination/amount
+   * inputs, loading, and error state local because they are only meaningful
+   * inside this panel.
+   */
+  result: XRPLPaymentResponse | null;
+  /** Setter for the shared XRPL payment result. */
+  onResult: (result: XRPLPaymentResponse | null) => void;
 };
 
-export default function XRPLPaymentPanel({ permit, panelNumber, order }: Props) {
+export default function XRPLPaymentPanel({ permit, panelNumber, order, result, onResult }: Props) {
   const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<XRPLPaymentResponse | null>(null);
   const { copied, copy: copyToClipboard } = useCopyToClipboard();
 
   const memoBundleHash = permit?.bundle_hash ?? null;
 
   async function submitPayment() {
     setError(null);
-    setResult(null);
+    onResult(null);
 
     const trimmedDestination = destination.trim();
     const trimmedAmount = amount.trim();
@@ -71,7 +79,7 @@ export default function XRPLPaymentPanel({ permit, panelNumber, order }: Props) 
     setLoading(true);
     try {
       const data = await apiPost<XRPLPaymentResponse>("/v1/xrpl/payment", body);
-      setResult(data);
+      onResult(data);
     } catch (e: unknown) {
       setError(describeError(e, "Failed to submit XRPL payment."));
     } finally {
@@ -89,7 +97,7 @@ export default function XRPLPaymentPanel({ permit, panelNumber, order }: Props) 
     setDestination("");
     setAmount("");
     setError(null);
-    setResult(null);
+    onResult(null);
   }
 
   return (
