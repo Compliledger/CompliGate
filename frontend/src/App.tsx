@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import RequestPermitPanel from "./RequestPermitPanel";
 import ApiSettings from "./ApiSettings";
+import EnvWarnings from "./EnvWarnings";
 import { apiGet, apiPost, describeError } from "./lib/api";
 import type {
   PermitResponse,
@@ -292,6 +293,8 @@ export default function App() {
           {xrplHealth === null ? "Checking..." : xrplHealth.rlusd_configured ? "RLUSD Configured" : "RLUSD Not Configured"}
         </span>
       </div>
+
+      <EnvWarnings />
 
       <ApiSettings />
 
