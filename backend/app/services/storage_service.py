@@ -26,16 +26,20 @@ def save_permit(permit: PermitResponse) -> None:
         if existing is None:
             db.add(
                 PermitRecord(
+                    bundle_id=permit.bundle.get("bundle_id", ""),
                     bundle_hash=permit.bundle_hash,
                     subject=permit.bundle.get("subject", ""),
                     action=permit.bundle.get("action", ""),
+                    policy_version=permit.bundle.get("policy_version", ""),
                     decision_result=permit.decision_result,
                     reason_codes=permit.reason_codes,
-                    bundle=permit.bundle,
+                    bundle_json=permit.bundle,
                     signature=permit.signature,
                     signed_at=permit.signed_at,
                     expires_at=permit.expires_at,
-                    proof_artifact=permit.proof_artifact.model_dump(),
+                    proof_artifact_json=(
+                        permit.proof_artifact.model_dump() if permit.proof_artifact is not None else None
+                    ),
                 )
             )
             db.commit()
@@ -54,9 +58,14 @@ def save_proof_artifact(*, bundle_hash: str, artifact: ProofArtifact, artifact_t
             ProofArtifactRecord(
                 bundle_hash=bundle_hash,
                 entity_id=artifact.entity_id,
+                module=artifact.module,
                 artifact_type=artifact_type,
                 decision_result=artifact.decision_result,
-                artifact=artifact.model_dump(),
+                rule_version_used=artifact.rule_version_used,
+                evaluation_context_json=artifact.evaluation_context,
+                reason_codes_json=artifact.reason_codes,
+                timestamp=artifact.timestamp,
+                anchor_metadata_json=artifact.anchor_metadata,
             )
         )
         db.commit()
@@ -76,8 +85,8 @@ def get_permit_context(bundle_hash: str) -> dict | None:
             return None
         return {
             "bundle_hash": permit.bundle_hash,
-            "bundle": permit.bundle,
-            "proof_artifact": permit.proof_artifact,
+            "bundle": permit.bundle_json,
+            "proof_artifact": permit.proof_artifact_json,
             "issued_at": permit.signed_at,
         }
     finally:
