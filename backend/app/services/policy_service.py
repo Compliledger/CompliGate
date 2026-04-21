@@ -63,7 +63,7 @@ def evaluate_constraints(
     amount: float | int | None,
     counterparty: str | None,
 ) -> list[str]:
-    _ = counterparty
+    # reserved for future counterparty validation checks
     if action not in SUPPORTED_ACTIONS:
         raise HTTPException(
             status_code=400,
