@@ -74,9 +74,10 @@ def initialize_database() -> None:
     logger.info("database_initialized")
 
 
-def get_db() -> Generator[Session, None, None]:
+def get_db() -> Generator[Session | None, None, None]:
     session_factory = _ensure_session_factory()
     if session_factory is None:
+        yield None
         return
     db = session_factory()
     try:

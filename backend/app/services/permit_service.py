@@ -5,6 +5,8 @@ import time
 from collections import OrderedDict
 from uuid import uuid4
 
+from sqlalchemy.orm import Session
+
 from app.core import config
 from app.core.logging import get_logger
 from app.core.security import SIGNING_KEY, VERIFY_KEY
@@ -43,7 +45,7 @@ def get_recent_permit_context(bundle_hash: str) -> dict | None:
     return RECENT_PERMITS_BY_BUNDLE_HASH.get(bundle_hash)
 
 
-def create_permit(req: PermitRequest) -> PermitResponse:
+def create_permit(req: PermitRequest, db: Session | None = None) -> PermitResponse:
     validate_subject(req.subject)
 
     policy_result = evaluate_permit_policy(
@@ -139,7 +141,7 @@ def create_permit(req: PermitRequest) -> PermitResponse:
         reason_codes=reason_codes,
         proof_artifact=proof_artifact,
     )
-    save_permit(permit_response)
+    save_permit(permit_response, db=db)
     return permit_response
 
 

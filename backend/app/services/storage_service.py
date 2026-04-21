@@ -15,22 +15,23 @@ def _open_session() -> Session | None:
     return Session(bind=engine, future=True)
 
 
-def save_permit(permit: PermitResponse) -> None:
+def save_permit(permit: PermitResponse, db: Session | None = None) -> None:
     if not persistence_enabled():
         return
-    db = _open_session()
-    if db is None:
+    session = db or _open_session()
+    if session is None:
         return
+    owns_session = db is None
     try:
-        existing = db.query(PermitRecord).filter(PermitRecord.bundle_hash == permit.bundle_hash).first()
+        existing = session.query(PermitRecord).filter(PermitRecord.bundle_hash == permit.bundle_hash).first()
         if existing is None:
-            db.add(
+            session.add(
                 PermitRecord(
                     bundle_id=permit.bundle.get("bundle_id", ""),
                     bundle_hash=permit.bundle_hash,
                     subject=permit.bundle.get("subject", ""),
                     action=permit.bundle.get("action", ""),
-                    policy_version=permit.bundle.get("policy_version", ""),
+                    policy_version=permit.bundle.get("policy", {}).get("version", ""),
                     decision_result=permit.decision_result,
                     reason_codes=permit.reason_codes,
                     bundle_json=permit.bundle,
@@ -42,9 +43,10 @@ def save_permit(permit: PermitResponse) -> None:
                     ),
                 )
             )
-            db.commit()
+            session.commit()
     finally:
-        db.close()
+        if owns_session:
+            session.close()
 
 
 def save_proof_artifact(*, bundle_hash: str, artifact: ProofArtifact, artifact_type: str) -> None:
