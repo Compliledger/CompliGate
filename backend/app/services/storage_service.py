@@ -24,21 +24,22 @@ def save_permit(permit: PermitResponse) -> None:
     try:
         existing = db.query(PermitRecord).filter(PermitRecord.bundle_hash == permit.bundle_hash).first()
         if existing is None:
-            bundle = permit.bundle
             db.add(
                 PermitRecord(
-                    bundle_id=bundle.get("bundle_id", ""),
+                    bundle_id=permit.bundle.get("bundle_id", ""),
                     bundle_hash=permit.bundle_hash,
-                    subject=bundle.get("subject", ""),
-                    action=bundle.get("action", ""),
-                    policy_version=bundle.get("policy_version", ""),
+                    subject=permit.bundle.get("subject", ""),
+                    action=permit.bundle.get("action", ""),
+                    policy_version=permit.bundle.get("policy_version", ""),
                     decision_result=permit.decision_result,
                     reason_codes=permit.reason_codes,
-                    bundle_json=bundle,
+                    bundle_json=permit.bundle,
                     signature=permit.signature,
                     signed_at=permit.signed_at,
                     expires_at=permit.expires_at,
-                    proof_artifact_json=permit.proof_artifact.model_dump(),
+                    proof_artifact_json=(
+                        permit.proof_artifact.model_dump() if permit.proof_artifact is not None else None
+                    ),
                 )
             )
             db.commit()
@@ -60,7 +61,7 @@ def save_proof_artifact(*, bundle_hash: str, artifact: ProofArtifact, artifact_t
                 module=artifact.module,
                 artifact_type=artifact_type,
                 decision_result=artifact.decision_result,
-                rule_version_used=artifact.rule_version_used,
+                rule_version_used=getattr(artifact, "rule_version_used", "") or "",
                 evaluation_context_json=artifact.evaluation_context,
                 reason_codes_json=artifact.reason_codes,
                 timestamp=artifact.timestamp,
