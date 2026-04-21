@@ -1,8 +1,9 @@
 import { useState, type KeyboardEvent } from "react";
 
-import { apiPost, describeError } from "./lib/api";
-import StatusMessage from "./components/StatusMessage";
-import type { PermitResponse } from "./types/api";
+import { apiPost, describeError } from "../lib/api";
+import StatusMessage from "./StatusMessage";
+import PanelNumber from "./PanelNumber";
+import type { PermitResponse } from "../types/api";
 
 type PermitRequestBody = {
   subject: string;
@@ -10,15 +11,19 @@ type PermitRequestBody = {
   amount?: number;
 };
 
-function PanelNumber({ n }: { n: number }) {
-  return <span className="panelNumber">{n}</span>;
-}
-
 type Props = {
   onPermit: (permit: PermitResponse) => void;
   onClear: () => void;
 };
 
+/**
+ * RequestPermitPanel
+ *
+ * Self-contained panel for requesting a time-bound compliance permit
+ * from the backend. Owns its own form state (subject / action / amount)
+ * and notifies the parent via `onPermit` / `onClear` callbacks so the
+ * page-level orchestrator can react (e.g. resetting downstream state).
+ */
 export default function RequestPermitPanel({ onPermit, onClear }: Props) {
   const [subject, setSubject] = useState("");
   const [action, setAction] = useState("transfer");
