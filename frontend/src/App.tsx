@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import RequestPermitPanel, { type PermitResponse, type PermitConstraints } from "./RequestPermitPanel";
-
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
-const FETCH_TIMEOUT_MS = 15_000;
+import ApiSettings from "./ApiSettings";
+import { apiFetch, describeError } from "./api";
 
 type VerifyResponse = {
   signature_valid: boolean;
@@ -71,21 +70,6 @@ function checkSymbol(valid: boolean) {
   return valid ? "✔" : "✘";
 }
 
-function extractErrorMessage(data: unknown, fallback: string): string {
-  if (!data) return fallback;
-  const d = data as Record<string, unknown>;
-  const detail = d.detail;
-  if (typeof detail === "string") return detail;
-  if (typeof detail === "object" && detail !== null) {
-    return (
-      (detail as Record<string, string>).reason ??
-      (detail as Record<string, string>).error ??
-      JSON.stringify(detail)
-    );
-  }
-  return fallback;
-}
-
 function xrplConfiguredLabel(health: XrplHealth | null): string {
   if (!health) return "Checking...";
   return health.configured ? "Configured" : "Not Configured";
@@ -138,22 +122,26 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    fetch(`${API_BASE}/v1/xrpl/health`, { signal: controller.signal })
-      .then((r) => r.json())
-      .then((d: XrplHealth) => setXrplHealth(d))
+    let cancelled = false;
+    apiFetch<XrplHealth>("/v1/xrpl/health")
+      .then((d) => {
+        if (!cancelled) setXrplHealth(d);
+      })
       .catch((err) => {
         console.error("Failed to fetch XRPL health:", err);
-        setXrplHealth({
-          configured: false,
-          reachable: false,
-          network: "",
-          rlusd_configured: false,
-          demo_wallet_configured: false,
-        });
-      })
-      .finally(() => clearTimeout(timeout));
+        if (!cancelled) {
+          setXrplHealth({
+            configured: false,
+            reachable: false,
+            network: "",
+            rlusd_configured: false,
+            demo_wallet_configured: false,
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const remaining = useMemo(() => {
@@ -205,21 +193,11 @@ export default function App() {
     setVerifyError(null);
     setVerifyResult(null);
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      const res = await fetch(`${API_BASE}/v1/verify`, {
+      const data = await apiFetch<unknown>("/v1/verify", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bundle: permit.bundle, signature: permit.signature }),
-        signal: controller.signal,
+        json: { bundle: permit.bundle, signature: permit.signature },
       });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setVerifyError(extractErrorMessage(data, "Failed to verify permit."));
-        return;
-      }
       if (
         !data ||
         typeof data !== "object" ||
@@ -231,13 +209,7 @@ export default function App() {
       }
       setVerifyResult(data as VerifyResponse);
     } catch (e: unknown) {
-      if (e instanceof Error && e.name === "AbortError") {
-        setVerifyError("Request timed out. Please try again.");
-      } else {
-        setVerifyError(e instanceof Error ? e.message : "Network error calling verify endpoint.");
-      }
-    } finally {
-      clearTimeout(timeout);
+      setVerifyError(describeError(e, "Failed to verify permit."));
     }
   }
 
@@ -247,33 +219,18 @@ export default function App() {
     setSettlementResult(null);
     setVerifying(true);
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      const res = await fetch(`${API_BASE}/v1/settlement/verify`, {
+      const data = await apiFetch<SettlementVerifyNewResponse>("/v1/settlement/verify", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        json: {
           bundle_hash: permit.bundle_hash,
           tx_hash: settledTxHash.trim(),
-        }),
-        signal: controller.signal,
+        },
       });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setSettlementError(extractErrorMessage(data, "Failed to verify settlement."));
-      } else {
-        setSettlementResult(data as SettlementVerifyNewResponse);
-      }
+      setSettlementResult(data);
     } catch (e: unknown) {
-      if (e instanceof Error && e.name === "AbortError") {
-        setSettlementError("Request timed out. Please try again.");
-      } else {
-        setSettlementError(e instanceof Error ? e.message : "Network error calling settlement verify endpoint.");
-      }
+      setSettlementError(describeError(e, "Failed to verify settlement."));
     } finally {
-      clearTimeout(timeout);
       setVerifying(false);
     }
   }
@@ -298,29 +255,15 @@ export default function App() {
     setTrustlineResult(null);
     setTrustlineLoading(true);
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      const res = await fetch(`${API_BASE}/v1/xrpl/trustline/check`, {
+      const data = await apiFetch<TrustlineCheckResponse>("/v1/xrpl/trustline/check", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address: trustlineAddress.trim() }),
-        signal: controller.signal,
+        json: { address: trustlineAddress.trim() },
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setTrustlineError(extractErrorMessage(data, "Failed to check trustline."));
-      } else {
-        setTrustlineResult(data as TrustlineCheckResponse);
-      }
+      setTrustlineResult(data);
     } catch (e: unknown) {
-      if (e instanceof Error && e.name === "AbortError") {
-        setTrustlineError("Request timed out. Please try again.");
-      } else {
-        setTrustlineError(e instanceof Error ? e.message : "Network error checking trustline.");
-      }
+      setTrustlineError(describeError(e, "Failed to check trustline."));
     } finally {
-      clearTimeout(timeout);
       setTrustlineLoading(false);
     }
   }
@@ -331,27 +274,14 @@ export default function App() {
     setTxLookupResult(null);
     setTxLookupLoading(true);
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      const res = await fetch(
-        `${API_BASE}/v1/xrpl/tx/${encodeURIComponent(txLookupHash.trim())}`,
-        { signal: controller.signal },
+      const data = await apiFetch<TxLookupResponse>(
+        `/v1/xrpl/tx/${encodeURIComponent(txLookupHash.trim())}`,
       );
-      const data = await res.json();
-      if (!res.ok) {
-        setTxLookupError(extractErrorMessage(data, "Failed to look up transaction."));
-      } else {
-        setTxLookupResult(data as TxLookupResponse);
-      }
+      setTxLookupResult(data);
     } catch (e: unknown) {
-      if (e instanceof Error && e.name === "AbortError") {
-        setTxLookupError("Request timed out. Please try again.");
-      } else {
-        setTxLookupError(e instanceof Error ? e.message : "Network error looking up transaction.");
-      }
+      setTxLookupError(describeError(e, "Failed to look up transaction."));
     } finally {
-      clearTimeout(timeout);
       setTxLookupLoading(false);
     }
   }
@@ -394,6 +324,8 @@ export default function App() {
           {xrplHealth === null ? "Checking..." : xrplHealth.rlusd_configured ? "RLUSD Configured" : "RLUSD Not Configured"}
         </span>
       </div>
+
+      <ApiSettings />
 
       <main className="grid">
         {/* Panel 1: Request Permit */}

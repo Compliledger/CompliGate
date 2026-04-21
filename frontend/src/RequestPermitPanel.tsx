@@ -1,6 +1,6 @@
 import { useState, type KeyboardEvent } from "react";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+import { apiFetch, describeError } from "./api";
 
 export type ProofArtifact = {
   module: string;
@@ -82,21 +82,6 @@ type PermitRequestBody = {
   amount?: number;
 };
 
-function extractErrorMessage(data: unknown, fallback: string): string {
-  if (!data) return fallback;
-  const d = data as Record<string, unknown>;
-  const detail = d.detail;
-  if (typeof detail === "string") return detail;
-  if (typeof detail === "object" && detail !== null) {
-    return (
-      (detail as Record<string, string>).reason ??
-      (detail as Record<string, string>).error ??
-      JSON.stringify(detail)
-    );
-  }
-  return fallback;
-}
-
 function PanelNumber({ n }: { n: number }) {
   return <span className="panelNumber">{n}</span>;
 }
@@ -133,17 +118,10 @@ export default function RequestPermitPanel({ onPermit, onClear }: Props) {
       const body: PermitRequestBody = { subject: trimmed, action };
       if (parsedAmount !== undefined) body.amount = parsedAmount;
 
-      const res = await fetch(`${API_BASE}/v1/permit`, {
+      const data = await apiFetch<unknown>("/v1/permit", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        json: body,
       });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setError(extractErrorMessage(data, "Failed to request permit."));
-        return;
-      }
       if (
         !data ||
         typeof data !== "object" ||
@@ -156,7 +134,7 @@ export default function RequestPermitPanel({ onPermit, onClear }: Props) {
       }
       onPermit(data as PermitResponse);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Network error calling backend.");
+      setError(describeError(e, "Failed to request permit."));
     } finally {
       setLoading(false);
     }

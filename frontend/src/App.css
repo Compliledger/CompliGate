@@ -744,3 +744,62 @@ details[open] > .proofArtifactSummary::before {
   padding-top: 18px;
   border-top: 1px solid var(--border);
 }
+
+/* ── API Settings ── */
+
+.apiSettings {
+  margin: 0 0 18px 0;
+  padding: 12px 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+
+.apiSettingsBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.apiSettingsLabel {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.apiSettingsBase {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apiSettingsForm {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.apiSettingsHint {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.apiSettingsHint code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-size: 11px;
+}
