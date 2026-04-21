@@ -110,7 +110,7 @@ export type TrustlineCheckResponse = {
 export type SettlementVerifyResponse = {
   decision_result: string;
   reason_codes: string[];
-  proof_artifact: Record<string, unknown>;
+  proof_artifact: ProofArtifact;
   tx_hash?: string;
   bundle_hash?: string;
 };
