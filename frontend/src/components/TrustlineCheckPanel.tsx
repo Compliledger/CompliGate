@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { apiPost, describeError } from "../lib/api";
+import StatusMessage from "./StatusMessage";
 import type { TrustlineCheckResponse } from "../types/api";
 
 /**
@@ -108,6 +109,18 @@ export default function TrustlineCheckPanel({ panelNumber }: Props) {
         </button>
       </div>
 
+      {loading && (
+        <StatusMessage variant="loading" title="Checking trustline…">
+          Querying the XRPL for current trustlines on this address.
+        </StatusMessage>
+      )}
+
+      {!loading && !result && !error && (
+        <StatusMessage variant="empty" title="No trustline check yet">
+          Enter an XRPL address above and run a check to see results here.
+        </StatusMessage>
+      )}
+
       {result && (
         <div className="verifyResult">
           <div className={`verifyHeader ${result.trustline_exists ? "good" : "bad"}`}>
@@ -152,7 +165,11 @@ export default function TrustlineCheckPanel({ panelNumber }: Props) {
         </div>
       )}
 
-      {error && <div className="alert bad">{error}</div>}
+      {error && (
+        <StatusMessage variant="error" title="Trustline check failed">
+          {error}
+        </StatusMessage>
+      )}
     </>
   );
 }

@@ -859,3 +859,157 @@ details[open] > .proofArtifactSummary::before {
   color: var(--text);
   font-weight: 600;
 }
+
+/* ── Status message (shared empty / loading / success / warning / error) ── */
+
+.statusMessage {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 11px 13px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.18);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.statusMessage--compact {
+  margin-top: 0;
+}
+
+.statusMessageIcon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  margin-top: 1px;
+}
+
+.statusMessageBody {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.statusMessageTitle {
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.2px;
+}
+
+.statusMessageText {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12.5px;
+  word-break: break-word;
+}
+
+/* Empty — neutral, dashed border to read as "nothing here yet" */
+.statusMessage--empty {
+  background: rgba(0, 0, 0, 0.18);
+  border-style: dashed;
+  border-color: var(--border-hover);
+}
+
+.statusMessage--empty .statusMessageIcon {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border-hover);
+  color: var(--muted);
+}
+
+.statusMessage--empty .statusMessageTitle {
+  color: var(--muted);
+}
+
+/* Loading — neutral with spinner */
+.statusMessage--loading {
+  background: rgba(47, 128, 237, 0.06);
+  border-color: rgba(47, 128, 237, 0.3);
+}
+
+.statusMessage--loading .statusMessageIcon {
+  background: rgba(47, 128, 237, 0.12);
+  border-color: rgba(47, 128, 237, 0.4);
+  color: var(--accent);
+}
+
+.statusMessage--loading .statusMessageTitle {
+  color: #c8deff;
+}
+
+.statusMessageSpinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 2px solid rgba(47, 128, 237, 0.25);
+  border-top-color: var(--accent);
+  animation: statusMessageSpin 0.8s linear infinite;
+}
+
+@keyframes statusMessageSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* Success */
+.statusMessage--success {
+  background: rgba(39, 174, 96, 0.1);
+  border-color: rgba(39, 174, 96, 0.5);
+}
+
+.statusMessage--success .statusMessageIcon {
+  background: rgba(39, 174, 96, 0.22);
+  border-color: rgba(39, 174, 96, 0.55);
+  color: var(--good);
+}
+
+.statusMessage--success .statusMessageTitle {
+  color: var(--good);
+}
+
+/* Warning */
+.statusMessage--warning {
+  background: rgba(242, 201, 76, 0.1);
+  border-color: rgba(242, 201, 76, 0.5);
+}
+
+.statusMessage--warning .statusMessageIcon {
+  background: rgba(242, 201, 76, 0.22);
+  border-color: rgba(242, 201, 76, 0.55);
+  color: var(--warn);
+}
+
+.statusMessage--warning .statusMessageTitle {
+  color: var(--warn);
+}
+
+/* Error */
+.statusMessage--error {
+  background: rgba(235, 87, 87, 0.1);
+  border-color: rgba(235, 87, 87, 0.5);
+}
+
+.statusMessage--error .statusMessageIcon {
+  background: rgba(235, 87, 87, 0.18);
+  border-color: rgba(235, 87, 87, 0.55);
+  color: var(--bad);
+}
+
+.statusMessage--error .statusMessageTitle {
+  color: var(--bad);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .statusMessageSpinner {
+    animation: none;
+  }
+}
