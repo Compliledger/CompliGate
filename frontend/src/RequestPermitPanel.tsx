@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent } from "react";
 
 import { apiPost, describeError } from "./lib/api";
+import StatusMessage from "./components/StatusMessage";
 import type { PermitResponse } from "./types/api";
 
 type PermitRequestBody = {
@@ -132,7 +133,16 @@ export default function RequestPermitPanel({ onPermit, onClear }: Props) {
         </button>
       </div>
 
-      {error && <div className="alert bad">{error}</div>}
+      {error && (
+        <StatusMessage variant="error" title="Permit request failed">
+          {error}
+        </StatusMessage>
+      )}
+      {!error && loading && (
+        <StatusMessage variant="loading" title="Requesting permit…">
+          Contacting the CompliGate backend.
+        </StatusMessage>
+      )}
     </section>
   );
 }

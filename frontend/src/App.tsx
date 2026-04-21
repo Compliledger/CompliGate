@@ -5,6 +5,7 @@ import XRPLPaymentPanel from "./components/XRPLPaymentPanel";
 import ApiSettings from "./ApiSettings";
 import EnvWarnings from "./EnvWarnings";
 import TrustlineCheckPanel from "./components/TrustlineCheckPanel";
+import StatusMessage from "./components/StatusMessage";
 import { apiGet, apiPost, describeError } from "./lib/api";
 import type {
   PermitResponse,
@@ -386,7 +387,9 @@ export default function App() {
           </div>
 
           {!permit ? (
-            <p className="muted">Request a permit to view the constraints.</p>
+            <StatusMessage variant="empty" title="No permit yet">
+              Request a permit to view the constraints.
+            </StatusMessage>
           ) : (
             <>
               <div className="summary">
@@ -609,7 +612,7 @@ export default function App() {
             </button>
           </div>
 
-          {settledTxHash.trim() && (
+          {settledTxHash.trim() ? (
             <div className="verifyRows">
               <div className="verifyRow">
                 <span className="check">✔</span>
@@ -624,6 +627,10 @@ export default function App() {
                 </button>
               </div>
             </div>
+          ) : (
+            <StatusMessage variant="empty" title="No transaction hash provided">
+              Paste a settled XRPL transaction hash above to bind it to the active permit.
+            </StatusMessage>
           )}
         </section>
 
@@ -644,7 +651,19 @@ export default function App() {
             </button>
           </div>
           {!canVerifySettlement && (
-            <p className="muted">Requires both a permit bundle hash and a settled XRPL transaction hash.</p>
+            <StatusMessage variant="warning" title="Verification prerequisites missing">
+              Requires both a permit bundle hash and a settled XRPL transaction hash.
+            </StatusMessage>
+          )}
+          {canVerifySettlement && !verifying && !settlementResult && !settlementError && (
+            <StatusMessage variant="empty" title="No settlement verified yet">
+              Click <strong>Verify Settlement</strong> to check the transaction against the permit.
+            </StatusMessage>
+          )}
+          {verifying && (
+            <StatusMessage variant="loading" title="Verifying settlement…">
+              Comparing the on-ledger transaction to the permit constraints.
+            </StatusMessage>
           )}
 
           {settlementResult && (() => {
@@ -772,16 +791,20 @@ export default function App() {
             );
           })()}
 
-          {settlementError && <div className="alert bad">{settlementError}</div>}
+          {settlementError && (
+            <StatusMessage variant="error" title="Settlement verification failed">
+              {settlementError}
+            </StatusMessage>
+          )}
         </section>
 
         {/* Panel 6: View Proof Artifact */}
         <section className="card spanFull" style={{ order: 6 }}>
           <h2><PanelNumber n={6} />View Proof Artifact</h2>
           {!permit ? (
-            <p className="muted">
+            <StatusMessage variant="empty" title="No proof artifact yet">
               Proof and signature artifact details will appear here after a permit is issued.
-            </p>
+            </StatusMessage>
           ) : (
             <>
               <div className="row" style={{ marginTop: 0 }}>
@@ -794,7 +817,11 @@ export default function App() {
                 </button>
               </div>
 
-              {verifyError && <div className="alert bad">{verifyError}</div>}
+              {verifyError && (
+                <StatusMessage variant="error" title="Permit verification failed">
+                  {verifyError}
+                </StatusMessage>
+              )}
               {verifyResult && (() => {
                 const passed = verifyResult.signature_valid && verifyResult.not_expired;
                 const decisionResult =
@@ -1065,7 +1092,21 @@ export default function App() {
             </div>
           )}
 
-          {txLookupError && <div className="alert bad">{txLookupError}</div>}
+          {txLookupError && (
+            <StatusMessage variant="error" title="Transaction lookup failed">
+              {txLookupError}
+            </StatusMessage>
+          )}
+          {!txLookupError && txLookupLoading && (
+            <StatusMessage variant="loading" title="Looking up transaction…">
+              Querying the XRPL for the transaction details.
+            </StatusMessage>
+          )}
+          {!txLookupError && !txLookupLoading && !txLookupResult && (
+            <StatusMessage variant="empty" title="No transaction looked up yet">
+              Enter an XRPL transaction hash above to inspect its details.
+            </StatusMessage>
+          )}
         </section>
       </main>
 

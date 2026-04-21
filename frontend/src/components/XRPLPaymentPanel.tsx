@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { apiPost, describeError } from "../lib/api";
+import StatusMessage from "./StatusMessage";
 import type { PermitResponse, XRPLPaymentResponse } from "../types/api";
 
 type XRPLPaymentRequestBody = {
@@ -173,7 +174,23 @@ export default function XRPLPaymentPanel({ permit, panelNumber, order }: Props) 
         </button>
       </div>
 
-      {error && <div className="alert bad">{error}</div>}
+      {error && (
+        <StatusMessage variant="error" title="Payment failed">
+          {error}
+        </StatusMessage>
+      )}
+
+      {!error && loading && (
+        <StatusMessage variant="loading" title="Submitting payment…">
+          Sending the transaction to the XRPL via the CompliGate backend.
+        </StatusMessage>
+      )}
+
+      {!error && !loading && !result && (
+        <StatusMessage variant="empty" title="No payment submitted yet">
+          Fill in destination and amount, then submit to see the result here.
+        </StatusMessage>
+      )}
 
       {result && (() => {
         const ok = result.submitted;
