@@ -4,6 +4,8 @@
 // future components in sync with the backend contract and avoids duplicate
 // declarations drifting apart.
 
+export type AnchorMetadata = Record<string, unknown>;
+
 export type ProofArtifact = {
   module: string;
   entity_id: string;
@@ -13,7 +15,7 @@ export type ProofArtifact = {
   reason_codes: string[];
   timestamp: number;
   bundle_hash: string;
-  anchor_metadata: Record<string, unknown>;
+  anchor_metadata: AnchorMetadata;
 };
 
 export type PermitPolicy = {
@@ -111,4 +113,21 @@ export type SettlementVerifyResponse = {
   proof_artifact: Record<string, unknown>;
   tx_hash?: string;
   bundle_hash?: string;
+};
+
+export type ProofLink = {
+  bundle_hash: string;
+  tx_hash: string;
+};
+
+export type XRPLPaymentResponse = {
+  submitted: boolean;
+  tx_hash: string;
+  engine_result: string;
+  network: string;
+  currency: string;
+  issuer: string;
+  amount: string;
+  destination: string;
+  proof_link?: ProofLink | null;
 };
