@@ -89,3 +89,30 @@ def evaluate_constraints(
     if amount is not None:
         reason_codes.append("AMOUNT_WITHIN_LIMIT")
     return reason_codes
+
+
+def evaluate_permit_policy(
+    *,
+    action: str,
+    amount: float | int | None,
+    counterparty: str | None,
+) -> dict:
+    governance = evaluate_governance()
+    eligibility = evaluate_eligibility()
+    constraint_codes = evaluate_constraints(action, amount, counterparty)
+
+    reason_codes: list[str] = []
+    if governance["state_status"] == "active":
+        reason_codes.append("POLICY_ACTIVE")
+    if eligibility["participant_eligible"]:
+        reason_codes.append("PARTICIPANT_ELIGIBLE")
+    if eligibility["asset_admitted"]:
+        reason_codes.append("ASSET_ADMITTED")
+    reason_codes.extend(constraint_codes)
+
+    return {
+        "decision_result": "allow",
+        "reason_codes": reason_codes,
+        "governance": governance,
+        "eligibility": eligibility,
+    }
