@@ -10,6 +10,7 @@ from app.api.routes import xrpl as xrpl_routes
 from app.core import config
 from app.models.proof import build_proof_artifact
 from app.models.xrpl import SettlementVerifyByHashResponse
+from app.services import permit_service
 
 client = TestClient(app)
 VALID_SUBJECT = "rN7n3473SaZBCG4dFL83w7PB5XDnEHyMQX"
@@ -37,6 +38,18 @@ def test_permit():
     assert "bundle" in data
     assert "signature" in data
     assert "bundle_hash" in data
+
+
+def test_permit_persists_proof_artifact_record():
+    with patch.object(permit_service, "save_proof_artifact") as mock_save:
+        response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+
+    assert response.status_code == 200
+    data = response.json()
+    mock_save.assert_called_once()
+    assert mock_save.call_args.kwargs["bundle_hash"] == data["bundle_hash"]
+    assert mock_save.call_args.kwargs["artifact_type"] == "permit_generation"
+    assert mock_save.call_args.kwargs["artifact"].bundle_hash == data["bundle_hash"]
 
 
 def test_verify_with_issued_permit():

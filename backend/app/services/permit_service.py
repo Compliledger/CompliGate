@@ -14,7 +14,7 @@ from app.models.permit import PermitRequest, PermitResponse, VerifyRequest
 from app.models.proof import ProofArtifact
 from app.services.policy_service import MAX_AMOUNT, evaluate_permit_policy, validate_subject
 from app.services.proof_service import create_permit_proof_artifact, random_hex
-from app.services.storage_service import save_permit
+from app.services.storage_service import save_permit, save_proof_artifact
 from app.utils.canonical_json import canonical_json
 from app.utils.hashing import proof_hash
 
@@ -120,6 +120,7 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
         timestamp=now,
         bundle_hash=bundle_hash,
     )
+    save_proof_artifact(bundle_hash=bundle_hash, artifact=proof_artifact, artifact_type="permit_generation")
 
     store_recent_permit_context(
         bundle_hash=bundle_hash,
