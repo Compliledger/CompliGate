@@ -26,5 +26,22 @@ export const API_BASE: string =
 export const API_KEY: string =
   ((import.meta.env.VITE_API_KEY as string | undefined) ?? "").trim();
 
+/**
+ * Default name of the HTTP header used to send the API key to the backend.
+ * Must match the backend's `API_KEY_HEADER_NAME` setting.
+ */
+export const DEFAULT_API_KEY_HEADER = "X-API-Key";
+
+/**
+ * Name of the HTTP header the frontend uses to send the API key.
+ *
+ * Sourced from `VITE_API_KEY_HEADER` so deployments can match a backend that
+ * has been configured with a non-default `API_KEY_HEADER_NAME`. Falls back to
+ * `X-API-Key`, which is also the backend default.
+ */
+export const API_KEY_HEADER: string =
+  ((import.meta.env.VITE_API_KEY_HEADER as string | undefined) ?? "").trim() ||
+  DEFAULT_API_KEY_HEADER;
+
 /** Default timeout (in milliseconds) applied to API requests. */
 export const DEFAULT_TIMEOUT_MS = 15_000;

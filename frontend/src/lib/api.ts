@@ -4,16 +4,18 @@
  * Responsibilities:
  *  - Resolve the backend base URL from the shared config module
  *    (which in turn reads VITE_API_BASE).
- *  - Inject the API key (X-API-Key header) on every request, sourced from
- *    localStorage with a fallback to the build-time VITE_API_KEY value
- *    (also exposed via the shared config module).
+ *  - Inject the API key on every request, sourced from localStorage with a
+ *    fallback to the build-time VITE_API_KEY value (also exposed via the
+ *    shared config module). The header name defaults to X-API-Key but can
+ *    be overridden via VITE_API_KEY_HEADER to match the backend's
+ *    `API_KEY_HEADER_NAME` setting.
  *  - Provide consistent timeout, JSON parsing and structured error handling
  *    so feature components do not duplicate fetch boilerplate.
  */
 
-import { API_BASE, API_KEY, DEFAULT_TIMEOUT_MS } from "../config";
+import { API_BASE, API_KEY, API_KEY_HEADER, DEFAULT_TIMEOUT_MS } from "../config";
 
-export { API_BASE, DEFAULT_TIMEOUT_MS };
+export { API_BASE, API_KEY_HEADER, DEFAULT_TIMEOUT_MS };
 
 const API_KEY_STORAGE_KEY = "compligate.apiKey";
 const API_KEY_EVENT = "compligate:api-key-changed";
@@ -158,7 +160,8 @@ export type ApiFetchOptions = Omit<RequestInit, "body" | "signal"> & {
  * Always:
  *   - prefixes the path with API_BASE (path may be absolute or start with "/")
  *   - applies a request timeout (defaults to DEFAULT_TIMEOUT_MS)
- *   - attaches `X-API-Key` when an API key is configured
+ *   - attaches the configured API key header (default `X-API-Key`,
+ *     overridable via `VITE_API_KEY_HEADER`) when an API key is configured
  *   - parses a JSON body when present
  *   - throws ApiError / ApiTimeoutError / ApiNetworkError on failure
  */
@@ -184,8 +187,8 @@ export async function apiFetch<T = unknown>(
     finalHeaders.set("Accept", "application/json");
   }
   const apiKey = getApiKey();
-  if (apiKey && !finalHeaders.has("X-API-Key")) {
-    finalHeaders.set("X-API-Key", apiKey);
+  if (apiKey && !finalHeaders.has(API_KEY_HEADER)) {
+    finalHeaders.set(API_KEY_HEADER, apiKey);
   }
 
   const url = path.startsWith("http") ? path : `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
