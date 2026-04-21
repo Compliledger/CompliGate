@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import time
+from fastapi import HTTPException
 
 from app.core import config
 from app.models.proof import build_proof_artifact
 from app.models.xrpl import SettlementVerifyByHashResponse
-from app.services.permit_service import get_recent_permit_context
 from app.services.policy_service import ASSET_CLASSIFICATION_REGULATED_STABLECOIN, MAX_AMOUNT
 from app.services.storage_service import get_permit_context
 from app.services.xrpl_service import fetch_xrpl_transaction as _fetch_xrpl_transaction
@@ -302,8 +302,15 @@ def _parse_first_memo(tx_payload: dict) -> str | None:
 def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerifyByHashResponse:
     permit_context = get_permit_context(bundle_hash)
     if permit_context is None:
-        permit_context = get_recent_permit_context(bundle_hash)
-    permit_bundle = permit_context.get("bundle") if permit_context else None
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "permit_not_found",
+                "reason": "No persisted permit context found for bundle_hash",
+                "bundle_hash": bundle_hash,
+            },
+        )
+    permit_bundle = permit_context.get("bundle")
 
     tx_data = fetch_xrpl_transaction(tx_hash)
     tx_payload = _extract_tx_payload(tx_data)
@@ -319,7 +326,7 @@ def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerif
 
     evaluation_context = {
         "bundle_hash": bundle_hash,
-        "permit_context_used": bool(permit_context),
+        "permit_context_used": True,
         "tx_hash": tx_hash,
         "source_account": tx_payload.get("Account", ""),
         "source": tx_payload.get("Account", ""),
@@ -345,10 +352,9 @@ def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerif
         },
         "constraints_verified": constraints_verified,
     }
-    if permit_context:
-        evaluation_context["permit_issued_at"] = permit_context["issued_at"]
-        evaluation_context["permit_bundle"] = permit_context["bundle"]
-        evaluation_context["permit_proof_artifact"] = permit_context["proof_artifact"]
+    evaluation_context["permit_issued_at"] = permit_context["issued_at"]
+    evaluation_context["permit_bundle"] = permit_context["bundle"]
+    evaluation_context["permit_proof_artifact"] = permit_context["proof_artifact"]
 
     anchor_metadata: dict = {
         "network": config.XRPL_NETWORK,
