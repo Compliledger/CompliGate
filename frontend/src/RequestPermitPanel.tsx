@@ -1,6 +1,6 @@
 import { useState, type KeyboardEvent } from "react";
 
-import { apiFetch, describeError } from "./api";
+import { apiPost, describeError } from "./lib/api";
 
 export type ProofArtifact = {
   module: string;
@@ -118,10 +118,7 @@ export default function RequestPermitPanel({ onPermit, onClear }: Props) {
       const body: PermitRequestBody = { subject: trimmed, action };
       if (parsedAmount !== undefined) body.amount = parsedAmount;
 
-      const data = await apiFetch<unknown>("/v1/permit", {
-        method: "POST",
-        json: body,
-      });
+      const data = await apiPost<unknown>("/v1/permit", body);
       if (
         !data ||
         typeof data !== "object" ||

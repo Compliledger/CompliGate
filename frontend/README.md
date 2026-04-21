@@ -52,9 +52,9 @@ If no key is configured the UI still loads, but authenticated calls will
 surface a clear `Unauthorized — check that your API key is set and valid.`
 error.
 
-All HTTP traffic flows through `src/api.ts` (`apiFetch`), which centralizes
-the base URL, request timeout, JSON handling, key injection and structured
-error reporting.
+All HTTP traffic flows through `src/lib/api.ts` (`apiFetch`, plus the
+`apiGet` / `apiPost` helpers), which centralizes the base URL, request
+timeout, JSON handling, key injection and structured error reporting.
 
 ## Production build
 
