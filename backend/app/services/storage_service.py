@@ -33,7 +33,7 @@ def save_permit(permit: PermitResponse, db: Session | None = None) -> None:
     session = db or _open_session()
     if session is None:
         return
-    owns_session = db is None
+    should_close_session = db is None
     try:
         existing = session.query(PermitRecord).filter(PermitRecord.bundle_hash == permit.bundle_hash).first()
         if existing is None:
@@ -59,10 +59,10 @@ def save_permit(permit: PermitResponse, db: Session | None = None) -> None:
                 session.commit()
             except Exception:
                 session.rollback()
-                logger.exception("permit_persistence_commit_failed bundle_hash=%s", permit.bundle_hash)
+                logger.exception("Failed to persist permit record for bundle_hash=%s", permit.bundle_hash)
                 raise
     finally:
-        if owns_session:
+        if should_close_session:
             session.close()
 
 
