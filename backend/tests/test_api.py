@@ -156,3 +156,18 @@ def test_settlement_verify_without_live_network():
     assert data["decision_result"] == "SETTLED_COMPLIANT"
     assert data["proof_artifact"]["bundle_hash"] == "bundle-hash-1"
     mock_verify.assert_called_once_with("bundle-hash-1", "MOCK_TX_HASH")
+
+
+def test_settlement_verify_by_hash_not_found():
+    response = client.post(
+        "/v1/settlement/verify",
+        json={"bundle_hash": "missing-bundle-hash", "tx_hash": "MOCK_TX_HASH"},
+    )
+    assert response.status_code == 404
+    assert response.json() == {
+        "detail": {
+            "error": "permit_not_found",
+            "reason": "No persisted permit context found for bundle_hash",
+            "bundle_hash": "missing-bundle-hash",
+        }
+    }
