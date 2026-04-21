@@ -61,7 +61,7 @@ def save_proof_artifact(*, bundle_hash: str, artifact: ProofArtifact, artifact_t
                 module=artifact.module,
                 artifact_type=artifact_type,
                 decision_result=artifact.decision_result,
-                rule_version_used=getattr(artifact, "rule_version_used", "") or "",
+                rule_version_used=getattr(artifact, "rule_version_used", ""),
                 evaluation_context_json=artifact.evaluation_context,
                 reason_codes_json=artifact.reason_codes,
                 timestamp=artifact.timestamp,
