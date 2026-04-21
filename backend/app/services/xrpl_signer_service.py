@@ -21,6 +21,23 @@ except ImportError:
 logger = get_logger("main")
 
 
+# Signing modes returned by ``get_signing_mode``.
+SIGNING_MODE_PRODUCTION = "xrpl_signing_seed"
+SIGNING_MODE_DEMO = "xrpl_demo_wallet_seed"
+SIGNING_MODE_UNCONFIGURED = "unconfigured"
+SIGNING_MODE_DISABLED = "disabled"
+
+
+def is_signing_available() -> bool:
+    """Return ``True`` when the xrpl-py SDK is importable.
+
+    Used by callers (route handlers, health checks) that need to know
+    whether signing can possibly be performed without touching wallet
+    seed configuration directly.
+    """
+    return _XRPL_SDK_AVAILABLE
+
+
 def get_signing_wallet() -> "Wallet | None":
     if not _XRPL_SDK_AVAILABLE:
         logger.warning("xrpl-py SDK is not installed – signing wallet unavailable")
@@ -45,11 +62,38 @@ def get_signing_wallet() -> "Wallet | None":
 
 
 def get_signing_mode() -> str:
+    if not _XRPL_SDK_AVAILABLE:
+        return SIGNING_MODE_DISABLED
     if config.XRPL_SIGNING_SEED:
-        return "xrpl_signing_seed"
+        return SIGNING_MODE_PRODUCTION
     if config.XRPL_DEMO_WALLET_SEED and config.XRPL_NETWORK.lower() != "mainnet":
-        return "xrpl_demo_wallet_seed"
-    return "unconfigured"
+        return SIGNING_MODE_DEMO
+    return SIGNING_MODE_UNCONFIGURED
+
+
+def is_signing_configured() -> bool:
+    """Return ``True`` when a usable signing wallet is configured.
+
+    This is the public surface used by health checks and route handlers
+    so that no other module needs to read ``XRPL_SIGNING_SEED`` /
+    ``XRPL_DEMO_WALLET_SEED`` directly.
+    """
+    return get_signing_mode() in (SIGNING_MODE_PRODUCTION, SIGNING_MODE_DEMO)
+
+
+def get_signing_status() -> dict:
+    """Return a structured signing status snapshot for diagnostics.
+
+    The dict intentionally never contains seed material – only the
+    derived signing mode and a boolean flag describing whether signing
+    is currently available.
+    """
+    mode = get_signing_mode()
+    return {
+        "configured": mode in (SIGNING_MODE_PRODUCTION, SIGNING_MODE_DEMO),
+        "mode": mode,
+        "sdk_available": _XRPL_SDK_AVAILABLE,
+    }
 
 
 def sign_payment_transaction(
@@ -59,24 +103,31 @@ def sign_payment_transaction(
     amount: Any,
     memos: list[Any] | None = None,
 ) -> Any:
-    if submit_and_wait is None or Payment is None:
+    if not _XRPL_SDK_AVAILABLE or submit_and_wait is None or Payment is None:
         raise HTTPException(
             status_code=400,
-            detail={"error": "xrpl_sdk_unavailable", "reason": "xrpl-py SDK is not installed"},
+            detail={
+                "error": "signing_disabled",
+                "reason": "xrpl-py SDK is not installed; XRPL signing is disabled",
+            },
         )
 
     wallet = get_signing_wallet()
     if wallet is None:
         raise HTTPException(
             status_code=400,
-            detail={"error": "signing_wallet_not_configured", "reason": "XRPL_SIGNING_SEED is not configured"},
+            detail={
+                "error": "signer_not_configured",
+                "reason": "XRPL signer wallet is not configured",
+                "mode": get_signing_mode(),
+            },
         )
 
     payment = Payment(
         account=wallet.address,
         destination=destination,
         amount=amount,
-        memos=memos,
+        memos=memos or None,
     )
 
     try:

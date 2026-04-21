@@ -6,14 +6,13 @@ from fastapi import HTTPException
 from app.core import config
 from app.core.logging import get_logger
 from app.models.xrpl import XRPLPaymentRequest
-from app.services.xrpl_signer_service import sign_payment_transaction
+from app.services.xrpl_signer_service import is_signing_configured, sign_payment_transaction
 
 try:
     from xrpl.clients import JsonRpcClient
     from xrpl.models.amounts import IssuedCurrencyAmount
     from xrpl.models.requests import AccountInfo, AccountLines, Tx
     from xrpl.models.transactions import Memo
-    from xrpl.wallet import Wallet
 
     _XRPL_SDK_AVAILABLE = True
 except ImportError:
@@ -291,6 +290,7 @@ def get_xrpl_health_status() -> dict:
     # `signer_configured` reports only whether a signer credential is present,
     # never the seed itself, so it is safe for operational visibility.
     signer_configured = bool(config.XRPL_SIGNER_SEED or config.XRPL_SIGNING_SEED)
+    demo_wallet_configured = is_signing_configured()
     if not rpc_url:
         return {
             "configured": False,
