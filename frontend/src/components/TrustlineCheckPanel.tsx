@@ -38,11 +38,18 @@ function checkSymbol(valid: boolean) {
 type Props = {
   /** Optional panel number rendered next to the title (matches App layout). */
   panelNumber?: number;
+  /**
+   * Trustline check result, owned by the parent so other panels and the
+   * top-level UI can react to it. The panel keeps the address input, loading,
+   * and error state local because they are only meaningful inside this panel.
+   */
+  result: TrustlineCheckResponse | null;
+  /** Setter for the shared trustline result. */
+  onResult: (result: TrustlineCheckResponse | null) => void;
 };
 
-export default function TrustlineCheckPanel({ panelNumber }: Props) {
+export default function TrustlineCheckPanel({ panelNumber, result, onResult }: Props) {
   const [address, setAddress] = useState("");
-  const [result, setResult] = useState<TrustlineCheckResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -50,7 +57,7 @@ export default function TrustlineCheckPanel({ panelNumber }: Props) {
     const trimmed = address.trim();
     if (!trimmed) return;
     setError(null);
-    setResult(null);
+    onResult(null);
     setLoading(true);
 
     try {
@@ -58,7 +65,7 @@ export default function TrustlineCheckPanel({ panelNumber }: Props) {
         "/v1/xrpl/trustline/check",
         { address: trimmed },
       );
-      setResult(data);
+      onResult(data);
     } catch (e: unknown) {
       setError(describeError(e, "Failed to check trustline."));
     } finally {
@@ -68,7 +75,7 @@ export default function TrustlineCheckPanel({ panelNumber }: Props) {
 
   function clear() {
     setAddress("");
-    setResult(null);
+    onResult(null);
     setError(null);
   }
 
