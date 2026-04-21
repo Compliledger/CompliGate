@@ -61,7 +61,6 @@ function buildXrplHealthBadges(health: XRPLHealthResponse | null): HealthBadge[]
       { label: "Reachable", value: "Checking…", tone: "neutral" },
       { label: "Network", value: "Checking…", tone: "neutral" },
       { label: "RLUSD", value: "Checking…", tone: "neutral" },
-      { label: "Signing", value: "Checking…", tone: "neutral" },
     ];
   }
 
@@ -109,7 +108,7 @@ function buildXrplHealthBadges(health: XRPLHealthResponse | null): HealthBadge[]
   }
 
   if (health.signing_mode !== undefined) {
-    const mode = health.signing_mode || "unknown";
+    const mode = health.signing_mode ? health.signing_mode : "unknown";
     badges.push({
       label: "Signing mode",
       value: mode,
