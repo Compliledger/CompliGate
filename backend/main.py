@@ -22,36 +22,34 @@ try:
 except ImportError:
     _XRPL_SDK_AVAILABLE = False
 
-from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from nacl.signing import SigningKey
 from nacl.encoding import RawEncoder
-
-load_dotenv()
+from app.core.config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 APP_NAME = "CompliGate Backend"
 
-POLICY_VERSION = os.getenv("POLICY_VERSION", "RLUSD_US_v1")
-JURISDICTION = os.getenv("JURISDICTION", "US")
-CURRENCY = os.getenv("CURRENCY", "RLUSD")
-ISSUER_ADDRESS = os.getenv("ISSUER_ADDRESS", "rEXAMPLE_ISSUER_ADDRESS")
-PRIVATE_KEY_B64 = os.getenv("COMPLIGATE_PRIVATE_KEY_B64", "").strip()
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173")
+POLICY_VERSION = settings.POLICY_VERSION
+JURISDICTION = settings.JURISDICTION
+CURRENCY = settings.CURRENCY
+ISSUER_ADDRESS = settings.ISSUER_ADDRESS
+PRIVATE_KEY_B64 = settings.COMPLIGATE_PRIVATE_KEY_B64
+CORS_ORIGINS = settings.CORS_ORIGINS
 
-XRPL_RPC_URL = os.getenv("XRPL_RPC_URL", "https://s.altnet.rippletest.net:51234")
-XRPL_NETWORK = os.getenv("XRPL_NETWORK", "xrpl_testnet")
-RLUSD_ISSUER = os.getenv("RLUSD_ISSUER", "")
-RLUSD_CURRENCY = os.getenv("RLUSD_CURRENCY", "RLUSD")
-XRPL_DEMO_WALLET_SEED = os.getenv("XRPL_DEMO_WALLET_SEED", "")
-XRPL_ENFORCE_RLUSD_ONLY = os.getenv("XRPL_ENFORCE_RLUSD_ONLY", "false").lower() in ("true", "1", "yes")
-XRPL_REQUIRE_TRUSTLINE = os.getenv("XRPL_REQUIRE_TRUSTLINE", "false").lower() in ("true", "1", "yes")
-PERMIT_TTL_SECONDS = int(os.getenv("PERMIT_TTL_SECONDS", "300"))
-PERMIT_CONTEXT_CACHE_MAX_ITEMS = int(os.getenv("PERMIT_CONTEXT_CACHE_MAX_ITEMS", "1000"))
+XRPL_RPC_URL = settings.XRPL_RPC_URL
+XRPL_NETWORK = settings.XRPL_NETWORK
+RLUSD_ISSUER = settings.RLUSD_ISSUER
+RLUSD_CURRENCY = settings.RLUSD_CURRENCY
+XRPL_DEMO_WALLET_SEED = settings.XRPL_DEMO_WALLET_SEED
+XRPL_ENFORCE_RLUSD_ONLY = settings.XRPL_ENFORCE_RLUSD_ONLY
+XRPL_REQUIRE_TRUSTLINE = settings.XRPL_REQUIRE_TRUSTLINE
+PERMIT_TTL_SECONDS = settings.PERMIT_TTL_SECONDS
+PERMIT_CONTEXT_CACHE_MAX_ITEMS = settings.PERMIT_CONTEXT_CACHE_MAX_ITEMS
 
 
 # -----------------------
@@ -405,7 +403,7 @@ app = FastAPI(title=APP_NAME)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in CORS_ORIGINS.split(",") if o.strip()],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
