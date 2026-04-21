@@ -98,6 +98,9 @@ export type XRPLHealthResponse = {
   network: string;
   rlusd_configured: boolean;
   demo_wallet_configured: boolean;
+  signing_enabled?: boolean;
+  signing_mode?: string;
+  signer_configured?: boolean;
 };
 
 export type TrustlineCheckResponse = {
