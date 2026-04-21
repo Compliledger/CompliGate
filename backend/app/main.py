@@ -6,8 +6,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import ROUTERS
 from app.core import config
 from app.core.logging import configure_logging
+from app.db import initialize_database
 
 configure_logging()
+initialize_database()
 
 app = FastAPI(title=config.APP_NAME)
 

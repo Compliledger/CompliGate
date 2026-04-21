@@ -12,6 +12,7 @@ from app.models.permit import PermitRequest, PermitResponse, VerifyRequest
 from app.models.proof import ProofArtifact
 from app.services.policy_service import MAX_AMOUNT, evaluate_permit_policy, validate_subject
 from app.services.proof_service import create_permit_proof_artifact, random_hex
+from app.services.storage_service import save_permit
 from app.utils.canonical_json import canonical_json
 from app.utils.hashing import proof_hash
 
@@ -125,7 +126,7 @@ def create_permit(req: PermitRequest) -> PermitResponse:
         issued_at=now,
     )
     logger.info("permit_issued subject=%s action=%s exp=%d", req.subject, req.action, exp)
-    return PermitResponse(
+    permit_response = PermitResponse(
         summary=summary,
         bundle=bundle,
         signature=sig_b64,
@@ -138,6 +139,8 @@ def create_permit(req: PermitRequest) -> PermitResponse:
         reason_codes=reason_codes,
         proof_artifact=proof_artifact,
     )
+    save_permit(permit_response)
+    return permit_response
 
 
 def verify_permit_logic(req: VerifyRequest) -> dict:
