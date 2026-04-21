@@ -22,6 +22,14 @@ against a permit's bundle hash.
 `VITE_*` values are inlined at build time, so any change requires
 re-running `npm run dev` or `npm run build`.
 
+| Command         | Description                                                  |
+| --------------- | ------------------------------------------------------------ |
+| `npm run dev`   | Start the Vite dev server on `http://localhost:5173`.        |
+| `npm run lint`  | Type-check the project (`tsc --noEmit`).                     |
+| `npm run build` | Type-check and produce a production bundle in `dist/`.       |
+| `npm run preview` | Serve the production bundle locally for smoke testing.     |
+| `npm test`      | Run the UI test suite once (Vitest + React Testing Library). See [`src/__tests__/README.md`](src/__tests__/README.md). |
+| `npm run test:watch` | Re-run tests on file changes during local development. |
 The CORS allow-list on the backend (`CORS_ORIGINS`) must include the
 origin where this app is served (e.g. `http://localhost:5173` for
 `vite dev`).

@@ -63,7 +63,7 @@ export default function PermitVerificationPanel({ permit, panelNumber, order }: 
   }
 
   return (
-    <section className="card" style={order !== undefined ? { order } : undefined}>
+    <section className="card" style={order !== undefined ? { order } : undefined} data-testid="permit-verification-panel">
       <h2>
         {panelNumber !== undefined && <PanelNumber n={panelNumber} />}
         Verify Permit Signature
@@ -79,6 +79,7 @@ export default function PermitVerificationPanel({ permit, panelNumber, order }: 
               className="btn primary"
               onClick={verifyPermit}
               disabled={loading}
+              data-testid="permit-verification-submit"
             >
               {loading ? "Verifying…" : "Verify Permit Signature"}
             </button>
@@ -96,8 +97,12 @@ export default function PermitVerificationPanel({ permit, panelNumber, order }: 
             const reasonCodes =
               result.reason_codes ?? permit?.proof_artifact?.reason_codes;
             return (
-              <div className="verifyResult">
-                <div className={`verifyHeader ${passed ? "good" : "bad"}`}>
+              <div className="verifyResult" data-testid="permit-verification-result">
+                <div
+                  className={`verifyHeader ${passed ? "good" : "bad"}`}
+                  data-testid="permit-verification-outcome"
+                  data-passed={passed ? "true" : "false"}
+                >
                   <span className={`verifyIcon ${passed ? "good" : "bad"}`}>
                     {passed ? "✔" : "✘"}
                   </span>
