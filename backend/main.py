@@ -14,11 +14,9 @@ import requests as http_requests
 
 try:
     from xrpl.clients import JsonRpcClient
-    from xrpl.wallet import Wallet
-    from xrpl.models.transactions import Payment, Memo
+    from xrpl.models.transactions import Memo
     from xrpl.models.amounts import IssuedCurrencyAmount
     from xrpl.models.requests import AccountInfo, AccountLines, Tx
-    from xrpl.transaction import submit_and_wait
     _XRPL_SDK_AVAILABLE = True
 except ImportError:
     _XRPL_SDK_AVAILABLE = False
@@ -29,6 +27,10 @@ from pydantic import BaseModel, Field
 from nacl.signing import SigningKey
 from nacl.encoding import RawEncoder
 from app.core.config import settings
+from app.services.xrpl_signer_service import (
+    is_signing_configured as _xrpl_is_signing_configured,
+    sign_payment_transaction as _xrpl_sign_payment_transaction,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -46,7 +48,6 @@ XRPL_RPC_URL = settings.XRPL_RPC_URL
 XRPL_NETWORK = settings.XRPL_NETWORK
 RLUSD_ISSUER = settings.RLUSD_ISSUER
 RLUSD_CURRENCY = settings.RLUSD_CURRENCY
-XRPL_DEMO_WALLET_SEED = settings.XRPL_DEMO_WALLET_SEED
 XRPL_ENFORCE_RLUSD_ONLY = settings.XRPL_ENFORCE_RLUSD_ONLY
 XRPL_REQUIRE_TRUSTLINE = settings.XRPL_REQUIRE_TRUSTLINE
 PERMIT_TTL_SECONDS = settings.PERMIT_TTL_SECONDS
@@ -170,22 +171,6 @@ def get_xrpl_client() -> "JsonRpcClient | None":
         logger.warning("XRPL_RPC_URL is not configured – XRPL client unavailable")
         return None
     return JsonRpcClient(XRPL_RPC_URL)
-
-
-def get_demo_wallet() -> "Wallet | None":
-    """Return an xrpl-py ``Wallet`` from ``XRPL_DEMO_WALLET_SEED``.
-
-    Returns ``None`` when the seed is not configured or the xrpl-py SDK
-    is not installed.  This helper is intended **only** for demo / test
-    environments.
-    """
-    if not _XRPL_SDK_AVAILABLE:
-        logger.warning("xrpl-py SDK is not installed – demo wallet unavailable")
-        return None
-    if not XRPL_DEMO_WALLET_SEED:
-        logger.info("XRPL_DEMO_WALLET_SEED is not configured – demo wallet unavailable")
-        return None
-    return Wallet.from_seed(XRPL_DEMO_WALLET_SEED)
 
 
 def get_account_info(address: str) -> dict:
@@ -834,7 +819,7 @@ def xrpl_health():
     """Check XRPL network connectivity and configuration."""
     rpc_url = XRPL_RPC_URL
     rlusd_configured = bool(RLUSD_ISSUER and RLUSD_CURRENCY)
-    demo_wallet_configured = bool(XRPL_DEMO_WALLET_SEED)
+    demo_wallet_configured = _xrpl_is_signing_configured()
     if not rpc_url:
         return {
             "configured": False,
@@ -1140,9 +1125,10 @@ def xrpl_payment(req: XRPLPaymentRequest):
 
     This endpoint is intended for demo / test purposes only and is **not**
     part of CompliGate's core authorization, constraint verification, or
-    proof flow. It uses the
-    configured ``XRPL_DEMO_WALLET_SEED`` to sign and submit a ``Payment``
-    transaction on the XRPL testnet.
+    proof flow. Wallet seed handling and transaction signing are
+    delegated entirely to ``app.services.xrpl_signer_service`` – this
+    route handler never reads ``XRPL_DEMO_WALLET_SEED`` /
+    ``XRPL_SIGNING_SEED`` directly.
     """
     if not _XRPL_SDK_AVAILABLE:
         raise HTTPException(
@@ -1155,13 +1141,6 @@ def xrpl_payment(req: XRPLPaymentRequest):
         raise HTTPException(
             status_code=400,
             detail={"error": "xrpl_not_configured", "reason": "XRPL_RPC_URL is not configured"},
-        )
-
-    wallet = get_demo_wallet()
-    if wallet is None:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "demo_wallet_not_configured", "reason": "XRPL_DEMO_WALLET_SEED is not configured"},
         )
 
     if XRPL_REQUIRE_TRUSTLINE:
@@ -1203,20 +1182,12 @@ def xrpl_payment(req: XRPLPaymentRequest):
             )
         )
 
-    payment = Payment(
-        account=wallet.address,
+    response = _xrpl_sign_payment_transaction(
+        client=client,
         destination=req.destination,
         amount=payment_amount,
         memos=memos if memos else None,
     )
-
-    try:
-        response = submit_and_wait(payment, client, wallet)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=502,
-            detail={"error": "xrpl_submit_failed", "reason": str(exc)},
-        ) from exc
 
     engine_result = response.result.get("meta", {}).get("TransactionResult", "unknown")
     tx_hash = response.result.get("hash", "")

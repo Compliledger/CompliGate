@@ -6,14 +6,13 @@ from fastapi import HTTPException
 from app.core import config
 from app.core.logging import get_logger
 from app.models.xrpl import XRPLPaymentRequest
-from app.services.xrpl_signer_service import sign_payment_transaction
+from app.services.xrpl_signer_service import is_signing_configured, sign_payment_transaction
 
 try:
     from xrpl.clients import JsonRpcClient
     from xrpl.models.amounts import IssuedCurrencyAmount
     from xrpl.models.requests import AccountInfo, AccountLines, Tx
     from xrpl.models.transactions import Memo
-    from xrpl.wallet import Wallet
 
     _XRPL_SDK_AVAILABLE = True
 except ImportError:
@@ -287,7 +286,7 @@ def fetch_account_lines(address: str) -> list[dict]:
 def get_xrpl_health_status() -> dict:
     rpc_url = config.XRPL_RPC_URL
     rlusd_configured = bool(config.RLUSD_ISSUER and config.RLUSD_CURRENCY)
-    demo_wallet_configured = bool(config.XRPL_DEMO_WALLET_SEED)
+    demo_wallet_configured = is_signing_configured()
     if not rpc_url:
         return {
             "configured": False,
