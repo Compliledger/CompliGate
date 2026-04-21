@@ -286,6 +286,10 @@ def fetch_account_lines(address: str) -> list[dict]:
 def get_xrpl_health_status() -> dict:
     rpc_url = config.XRPL_RPC_URL
     rlusd_configured = bool(config.RLUSD_ISSUER and config.RLUSD_CURRENCY)
+    demo_wallet_configured = bool(config.XRPL_DEMO_WALLET_SEED)
+    # `signer_configured` reports only whether a signer credential is present,
+    # never the seed itself, so it is safe for operational visibility.
+    signer_configured = bool(config.XRPL_SIGNER_SEED or config.XRPL_SIGNING_SEED)
     demo_wallet_configured = is_signing_configured()
     if not rpc_url:
         return {
@@ -296,6 +300,7 @@ def get_xrpl_health_status() -> dict:
             "demo_wallet_configured": demo_wallet_configured,
             "signing_mode": config.XRPL_SIGNING_MODE,
             "signing_enabled": config.XRPL_SIGNING_ENABLED,
+            "signer_configured": signer_configured,
         }
     try:
         resp = http_requests.post(
@@ -315,6 +320,7 @@ def get_xrpl_health_status() -> dict:
         "demo_wallet_configured": demo_wallet_configured,
         "signing_mode": config.XRPL_SIGNING_MODE,
         "signing_enabled": config.XRPL_SIGNING_ENABLED,
+        "signer_configured": signer_configured,
     }
 
 
