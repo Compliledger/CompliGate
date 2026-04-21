@@ -11,25 +11,16 @@ against a permit's bundle hash.
 - Node.js 18+ (Vite 6 requires Node ≥ 18.18)
 - A running CompliGate backend (see `../backend/README.md`)
 
-## Setup
+## Environment variables
 
-```bash
-npm install
-cp .env.example .env
-# edit .env to point at your backend and (optionally) ship a default API key
-```
+| Variable              | Purpose                                                                                                  |
+| --------------------- | -------------------------------------------------------------------------------------------------------- |
+| `VITE_API_BASE`       | Base URL of the CompliGate backend (no trailing slash). Defaults to `http://localhost:8000`.             |
+| `VITE_API_KEY`        | Optional build-time default for the API key header. Users can override at runtime in the UI.             |
+| `VITE_API_KEY_HEADER` | Optional header name for the API key. Defaults to `X-API-Key`; must match the backend setting.           |
 
-### Environment variables
-
-| Variable        | Purpose                                                                                                  |
-| --------------- | -------------------------------------------------------------------------------------------------------- |
-| `VITE_API_BASE` | Base URL of the CompliGate backend (no trailing slash). Default `http://localhost:8000`.                 |
-| `VITE_API_KEY`  | Optional build-time default for the `X-API-Key` header. Users can override at runtime in the UI.         |
-
-The CORS allow-list on the backend (`CORS_ORIGINS` env) must include the
-origin where this app is served (e.g. `http://localhost:5173` for `vite dev`).
-
-## Scripts
+`VITE_*` values are inlined at build time, so any change requires
+re-running `npm run dev` or `npm run build`.
 
 | Command         | Description                                                  |
 | --------------- | ------------------------------------------------------------ |
@@ -39,24 +30,25 @@ origin where this app is served (e.g. `http://localhost:5173` for `vite dev`).
 | `npm run preview` | Serve the production bundle locally for smoke testing.     |
 | `npm test`      | Run the UI test suite once (Vitest + React Testing Library). See [`src/__tests__/README.md`](src/__tests__/README.md). |
 | `npm run test:watch` | Re-run tests on file changes during local development. |
+The CORS allow-list on the backend (`CORS_ORIGINS`) must include the
+origin where this app is served (e.g. `http://localhost:5173` for
+`vite dev`).
 
-## API key handling
+## Local startup
 
-All backend endpoints other than `/v1/xrpl/health` require an API key
-(`X-API-Key` header, or `Authorization: Bearer …`). The frontend resolves
-the key in this order:
+```bash
+npm install
+cp .env.example .env   # set VITE_API_BASE / VITE_API_KEY as needed
+npm run dev            # http://localhost:5173
+```
 
-1. The value the user enters via the **Set API Key** panel at the top of the
-   page (stored in `localStorage` under `compligate.apiKey`, browser-only).
-2. The build-time `VITE_API_KEY` value from `.env`.
+Other scripts:
 
-If no key is configured the UI still loads, but authenticated calls will
-surface a clear `Unauthorized — check that your API key is set and valid.`
-error.
-
-All HTTP traffic flows through `src/lib/api.ts` (`apiFetch`, plus the
-`apiGet` / `apiPost` helpers), which centralizes the base URL, request
-timeout, JSON handling, key injection and structured error reporting.
+| Command           | Description                                            |
+| ----------------- | ------------------------------------------------------ |
+| `npm run lint`    | Type-check the project (`tsc --noEmit`).               |
+| `npm run build`   | Type-check and produce a production bundle in `dist/`. |
+| `npm run preview` | Serve the production bundle locally for smoke testing. |
 
 ## Production build
 
@@ -75,20 +67,56 @@ When deploying:
 - Decide whether to ship `VITE_API_KEY` in the build (convenient for
   internal demos) or require operators to paste a key into the UI
   (recommended for shared deployments — keys never leave the browser).
-- Make sure the backend's `CORS_ORIGINS` includes the deployed origin.
+- Ensure the backend's `CORS_ORIGINS` includes the deployed origin.
 
-## Demo flow (preserved)
+## How the frontend talks to the backend
 
-1. **Request Permit** — issue a signed, time-bound permit for a subject.
-2. **Check Trustline** — confirm an XRPL account holds the expected
+The frontend is a pure client of the FastAPI backend — it holds no
+business state of its own. All HTTP traffic flows through a single
+client in `src/lib/api.ts` (`apiFetch`, with `apiGet` / `apiPost`
+helpers), which:
+
+- prefixes every request with `VITE_API_BASE`;
+- injects the configured API key header on every request;
+- applies a default request timeout (15s);
+- parses JSON responses and normalizes failures into typed
+  `ApiError` / `ApiTimeoutError` / `ApiNetworkError` objects with
+  human-readable messages.
+
+Build-time configuration is centralized in `src/config.ts`; feature
+components never read `import.meta.env.*` directly.
+
+## Protected endpoints
+
+All backend endpoints other than `/v1/xrpl/health` require an API key,
+sent in the `X-API-Key` header (or whatever `VITE_API_KEY_HEADER` is
+set to). The frontend resolves the active key in this order:
+
+1. A key entered via the **Set API Key** panel at the top of the page,
+   persisted in `localStorage` under `compligate.apiKey` (browser-only,
+   never sent anywhere except as the API-key header to the backend).
+2. The build-time `VITE_API_KEY` value from `.env`.
+
+If no key is configured the UI still loads, but authenticated calls
+surface a clear `Unauthorized — check that your API key is set and
+valid.` error. A `403` is reported as `Forbidden — this API key is not
+allowed to perform this action.`
+
+## Demo flow
+
+The UI walks through the end-to-end compliance + settlement loop:
+
+1. **Request Permit** — issue a signed, time-bound permit for a subject;
+   the backend returns the bundle, signature and bundle hash.
+2. **Trustline Check** — confirm the XRPL account holds the expected
    trustline for the configured RLUSD issuer/currency.
-3. **Provide Settled XRPL Transaction Hash** — paste a tx hash that was
-   settled from your own wallet.
-4. **Verify Settlement** — verify the settled transaction against the
-   permit's bundle hash and constraints (renders the persisted proof
-   artifact returned by the backend).
-5. **View Proof Artifact** — verify the permit signature and inspect the
-   bundle, signature, regulatory controls and proof artifact.
+3. **XRPL Payment** — submit (or paste) the hash of a settled XRPL
+   payment made from your own wallet that satisfies the permit.
+4. **Settlement Verification** — verify the settled transaction against
+   the permit's bundle hash and regulatory constraints.
+5. **Proof Artifact** — verify the permit signature and inspect the
+   persisted proof artifact (bundle, signature, controls, settlement
+   evidence) returned by the backend.
 
 Supplemental cards: **Permit Constraints Snapshot** and **Transaction
 Lookup** (look up any XRPL tx by hash and reuse it for verification).
