@@ -587,14 +587,19 @@ export default function App() {
 
           {settlementResult && (() => {
             const artifact = settlementResult.proof_artifact;
+            const anchorTxHash = artifact.anchor_metadata?.tx_hash;
             const txHash =
               (typeof settlementResult.tx_hash === "string" && settlementResult.tx_hash) ||
-              (typeof artifact.tx_hash === "string" && artifact.tx_hash) ||
+              (typeof anchorTxHash === "string" && anchorTxHash) ||
               settledTxHash.trim();
             const bundleHash =
               (typeof settlementResult.bundle_hash === "string" && settlementResult.bundle_hash) ||
-              (typeof artifact.bundle_hash === "string" && artifact.bundle_hash) ||
+              artifact.bundle_hash ||
               permit?.bundle_hash;
+            const artifactTimestamp =
+              typeof artifact.timestamp === "number"
+                ? new Date(artifact.timestamp * 1000).toISOString()
+                : null;
             return (
               <div className="verifyResult">
                 <div className={`verifyHeader ${settlementPassed ? "good" : "bad"}`}>
@@ -614,6 +619,34 @@ export default function App() {
                       {settlementResult.decision_result}
                     </span>
                   </div>
+                  {artifact.module && (
+                    <div className="verifyRow">
+                      <span className="check">✔</span>
+                      <span className="summaryLabel">Module</span>
+                      <span className="summaryValue">{artifact.module}</span>
+                    </div>
+                  )}
+                  {artifact.entity_id && (
+                    <div className="verifyRow">
+                      <span className="check">✔</span>
+                      <span className="summaryLabel">Entity ID</span>
+                      <span className="summaryValue commitValueMono breakAll">{artifact.entity_id}</span>
+                    </div>
+                  )}
+                  {artifact.rule_version_used && (
+                    <div className="verifyRow">
+                      <span className="check">✔</span>
+                      <span className="summaryLabel">Rule Version</span>
+                      <span className="summaryValue">{artifact.rule_version_used}</span>
+                    </div>
+                  )}
+                  {artifactTimestamp && (
+                    <div className="verifyRow">
+                      <span className="check">✔</span>
+                      <span className="summaryLabel">Timestamp</span>
+                      <span className="summaryValue">{artifactTimestamp}</span>
+                    </div>
+                  )}
                   {txHash && (
                     <div className="verifyRow">
                       <span className="check">✔</span>
