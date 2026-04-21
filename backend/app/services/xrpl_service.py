@@ -13,12 +13,14 @@ try:
     from xrpl.models.amounts import IssuedCurrencyAmount
     from xrpl.models.requests import AccountInfo, AccountLines, Tx
     from xrpl.models.transactions import Memo
+    from xrpl.wallet import Wallet
 
     _XRPL_SDK_AVAILABLE = True
 except ImportError:
     _XRPL_SDK_AVAILABLE = False
     IssuedCurrencyAmount = None
     Memo = None
+    Wallet = None
 
 logger = get_logger("main")
 
