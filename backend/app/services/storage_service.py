@@ -3,21 +3,13 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
-from app.db.models import PermitRecord, ProofArtifactRecord
 from app.db.session import get_engine, persistence_enabled
 from app.models.permit import PermitResponse
 from app.models.proof import ProofArtifact
+from app.repositories.permit_repository import create_permit_record, get_permit_by_bundle_hash
+from app.repositories.proof_artifact_repository import create_proof_artifact_record
 
 logger = get_logger("main")
-
-
-def _extract_policy_version(bundle: dict) -> str:
-    policy = bundle.get("policy")
-    if isinstance(policy, dict):
-        version = policy.get("version")
-        if isinstance(version, str):
-            return version
-    return ""
 
 
 def _open_session() -> Session | None:
@@ -35,26 +27,9 @@ def save_permit(permit: PermitResponse, db: Session | None = None) -> None:
         return
     should_close_session = db is None
     try:
-        existing = session.query(PermitRecord).filter(PermitRecord.bundle_hash == permit.bundle_hash).first()
+        existing = get_permit_by_bundle_hash(session=session, bundle_hash=permit.bundle_hash)
         if existing is None:
-            session.add(
-                PermitRecord(
-                    bundle_id=permit.bundle.get("bundle_id", ""),
-                    bundle_hash=permit.bundle_hash,
-                    subject=permit.bundle.get("subject", ""),
-                    action=permit.bundle.get("action", ""),
-                    policy_version=_extract_policy_version(permit.bundle),
-                    decision_result=permit.decision_result,
-                    reason_codes=permit.reason_codes,
-                    bundle_json=permit.bundle,
-                    signature=permit.signature,
-                    signed_at=permit.signed_at,
-                    expires_at=permit.expires_at,
-                    proof_artifact_json=(
-                        permit.proof_artifact.model_dump() if permit.proof_artifact is not None else None
-                    ),
-                )
-            )
+            create_permit_record(session=session, permit=permit)
             try:
                 session.commit()
             except Exception:
@@ -73,19 +48,11 @@ def save_proof_artifact(*, bundle_hash: str, artifact: ProofArtifact, artifact_t
     if db is None:
         return
     try:
-        db.add(
-            ProofArtifactRecord(
-                bundle_hash=bundle_hash,
-                entity_id=artifact.entity_id,
-                module=artifact.module,
-                artifact_type=artifact_type,
-                decision_result=artifact.decision_result,
-                rule_version_used=artifact.rule_version_used,
-                evaluation_context_json=artifact.evaluation_context,
-                reason_codes_json=artifact.reason_codes,
-                timestamp=artifact.timestamp,
-                anchor_metadata_json=artifact.anchor_metadata,
-            )
+        create_proof_artifact_record(
+            session=db,
+            bundle_hash=bundle_hash,
+            artifact=artifact,
+            artifact_type=artifact_type,
         )
         db.commit()
     finally:
@@ -99,7 +66,7 @@ def get_permit_context(bundle_hash: str) -> dict | None:
     if db is None:
         return None
     try:
-        permit = db.query(PermitRecord).filter(PermitRecord.bundle_hash == bundle_hash).first()
+        permit = get_permit_by_bundle_hash(session=db, bundle_hash=bundle_hash)
         if permit is None:
             return None
         return {
