@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useState, type KeyboardEvent } from "react";
 
 import { apiPost, describeError } from "../lib/api";
+import { useCopyToClipboard } from "../lib/useCopyToClipboard";
 import StatusMessage from "./StatusMessage";
 import type { PermitResponse, XRPLPaymentResponse } from "../types/api";
 
@@ -34,30 +35,9 @@ export default function XRPLPaymentPanel({ permit, panelNumber, order }: Props) 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<XRPLPaymentResponse | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
-  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-    };
-  }, []);
+  const { copied, copy: copyToClipboard } = useCopyToClipboard();
 
   const memoBundleHash = permit?.bundle_hash ?? null;
-
-  async function copyToClipboard(text: string, key: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(key);
-      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-      copyTimerRef.current = setTimeout(
-        () => setCopied((prev) => (prev === key ? null : prev)),
-        2000,
-      );
-    } catch {
-      // silent fail — clipboard API unavailable
-    }
-  }
 
   async function submitPayment() {
     setError(null);

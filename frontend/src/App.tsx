@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 import RequestPermitPanel from "./RequestPermitPanel";
 import XRPLPaymentPanel from "./components/XRPLPaymentPanel";
@@ -7,6 +7,7 @@ import EnvWarnings from "./EnvWarnings";
 import TrustlineCheckPanel from "./components/TrustlineCheckPanel";
 import StatusMessage from "./components/StatusMessage";
 import { apiGet, apiPost, describeError } from "./lib/api";
+import { useCopyToClipboard } from "./lib/useCopyToClipboard";
 import type {
   PermitResponse,
   SettlementVerifyResponse,
@@ -152,7 +153,7 @@ export default function App() {
   const [xrplHealth, setXrplHealth] = useState<XRPLHealthResponse | null>(null);
   const [xrplHealthLoading, setXrplHealthLoading] = useState(true);
   const [xrplHealthError, setXrplHealthError] = useState(false);
-  const [copied, setCopied] = useState<string | null>(null);
+  const { copied, copy: copyToClipboard } = useCopyToClipboard();
   const [settledTxHash, setSettledTxHash] = useState("");
   const [settlementResult, setSettlementResult] = useState<SettlementVerifyResponse | null>(null);
   const [settlementError, setSettlementError] = useState<string | null>(null);
@@ -161,13 +162,6 @@ export default function App() {
   const [txLookupResult, setTxLookupResult] = useState<TxLookupResponse | null>(null);
   const [txLookupError, setTxLookupError] = useState<string | null>(null);
   const [txLookupLoading, setTxLookupLoading] = useState(false);
-  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-    };
-  }, []);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
@@ -286,20 +280,6 @@ export default function App() {
       setSettlementError(describeError(e, "Failed to verify settlement."));
     } finally {
       setVerifying(false);
-    }
-  }
-
-  async function copyToClipboard(text: string, key: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(key);
-      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-      copyTimerRef.current = setTimeout(
-        () => setCopied((prev) => (prev === key ? null : prev)),
-        2000
-      );
-    } catch {
-      // silent fail — clipboard API unavailable
     }
   }
 
