@@ -1,28 +1,8 @@
 from __future__ import annotations
 
-import requests as http_requests
 from fastapi import HTTPException
 
 from app.core import config
-
-
-def fetch_account_lines(address: str) -> list[dict]:
-    payload = {
-        "method": "account_lines",
-        "params": [{"account": address}],
-    }
-    try:
-        resp = http_requests.post(config.XRPL_RPC_URL, json=payload, timeout=10)
-        resp.raise_for_status()
-        result = resp.json()
-        if "result" in result:
-            return result["result"].get("lines", [])
-        return result.get("lines", [])
-    except http_requests.RequestException as exc:
-        raise HTTPException(
-            status_code=502,
-            detail={"error": "xrpl_rpc_failed", "reason": str(exc)},
-        ) from exc
 
 
 def check_rlusd_trustline(lines: list[dict]) -> dict:
@@ -52,6 +32,8 @@ def check_rlusd_trustline(lines: list[dict]) -> dict:
 
 
 def validate_trustline(address: str, issuer: str, currency: str) -> dict:
+    from app.services.xrpl_service import fetch_account_lines
+
     lines = fetch_account_lines(address)
     for line in lines:
         line_currency = line.get("currency", "")
@@ -71,3 +53,25 @@ def validate_trustline(address: str, issuer: str, currency: str) -> dict:
         "currency": currency,
         "raw_lines_checked": len(lines),
     }
+
+
+def validate_trustline_check(address: str, issuer: str, currency: str) -> dict:
+    if not address.startswith("r"):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_address", "reason": "address must be a string starting with 'r'"},
+        )
+    if not (25 <= len(address) <= 35):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_address", "reason": "address length must be 25-35 chars"},
+        )
+    if not config.XRPL_RPC_URL:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "xrpl_not_configured", "reason": "XRPL_RPC_URL is not configured"},
+        )
+
+    result = validate_trustline(address, issuer, currency)
+    result["address"] = address
+    return result
