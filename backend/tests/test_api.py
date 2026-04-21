@@ -34,7 +34,7 @@ def test_public_key():
     assert data["public_key_hex"].startswith("0x")
 
 
-def test_protected_endpoint_missing_api_key_returns_401():
+def test_protected_endpoint_without_api_key():
     with patch.object(config, "AUTH_API_KEYS", [VALID_API_KEY]):
         response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
 
@@ -42,7 +42,7 @@ def test_protected_endpoint_missing_api_key_returns_401():
     assert response.json() == {"detail": {"error": "unauthorized", "reason": "Missing or invalid API key"}}
 
 
-def test_protected_endpoint_invalid_api_key_returns_401():
+def test_protected_endpoint_with_invalid_api_key():
     with patch.object(config, "AUTH_API_KEYS", [VALID_API_KEY]):
         response = client.post("/v1/permit", json={"subject": VALID_SUBJECT}, headers={"X-API-Key": "invalid-api-key"})
 
@@ -50,7 +50,7 @@ def test_protected_endpoint_invalid_api_key_returns_401():
     assert response.json() == {"detail": {"error": "unauthorized", "reason": "Missing or invalid API key"}}
 
 
-def test_protected_endpoint_valid_api_key_succeeds():
+def test_protected_endpoint_with_valid_api_key():
     with patch.object(config, "AUTH_API_KEYS", [VALID_API_KEY]):
         response = client.post("/v1/permit", json={"subject": VALID_SUBJECT}, headers={"X-API-Key": VALID_API_KEY})
 
