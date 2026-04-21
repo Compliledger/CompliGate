@@ -16,6 +16,23 @@ def xrpl_health():
     return get_xrpl_health_status()
 
 
+@router.get("/v1/xrpl/tx/{tx_hash}", dependencies=[Depends(require_request_auth)])
+def xrpl_tx_lookup(tx_hash: str):
+    return lookup_xrpl_transaction(tx_hash)
+
+
+@router.get("/v1/xrpl/account/{address}/trustlines", dependencies=[Depends(require_request_auth)])
+def xrpl_account_trustlines(address: str):
+    return get_account_trustlines_summary(address, fetch_account_lines)
+
+
+@router.post("/v1/xrpl/trustline/check", dependencies=[Depends(require_request_auth)])
+def xrpl_trustline_check(req: TrustlineCheckRequest):
+    return validate_trustline_check(req.address, config.RLUSD_ISSUER, config.RLUSD_CURRENCY, fetch_account_lines)
+
+
+@router.post("/v1/xrpl/payment", response_model=XRPLPaymentResponse, dependencies=[Depends(require_request_auth)])
+def xrpl_payment(req: XRPLPaymentRequest):
 @router.get("/v1/xrpl/tx/{tx_hash}")
 def xrpl_tx_lookup(tx_hash: str, _: None = Depends(require_request_auth)):
     return lookup_xrpl_transaction(tx_hash)
