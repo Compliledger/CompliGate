@@ -21,6 +21,7 @@ except ImportError:
     IssuedCurrencyAmount = None
     Memo = None
     Wallet = None  # type: ignore[assignment]
+    Wallet = None
 
 logger = get_logger("main")
 
