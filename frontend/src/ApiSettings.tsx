@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import {
   API_BASE,
+  API_KEY_HEADER,
   clearApiKey,
   getApiKey,
   isUsingEnvApiKey,
@@ -82,7 +83,7 @@ export default function ApiSettings() {
             autoComplete="off"
           />
           <p className="muted apiSettingsHint">
-            Sent as the <code>X-API-Key</code> header to <code>{API_BASE}</code>.
+            Sent as the <code>{API_KEY_HEADER}</code> header to <code>{API_BASE}</code>.
             Stored in this browser only. Leave empty to use the build-time default
             (<code>VITE_API_KEY</code>) if one was provided.
           </p>
