@@ -31,6 +31,10 @@ def _get_api_keys() -> list[str]:
     return _get_csv("AUTH_API_KEYS", "")
 
 
+def _get_api_key_header_name() -> str:
+    return os.getenv("API_KEY_HEADER_NAME", _DEFAULT_API_KEY_HEADER_NAME).strip() or _DEFAULT_API_KEY_HEADER_NAME
+
+
 @dataclass(frozen=True)
 class Settings:
     POLICY_VERSION: str
@@ -76,8 +80,7 @@ def _build_settings() -> Settings:
         PERMIT_TTL_SECONDS=_get_int("PERMIT_TTL_SECONDS", "300"),
         PERMIT_CONTEXT_CACHE_MAX_ITEMS=_get_int("PERMIT_CONTEXT_CACHE_MAX_ITEMS", "1000"),
         API_KEY_ENABLED=_get_bool("API_KEY_ENABLED", "true"),
-        API_KEY_HEADER_NAME=os.getenv("API_KEY_HEADER_NAME", _DEFAULT_API_KEY_HEADER_NAME).strip()
-        or _DEFAULT_API_KEY_HEADER_NAME,
+        API_KEY_HEADER_NAME=_get_api_key_header_name(),
         API_KEYS=api_keys,
         DATABASE_URL=os.getenv("DATABASE_URL", "").strip(),
         AUTH_API_KEYS=api_keys,
@@ -105,9 +108,7 @@ XRPL_REQUIRE_TRUSTLINE = os.getenv("XRPL_REQUIRE_TRUSTLINE", "false").lower() in
 PERMIT_TTL_SECONDS = int(os.getenv("PERMIT_TTL_SECONDS", "300"))
 PERMIT_CONTEXT_CACHE_MAX_ITEMS = int(os.getenv("PERMIT_CONTEXT_CACHE_MAX_ITEMS", "1000"))
 API_KEY_ENABLED = _get_bool("API_KEY_ENABLED", "true")
-API_KEY_HEADER_NAME = (
-    os.getenv("API_KEY_HEADER_NAME", _DEFAULT_API_KEY_HEADER_NAME).strip() or _DEFAULT_API_KEY_HEADER_NAME
-)
+API_KEY_HEADER_NAME = _get_api_key_header_name()
 API_KEYS = _get_api_keys()
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 AUTH_API_KEYS = API_KEYS
