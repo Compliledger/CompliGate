@@ -42,23 +42,90 @@ function checkSymbol(valid: boolean) {
   return valid ? "✔" : "✘";
 }
 
-function xrplConfiguredLabel(health: XRPLHealthResponse | null): string {
-  if (!health) return "Checking...";
-  return health.configured ? "Configured" : "Not Configured";
-}
-
-function xrplReachableLabel(health: XRPLHealthResponse | null): string {
-  if (!health) return "Checking...";
-  return health.reachable ? "Reachable" : "Unreachable";
-}
-
-function xrplNetworkLabel(health: XRPLHealthResponse | null): string {
-  if (!health) return "Checking...";
-  return health.network || "Unknown";
-}
-
 function PanelNumber({ n }: { n: number }) {
   return <span className="panelNumber">{n}</span>;
+}
+
+type BadgeTone = "neutral" | "good" | "warn" | "bad";
+
+type HealthBadge = {
+  label: string;
+  value: string;
+  tone: BadgeTone;
+};
+
+function buildXrplHealthBadges(health: XRPLHealthResponse | null): HealthBadge[] {
+  if (!health) {
+    return [
+      { label: "Configured", value: "Checking…", tone: "neutral" },
+      { label: "Reachable", value: "Checking…", tone: "neutral" },
+      { label: "Network", value: "Checking…", tone: "neutral" },
+      { label: "RLUSD", value: "Checking…", tone: "neutral" },
+      { label: "Signing", value: "Checking…", tone: "neutral" },
+    ];
+  }
+
+  const badges: HealthBadge[] = [
+    {
+      label: "Configured",
+      value: health.configured ? "Yes" : "No",
+      tone: health.configured ? "good" : "bad",
+    },
+    {
+      label: "Reachable",
+      value: health.reachable ? "Yes" : "No",
+      // Reachability only matters once configured; surface as warn when not
+      // configured so it does not look like a hard failure.
+      tone: health.reachable ? "good" : health.configured ? "bad" : "warn",
+    },
+    {
+      label: "Network",
+      value: health.network || "Unknown",
+      tone: health.network ? "neutral" : "warn",
+    },
+    {
+      label: "RLUSD",
+      value: health.rlusd_configured ? "Configured" : "Not configured",
+      tone: health.rlusd_configured ? "good" : "warn",
+    },
+  ];
+
+  // Demo wallet badge is only rendered if the backend reports it as still
+  // configured — surface it as a warning so operators notice it's present.
+  if (health.demo_wallet_configured) {
+    badges.push({
+      label: "Demo wallet",
+      value: "Configured",
+      tone: "warn",
+    });
+  }
+
+  if (health.signing_enabled !== undefined) {
+    badges.push({
+      label: "Signing",
+      value: health.signing_enabled ? "Enabled" : "Disabled",
+      tone: health.signing_enabled ? "good" : "warn",
+    });
+  }
+
+  if (health.signing_mode !== undefined) {
+    const mode = health.signing_mode || "unknown";
+    badges.push({
+      label: "Signing mode",
+      value: mode,
+      tone: mode === "disabled" || mode === "unknown" ? "warn" : "neutral",
+    });
+  }
+
+  if (health.signer_configured !== undefined) {
+    badges.push({
+      label: "Signer",
+      value: health.signer_configured ? "Configured" : "Not configured",
+      tone: health.signer_configured ? "good" : "warn",
+    });
+  }
+
+  return badges;
 }
 
 export default function App() {
@@ -275,22 +342,13 @@ export default function App() {
 
       <div className="adapterBar">
         <span className="adapterBarLabel">XRPL Network</span>
-        <span className={`badge ${xrplHealth === null ? "neutral" : xrplHealth.configured ? "good" : "bad"}`}>
-          <span className="badgeDot" />
-          {xrplConfiguredLabel(xrplHealth)}
-        </span>
-        <span className={`badge ${xrplHealth === null ? "neutral" : xrplHealth.reachable ? "good" : "bad"}`}>
-          <span className="badgeDot" />
-          {xrplReachableLabel(xrplHealth)}
-        </span>
-        <span className="badge neutral">
-          <span className="badgeDot" />
-          {xrplNetworkLabel(xrplHealth)}
-        </span>
-        <span className={`badge ${xrplHealth === null ? "neutral" : xrplHealth.rlusd_configured ? "good" : "bad"}`}>
-          <span className="badgeDot" />
-          {xrplHealth === null ? "Checking..." : xrplHealth.rlusd_configured ? "RLUSD Configured" : "RLUSD Not Configured"}
-        </span>
+        {buildXrplHealthBadges(xrplHealth).map((badge) => (
+          <span key={badge.label} className={`badge ${badge.tone}`} title={badge.label}>
+            <span className="badgeDot" />
+            <span className="badgeLabel">{badge.label}:</span>
+            <span className="badgeValue">{badge.value}</span>
+          </span>
+        ))}
       </div>
 
       <ApiSettings />

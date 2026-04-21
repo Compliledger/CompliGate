@@ -452,6 +452,15 @@ pre {
 .badge.bad .badgeDot      { background: var(--bad); }
 .badge.anchored .badgeDot { background: var(--anchored); }
 
+.badgeLabel {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.badgeValue {
+  font-weight: 700;
+}
+
 /* ── Expiry progress bar (Panel 2) ── */
 
 .expiryBarWrap {
