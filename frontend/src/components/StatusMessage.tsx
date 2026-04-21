@@ -76,7 +76,12 @@ export default function StatusMessage({
   const resolvedTitle = title ?? DEFAULT_TITLES[variant];
 
   return (
-    <div className={classes} role={variant === "error" ? "alert" : "status"}>
+    <div
+      className={classes}
+      role={variant === "error" ? "alert" : "status"}
+      aria-live={variant === "loading" ? "polite" : undefined}
+      aria-busy={variant === "loading" ? true : undefined}
+    >
       <span className="statusMessageIcon" aria-hidden="true">
         {variant === "loading" ? <span className="statusMessageSpinner" /> : ICONS[variant]}
       </span>
