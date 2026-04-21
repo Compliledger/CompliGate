@@ -2,6 +2,7 @@ import { useState, type KeyboardEvent } from "react";
 
 import { apiPost, describeError } from "../lib/api";
 import { useCopyToClipboard } from "../lib/useCopyToClipboard";
+import PanelNumber from "./PanelNumber";
 import StatusMessage from "./StatusMessage";
 import type { PermitResponse, XRPLPaymentResponse } from "../types/api";
 
@@ -10,10 +11,6 @@ type XRPLPaymentRequestBody = {
   amount: string;
   memo_bundle_hash?: string;
 };
-
-function PanelNumber({ n }: { n: number }) {
-  return <span className="panelNumber">{n}</span>;
-}
 
 type Props = {
   /**
