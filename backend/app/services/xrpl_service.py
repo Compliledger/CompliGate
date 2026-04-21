@@ -46,6 +46,29 @@ def get_demo_wallet() -> "Wallet | None":
     return Wallet.from_seed(config.XRPL_DEMO_WALLET_SEED)
 
 
+def get_signing_wallet() -> "Wallet | None":
+    if not _XRPL_SDK_AVAILABLE:
+        logger.warning("xrpl-py SDK is not installed – signing wallet unavailable")
+        return None
+    if config.XRPL_SIGNING_SEED:
+        try:
+            return Wallet.from_seed(config.XRPL_SIGNING_SEED)
+        except Exception:
+            logger.error("invalid_xrpl_signing_seed")
+            return None
+    if config.XRPL_DEMO_WALLET_SEED:
+        if config.XRPL_NETWORK.lower() == "mainnet":
+            logger.error("demo_seed_refused_on_mainnet")
+            return None
+        logger.warning("xrpl_signing_seed_not_set_falling_back_to_demo_seed")
+        try:
+            return Wallet.from_seed(config.XRPL_DEMO_WALLET_SEED)
+        except Exception:
+            logger.error("invalid_xrpl_demo_wallet_seed")
+            return None
+    return None
+
+
 def get_account_info(address: str) -> dict:
     client = get_xrpl_client()
     if client is None:
@@ -194,11 +217,11 @@ def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
             detail={"error": "xrpl_not_configured", "reason": "XRPL_RPC_URL is not configured"},
         )
 
-    wallet = get_demo_wallet()
+    wallet = get_signing_wallet()
     if wallet is None:
         raise HTTPException(
             status_code=400,
-            detail={"error": "demo_wallet_not_configured", "reason": "XRPL_DEMO_WALLET_SEED is not configured"},
+            detail={"error": "signing_wallet_not_configured", "reason": "XRPL_SIGNING_SEED is not configured"},
         )
 
     amount_value = str(req.amount)

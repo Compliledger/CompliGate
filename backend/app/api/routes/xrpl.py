@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.core.auth import require_request_auth
 from app.core import config
 from app.models.xrpl import TrustlineCheckRequest, XRPLPaymentRequest, XRPLPaymentResponse
 from app.services.trustline_service import enforce_destination_trustline, get_account_trustlines_summary, validate_trustline_check
 from app.services.xrpl_service import fetch_account_lines, get_xrpl_health_status, lookup_xrpl_transaction, submit_xrpl_payment
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_request_auth)])
 
 
 @router.get("/v1/xrpl/health")

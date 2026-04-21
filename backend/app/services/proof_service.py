@@ -7,6 +7,7 @@ from app.core import config
 from app.core.logging import get_logger
 from app.models.proof import ProofArtifact, build_proof_artifact
 from app.services.policy_service import REASON_CODES, validate_action, validate_amount, validate_subject
+from app.services.storage_service import save_proof_artifact
 from app.utils.hashing import proof_hash
 
 logger = get_logger("main")
@@ -58,7 +59,9 @@ def create_proof_artifact_from_permit_req(req) -> ProofArtifact:
         config.POLICY_VERSION,
         artifact_hash,
     )
-    return build_proof_artifact(**core, bundle_hash=artifact_hash)
+    artifact = build_proof_artifact(**core, bundle_hash=artifact_hash)
+    save_proof_artifact(bundle_hash=artifact_hash, artifact=artifact, artifact_type="permit_request")
+    return artifact
 
 
 def create_permit_proof_artifact(

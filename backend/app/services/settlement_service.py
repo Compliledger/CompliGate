@@ -7,6 +7,7 @@ from app.models.proof import build_proof_artifact
 from app.models.xrpl import SettlementVerifyByHashResponse
 from app.services.permit_service import get_recent_permit_context
 from app.services.policy_service import ASSET_CLASSIFICATION_REGULATED_STABLECOIN, MAX_AMOUNT
+from app.services.storage_service import get_permit_context
 from app.services.xrpl_service import fetch_xrpl_transaction as _fetch_xrpl_transaction
 from app.services.xrpl_service import normalize_xrpl_amount
 
@@ -300,6 +301,8 @@ def _parse_first_memo(tx_payload: dict) -> str | None:
 
 def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerifyByHashResponse:
     permit_context = get_recent_permit_context(bundle_hash)
+    if permit_context is None:
+        permit_context = get_permit_context(bundle_hash)
     permit_bundle = permit_context.get("bundle") if permit_context else None
 
     tx_data = fetch_xrpl_transaction(tx_hash)

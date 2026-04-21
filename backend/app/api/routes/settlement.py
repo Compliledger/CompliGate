@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 import base64
+import time
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.core.auth import require_request_auth
 from app.core import config
 from app.core.logging import get_logger
 from app.core.security import VERIFY_KEY
 from app.models.proof import build_proof_artifact
 from app.models.xrpl import SettlementVerifyByHashRequest, SettlementVerifyByHashResponse, SettlementVerifyRequest
 from app.services.settlement_service import fetch_xrpl_transaction, verify_settlement_against_permit, verify_settlement_by_hash as verify_settlement_by_hash_service
+from app.services.storage_service import save_proof_artifact
 from app.utils.canonical_json import canonical_json
 from app.utils.hashing import proof_hash
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_request_auth)])
 logger = get_logger("main")
 
 
@@ -83,6 +86,7 @@ def verify_settlement(req: SettlementVerifyRequest):
         result["settlement_verified"],
         expired,
     )
+    save_proof_artifact(bundle_hash=bundle_hash, artifact=proof_artifact, artifact_type="settlement_verify")
 
     return {
         "settlement_verified": result["settlement_verified"],
@@ -101,6 +105,7 @@ def verify_settlement(req: SettlementVerifyRequest):
 @router.post("/v1/settlement/verify", response_model=SettlementVerifyByHashResponse)
 def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
     result = verify_settlement_by_hash_service(req.bundle_hash, req.tx_hash)
+    save_proof_artifact(bundle_hash=req.bundle_hash, artifact=result.proof_artifact, artifact_type="settlement_verify_by_hash")
     logger.info(
         "settlement_verify tx_hash=%s bundle_hash=%s decision=%s",
         req.tx_hash,
