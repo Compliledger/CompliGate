@@ -3,11 +3,11 @@ import "./App.css";
 import RequestPermitPanel from "./RequestPermitPanel";
 import ApiSettings from "./ApiSettings";
 import EnvWarnings from "./EnvWarnings";
+import TrustlineCheckPanel from "./components/TrustlineCheckPanel";
 import { apiGet, apiPost, describeError } from "./lib/api";
 import type {
   PermitResponse,
   SettlementVerifyResponse,
-  TrustlineCheckResponse,
   VerifyResponse,
   XRPLHealthResponse,
 } from "./types/api";
@@ -139,10 +139,6 @@ export default function App() {
   const [settlementResult, setSettlementResult] = useState<SettlementVerifyResponse | null>(null);
   const [settlementError, setSettlementError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
-  const [trustlineAddress, setTrustlineAddress] = useState("");
-  const [trustlineResult, setTrustlineResult] = useState<TrustlineCheckResponse | null>(null);
-  const [trustlineError, setTrustlineError] = useState<string | null>(null);
-  const [trustlineLoading, setTrustlineLoading] = useState(false);
   const [txLookupHash, setTxLookupHash] = useState("");
   const [txLookupResult, setTxLookupResult] = useState<TxLookupResponse | null>(null);
   const [txLookupError, setTxLookupError] = useState<string | null>(null);
@@ -282,24 +278,6 @@ export default function App() {
       );
     } catch {
       // silent fail — clipboard API unavailable
-    }
-  }
-
-  async function checkTrustlines() {
-    if (!trustlineAddress.trim()) return;
-    setTrustlineError(null);
-    setTrustlineResult(null);
-    setTrustlineLoading(true);
-
-    try {
-      const data = await apiPost<TrustlineCheckResponse>("/v1/xrpl/trustline/check", {
-        address: trustlineAddress.trim(),
-      });
-      setTrustlineResult(data);
-    } catch (e: unknown) {
-      setTrustlineError(describeError(e, "Failed to check trustline."));
-    } finally {
-      setTrustlineLoading(false);
     }
   }
 
@@ -935,88 +913,7 @@ export default function App() {
 
         {/* Panel 2: Check Trustline */}
         <section className="card" style={{ order: 2 }}>
-          <h2><PanelNumber n={2} />Check Trustline</h2>
-          <p className="muted">
-            Check whether an XRPL address currently has the expected trustline.
-          </p>
-
-          <label className="label">Account Address</label>
-          <input
-            className="input"
-            value={trustlineAddress}
-            onChange={(e) => setTrustlineAddress(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && trustlineAddress.trim() && !trustlineLoading) checkTrustlines();
-            }}
-            placeholder="r..."
-            spellCheck={false}
-          />
-
-          <div className="row">
-            <button
-              className="btn primary"
-              onClick={checkTrustlines}
-              disabled={!trustlineAddress.trim() || trustlineLoading}
-            >
-              {trustlineLoading ? "Checking…" : "Check Trustline"}
-            </button>
-            <button
-              className="btn"
-              onClick={() => {
-                setTrustlineAddress("");
-                setTrustlineResult(null);
-                setTrustlineError(null);
-              }}
-            >
-              Clear
-            </button>
-          </div>
-
-          {trustlineResult && (
-            <div className="verifyResult">
-              <div className={`verifyHeader ${trustlineResult.trustline_exists ? "good" : "bad"}`}>
-                <span className={`verifyIcon ${trustlineResult.trustline_exists ? "good" : "bad"}`}>
-                  {trustlineResult.trustline_exists ? "✔" : "✘"}
-                </span>
-                {trustlineResult.trustline_exists ? "Trustline Found" : "Trustline Not Found"}
-              </div>
-
-              <div className="verifyRows">
-                <div className="verifyRow">
-                  <span className={checkClass(trustlineResult.trustline_exists)}>
-                    {checkSymbol(trustlineResult.trustline_exists)}
-                  </span>
-                  <span className="summaryLabel">Trustline Exists</span>
-                  <span className="summaryValue">{trustlineResult.trustline_exists ? "Yes" : "No"}</span>
-                </div>
-                <div className="verifyRow">
-                  <span className={checkClass(Boolean(trustlineResult.issuer))}>
-                    {checkSymbol(Boolean(trustlineResult.issuer))}
-                  </span>
-                  <span className="summaryLabel">Issuer</span>
-                  <span className="summaryValue commitValueMono breakAll">
-                    {trustlineResult.issuer ?? "—"}
-                  </span>
-                </div>
-                <div className="verifyRow">
-                  <span className={checkClass(Boolean(trustlineResult.currency))}>
-                    {checkSymbol(Boolean(trustlineResult.currency))}
-                  </span>
-                  <span className="summaryLabel">Currency</span>
-                  <span className="summaryValue">{trustlineResult.currency ?? "—"}</span>
-                </div>
-                <div className="verifyRow">
-                  <span className={checkClass(true)}>
-                    {checkSymbol(true)}
-                  </span>
-                  <span className="summaryLabel">Raw Lines Checked</span>
-                  <span className="summaryValue">{trustlineResult.raw_lines_checked}</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {trustlineError && <div className="alert bad">{trustlineError}</div>}
+          <TrustlineCheckPanel panelNumber={2} />
         </section>
 
         {/* Supplemental: XRPL Transaction Lookup */}
