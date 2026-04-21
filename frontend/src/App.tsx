@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import RequestPermitPanel, { type PermitResponse, type PermitConstraints } from "./RequestPermitPanel";
 import ApiSettings from "./ApiSettings";
-import { apiFetch, describeError } from "./api";
+import { apiGet, apiPost, describeError } from "./lib/api";
 
 type VerifyResponse = {
   signature_valid: boolean;
@@ -123,7 +123,7 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<XrplHealth>("/v1/xrpl/health")
+    apiGet<XrplHealth>("/v1/xrpl/health")
       .then((d) => {
         if (!cancelled) setXrplHealth(d);
       })
@@ -194,9 +194,9 @@ export default function App() {
     setVerifyResult(null);
 
     try {
-      const data = await apiFetch<unknown>("/v1/verify", {
-        method: "POST",
-        json: { bundle: permit.bundle, signature: permit.signature },
+      const data = await apiPost<unknown>("/v1/verify", {
+        bundle: permit.bundle,
+        signature: permit.signature,
       });
       if (
         !data ||
@@ -220,12 +220,9 @@ export default function App() {
     setVerifying(true);
 
     try {
-      const data = await apiFetch<SettlementVerifyNewResponse>("/v1/settlement/verify", {
-        method: "POST",
-        json: {
-          bundle_hash: permit.bundle_hash,
-          tx_hash: settledTxHash.trim(),
-        },
+      const data = await apiPost<SettlementVerifyNewResponse>("/v1/settlement/verify", {
+        bundle_hash: permit.bundle_hash,
+        tx_hash: settledTxHash.trim(),
       });
       setSettlementResult(data);
     } catch (e: unknown) {
@@ -256,9 +253,8 @@ export default function App() {
     setTrustlineLoading(true);
 
     try {
-      const data = await apiFetch<TrustlineCheckResponse>("/v1/xrpl/trustline/check", {
-        method: "POST",
-        json: { address: trustlineAddress.trim() },
+      const data = await apiPost<TrustlineCheckResponse>("/v1/xrpl/trustline/check", {
+        address: trustlineAddress.trim(),
       });
       setTrustlineResult(data);
     } catch (e: unknown) {
@@ -275,7 +271,7 @@ export default function App() {
     setTxLookupLoading(true);
 
     try {
-      const data = await apiFetch<TxLookupResponse>(
+      const data = await apiGet<TxLookupResponse>(
         `/v1/xrpl/tx/${encodeURIComponent(txLookupHash.trim())}`,
       );
       setTxLookupResult(data);

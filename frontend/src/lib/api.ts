@@ -11,7 +11,7 @@
  *    so feature components do not duplicate fetch boilerplate.
  */
 
-import { API_BASE, API_KEY, DEFAULT_TIMEOUT_MS } from "./config";
+import { API_BASE, API_KEY, DEFAULT_TIMEOUT_MS } from "../config";
 
 export { API_BASE, DEFAULT_TIMEOUT_MS };
 
@@ -237,4 +237,33 @@ export function describeError(err: unknown, fallback = "Request failed."): strin
   if (err instanceof ApiError) return err.message;
   if (err instanceof Error) return err.message;
   return fallback;
+}
+
+/** Options accepted by the GET/POST convenience helpers. */
+export type ApiRequestOptions = Omit<ApiFetchOptions, "method" | "json" | "body">;
+
+/**
+ * Issue a GET request against the CompliGate backend.
+ * See `apiFetch` for base URL, API key, timeout and error handling semantics.
+ */
+export function apiGet<T = unknown>(
+  path: string,
+  options: ApiRequestOptions = {},
+): Promise<T> {
+  return apiFetch<T>(path, { ...options, method: "GET" });
+}
+
+/**
+ * Issue a POST request against the CompliGate backend.
+ *
+ * When `json` is provided it is serialized as the request body and
+ * `Content-Type: application/json` is set automatically. Pass `undefined`
+ * to POST without a body.
+ */
+export function apiPost<T = unknown>(
+  path: string,
+  json?: unknown,
+  options: ApiRequestOptions = {},
+): Promise<T> {
+  return apiFetch<T>(path, { ...options, method: "POST", json });
 }

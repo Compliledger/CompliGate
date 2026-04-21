@@ -7,7 +7,7 @@ import {
   isUsingEnvApiKey,
   setApiKey,
   subscribeToApiKey,
-} from "./api";
+} from "./lib/api";
 
 /**
  * Compact UI for entering / clearing the API key used by the frontend when
