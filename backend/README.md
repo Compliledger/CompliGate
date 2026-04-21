@@ -147,6 +147,21 @@ pytest tests/
 
 ---
 
+## Database Migrations (Alembic)
+
+Alembic is initialized in `backend/alembic/` and configured to read `DATABASE_URL` from `app/core/config.py`.
+
+Common commands:
+
+```bash
+cd backend
+python3 -m alembic current
+python3 -m alembic revision --autogenerate -m "describe change"
+python3 -m alembic upgrade head
+```
+
+---
+
 ## Docker
 
 ```bash
