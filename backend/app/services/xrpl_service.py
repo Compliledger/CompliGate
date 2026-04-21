@@ -180,33 +180,6 @@ def lookup_xrpl_transaction(tx_hash: str) -> dict:
     }
 
 
-def get_account_trustlines_summary(address: str) -> dict:
-    if not config.XRPL_RPC_URL:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "xrpl_not_configured", "reason": "XRPL_RPC_URL is not configured"},
-        )
-
-    from app.services.trustline_service import check_rlusd_trustline
-
-    lines = fetch_account_lines(address)
-    rlusd_check = check_rlusd_trustline(lines)
-
-    logger.info(
-        "xrpl_trustline_check address=%s has_rlusd_trustline=%s",
-        address,
-        rlusd_check["has_trustline"],
-    )
-
-    return {
-        "address": address,
-        "network": config.XRPL_NETWORK,
-        "trustline_count": len(lines),
-        "rlusd_trustline": rlusd_check,
-        "lines": lines,
-    }
-
-
 def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
     if submit_and_wait is None or IssuedCurrencyAmount is None or Memo is None or Payment is None:
         raise HTTPException(
@@ -227,25 +200,6 @@ def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
             status_code=400,
             detail={"error": "demo_wallet_not_configured", "reason": "XRPL_DEMO_WALLET_SEED is not configured"},
         )
-
-    if config.XRPL_REQUIRE_TRUSTLINE:
-        from app.services.trustline_service import validate_trustline
-
-        trustline_result = validate_trustline(req.destination, config.RLUSD_ISSUER, config.RLUSD_CURRENCY)
-        if not trustline_result.get("trustline_exists", False):
-            reason_codes = ["TRUSTLINE_REQUIRED", "TRUSTLINE_NOT_SATISFIED"]
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "trustline_required",
-                    "reason": "destination must have trustline for configured RLUSD issuer/currency",
-                    "reason_codes": reason_codes,
-                    "destination": req.destination,
-                    "issuer": config.RLUSD_ISSUER,
-                    "currency": config.RLUSD_CURRENCY,
-                    "raw_lines_checked": trustline_result.get("raw_lines_checked", 0),
-                },
-            )
 
     amount_value = str(req.amount)
 
