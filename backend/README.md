@@ -100,24 +100,140 @@ A Proof Bundle is the output of a successful permit issuance. It contains:
 
 ---
 
+## Persistence (PostgreSQL)
+
+CompliGate persists issued permits and proof artifacts in **PostgreSQL**. A reachable PostgreSQL instance is required for any non-trivial deployment, and is strongly recommended for local development to match production behavior.
+
+- Connection is configured via `DATABASE_URL` (SQLAlchemy URL, psycopg driver), e.g.:
+  ```
+  postgresql+psycopg://<user>:<password>@localhost:5432/compligate
+  ```
+- Schema is managed by Alembic — see [Database Migrations](#database-migrations-alembic). Migrations are **not** auto-applied on startup; run them explicitly before booting the API.
+- `DATABASE_URL` must be set in production. Leaving it unset is only intended for narrow local experimentation and is not a supported runtime configuration.
+
+---
+
+## Database Migrations (Alembic)
+
+Alembic is initialized in `backend/alembic/` and reads `DATABASE_URL` from `app/core/config.py`. Revision scripts live in `backend/alembic/versions/`.
+
+Common commands (run from `backend/` with `DATABASE_URL` exported or present in `.env`):
+
+```bash
+# Show the current revision applied to the database
+python3 -m alembic current
+
+# Generate a new revision from model changes
+python3 -m alembic revision --autogenerate -m "describe change"
+
+# Apply migrations up to the latest revision
+python3 -m alembic upgrade head
+
+# Roll back the most recent migration
+python3 -m alembic downgrade -1
+```
+
+Always run `alembic upgrade head` before starting the API after a fresh checkout, after pulling new code, or as part of any deployment.
+
+---
+
+## Authentication (API Keys)
+
+All `/v1/*` endpoints are protected by API key authentication when keys are configured. `/health` and `/public-key` remain public.
+
+- **Enable/disable**: `API_KEY_ENABLED` (default `true`). When disabled, requests are not authenticated — only appropriate for local development.
+- **Header name**: configurable via `API_KEY_HEADER_NAME` (default `X-API-Key`).
+- **Configured keys**: `API_KEYS` is the preferred variable (comma-separated). `AUTH_API_KEYS` is a legacy fallback kept for backward compatibility; `API_KEYS` takes precedence when both are set.
+- **Supported request formats**:
+  - `X-API-Key: <key>` (or whatever header is configured via `API_KEY_HEADER_NAME`)
+  - `Authorization: Bearer <key>`
+  - `Authorization: <key>` (raw value)
+- If no keys are configured, authentication is effectively a no-op. Configure at least one key in any shared or production environment.
+
+Example:
+
+```bash
+curl -H "X-API-Key: $COMPLIGATE_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"subject":"r...","action":"transfer","amount":1000.00}' \
+     https://your-host/v1/permit
+```
+
+---
+
+## XRPL Signing
+
+The `/v1/xrpl/payment` endpoint can sign and submit XRPL transactions on behalf of the operator. Signing is gated by both a master kill switch and an explicit signing **mode**.
+
+### Signing modes (`XRPL_SIGNING_MODE`)
+
+| Mode | Behavior | Intended use |
+|------|----------|--------------|
+| `seed` | Local seed-based signing using `XRPL_SIGNER_SEED` (or legacy `XRPL_SIGNING_SEED` as fallback). Use a testnet or devnet seed only. | Development and staging only. Do **not** use a mainnet seed here. |
+| `disabled` | Signing is turned off. The payment endpoint returns a structured error. | Environments where CompliGate must never sign (e.g., authorization-only deployments). |
+| `external` | Placeholder for a future HSM / custody signer integration. Not implemented yet — endpoint returns a structured "not implemented" error. | Reserved for production custody integration. |
+
+### Kill switch
+
+`XRPL_SIGNING_ENABLED` (default `true`) is a master switch. When set to `false`, the payment endpoint returns a structured error regardless of the configured `XRPL_SIGNING_MODE`. Use this to disable signing without changing mode configuration.
+
+### Signer binding
+
+`XRPL_SIGNER_ADDRESS` is optional. When set, the seed must derive to this XRPL classic address; if it does not, signing is refused. This guards against misconfiguration where the wrong seed is loaded into an environment.
+
+---
+
 ## Environment Variables
+
+### Core / policy
 
 | Variable | Description |
 |----------|-------------|
-| `POLICY_VERSION` | Policy identifier embedded in every Proof Bundle (e.g., `RLUSD_US_v1`) |
-| `JURISDICTION` | Jurisdiction code included in the bundle (e.g., `US`) |
-| `CURRENCY` | Currency code bound to the permit (e.g., `RLUSD`) |
-| `ISSUER_ADDRESS` | Issuer address bound to the permit |
-| `COMPLIGATE_PRIVATE_KEY_B64` | Base64-encoded Ed25519 seed (32 bytes). If blank, an ephemeral key is generated on startup. |
-| `CORS_ORIGINS` | Comma-separated list of allowed CORS origins |
-| `API_KEY_ENABLED` | Enables API key auth configuration. Set to `false` to disable in local development. |
-| `API_KEY_HEADER_NAME` | Header name used for API key auth (default: `X-API-Key`). |
-| `API_KEYS` | Comma-separated API keys used by auth configuration. |
-| `AUTH_API_KEYS` | Legacy fallback for API keys; maintained for backward compatibility, but `API_KEYS` is preferred for new deployments. |
-| `DATABASE_URL` | PostgreSQL connection URL used to persist permits and proof artifacts (e.g., `postgresql+psycopg://...`) |
-| `XRPL_RPC_URL` | XRPL JSON-RPC URL for settlement verification (default: XRPL Testnet) |
-| `XRPL_NETWORK` | XRPL network name used in verification metadata (e.g., `xrpl_testnet`) |
-| `XRPL_SIGNING_SEED` | Production signing seed for `/v1/xrpl/payment`; falls back to demo seed only outside mainnet |
+| `POLICY_VERSION` | Policy identifier embedded in every Proof Bundle (e.g., `RLUSD_US_v1`). |
+| `JURISDICTION` | Jurisdiction code included in the bundle (e.g., `US`). |
+| `CURRENCY` | Currency code bound to the permit (e.g., `RLUSD`). |
+| `ISSUER_ADDRESS` | Issuer address bound to the permit. |
+| `COMPLIGATE_PRIVATE_KEY_B64` | Base64-encoded Ed25519 seed (32 bytes) used to sign Proof Bundles. **Required in production.** If blank, an ephemeral key is generated on startup (dev only). |
+| `CORS_ORIGINS` | Comma-separated list of allowed CORS origins. |
+| `PERMIT_TTL_SECONDS` | Permit time-to-live in seconds (default: `300`). |
+| `PERMIT_CONTEXT_CACHE_MAX_ITEMS` | Max in-memory recent permit contexts retained (default: `1000`). |
+
+### Persistence
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection URL (e.g., `postgresql+psycopg://user:pass@host:5432/compligate`). Required in production. |
+
+### API key auth
+
+| Variable | Description |
+|----------|-------------|
+| `API_KEY_ENABLED` | Enables API key auth (default: `true`). Set to `false` only for local development. |
+| `API_KEY_HEADER_NAME` | Header used for API key auth (default: `X-API-Key`). |
+| `API_KEYS` | Comma-separated valid API keys. Preferred variable. |
+| `AUTH_API_KEYS` | Legacy fallback for API keys; `API_KEYS` takes precedence when both are set. |
+
+### XRPL network & RLUSD
+
+| Variable | Description |
+|----------|-------------|
+| `XRPL_RPC_URL` | XRPL JSON-RPC URL used for settlement verification and submission (default: XRPL Testnet). |
+| `XRPL_NETWORK` | XRPL network identifier used in verification metadata (e.g., `xrpl_testnet`, `mainnet`). |
+| `XRPL_DEMO_WALLET_SEED` | Seed for the demo XRPL wallet — **testnet only**. Never set to a mainnet seed. |
+| `RLUSD_ISSUER` | RLUSD issuer address on XRPL. Leave blank to skip issuer validation. |
+| `RLUSD_CURRENCY` | RLUSD currency code (default: `RLUSD`). |
+| `XRPL_REQUIRE_TRUSTLINE` | Require trustline for RLUSD before settlement (default: `true`). |
+| `XRPL_ENFORCE_RLUSD_ONLY` | Reject non-RLUSD payments (default: `false`). |
+
+### XRPL signing
+
+| Variable | Description |
+|----------|-------------|
+| `XRPL_SIGNING_MODE` | One of `seed`, `disabled`, `external` (default: `seed`). See [XRPL Signing](#xrpl-signing). |
+| `XRPL_SIGNING_ENABLED` | Master kill switch for signing (default: `true`). |
+| `XRPL_SIGNER_ADDRESS` | Optional. Expected XRPL classic address of the signer; seed must derive to this address. |
+| `XRPL_SIGNER_SEED` | Seed used by the `seed` signing mode. Preferred over `XRPL_SIGNING_SEED`. |
+| `XRPL_SIGNING_SEED` | Legacy signing seed kept for backward compatibility; used as a fallback when `XRPL_SIGNER_SEED` is not set. |
 
 Copy `.env.example` to `.env` and fill in values before running locally.
 
@@ -125,16 +241,73 @@ Copy `.env.example` to `.env` and fill in values before running locally.
 
 ## Running Locally
 
-```bash
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-uvicorn app.main:app --reload --port 8000
-```
+Local startup assumes a reachable PostgreSQL instance. The recommended flow:
+
+1. **Provision PostgreSQL** (locally or via Docker) and create a database, e.g.:
+   ```bash
+   createdb compligate
+   ```
+2. **Configure environment**:
+   ```bash
+   cd backend
+   cp .env.example .env
+   # Edit .env and set at minimum:
+   #   DATABASE_URL=postgresql+psycopg://<user>:<pass>@localhost:5432/compligate
+   #   API_KEYS=<a-local-dev-key>            # or set API_KEY_ENABLED=false
+   #   XRPL_SIGNING_MODE=seed | disabled
+   #   XRPL_SIGNER_SEED=<testnet-seed>       # only if XRPL_SIGNING_MODE=seed
+   ```
+3. **Install dependencies**:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+4. **Apply database migrations**:
+   ```bash
+   python3 -m alembic upgrade head
+   ```
+5. **Start the API**:
+   ```bash
+   uvicorn app.main:app --reload --port 8000
+   ```
 
 The API will be available at `http://localhost:8000`. Interactive docs are at `http://localhost:8000/docs`.
+
+---
+
+## Running in Production
+
+Production deployments must run against a managed PostgreSQL instance with persistent Ed25519 keys, real API keys, and an explicit XRPL signing configuration.
+
+1. **Provision PostgreSQL** and obtain a connection string. Set `DATABASE_URL` in the deployment environment.
+2. **Configure required environment variables**:
+   - `COMPLIGATE_PRIVATE_KEY_B64` — a stable base64-encoded Ed25519 seed (do not rely on the ephemeral dev-mode key).
+   - `API_KEY_ENABLED=true` and `API_KEYS=<comma-separated production keys>`.
+   - `DATABASE_URL` — production PostgreSQL URL.
+   - `XRPL_RPC_URL`, `XRPL_NETWORK` — production XRPL endpoint and network identifier.
+   - `XRPL_SIGNING_MODE` — set explicitly:
+     - `disabled` for authorization-only deployments,
+     - `seed` for staging-style deployments (never with a mainnet seed),
+     - `external` once HSM/custody integration is available.
+   - `XRPL_SIGNING_ENABLED` — leave `true` only if signing is intended; otherwise `false` as a defense-in-depth kill switch.
+   - `XRPL_SIGNER_ADDRESS` — set to bind the configured seed to a specific XRPL address.
+   - `POLICY_VERSION`, `JURISDICTION`, `CURRENCY`, `ISSUER_ADDRESS`, `RLUSD_ISSUER` — set to production values.
+   - `CORS_ORIGINS` — restricted to the production frontend origins.
+3. **Build and ship the container**:
+   ```bash
+   docker build -t compligate-backend .
+   ```
+4. **Run database migrations against the production database** before (or as part of) each release:
+   ```bash
+   python3 -m alembic upgrade head
+   ```
+   This step must complete successfully before the API process starts.
+5. **Start the API** with a production-grade ASGI command (the container `CMD` and `railway.toml` `startCommand` use):
+   ```bash
+   uvicorn app.main:app --host 0.0.0.0 --port "$PORT"
+   ```
+   Run behind a reverse proxy / load balancer that terminates TLS and forwards the configured API key header.
 
 ---
 
@@ -150,21 +323,6 @@ pytest tests/
 
 ---
 
-## Database Migrations (Alembic)
-
-Alembic is initialized in `backend/alembic/` and configured to read `DATABASE_URL` from `app/core/config.py`.
-
-Common commands:
-
-```bash
-cd backend
-python3 -m alembic current
-python3 -m alembic revision --autogenerate -m "describe change"
-python3 -m alembic upgrade head
-```
-
----
-
 ## Docker
 
 ```bash
@@ -172,6 +330,8 @@ cd backend
 docker build -t compligate-backend .
 docker run --env-file .env -p 8000:8000 compligate-backend
 ```
+
+The container does not run Alembic automatically. Apply migrations against the target database before starting the container, or run `python3 -m alembic upgrade head` as a one-off command in the same image.
 
 ---
 
