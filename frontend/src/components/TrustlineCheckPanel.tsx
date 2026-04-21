@@ -1,6 +1,8 @@
 import { useState } from "react";
 
 import { apiPost, describeError } from "../lib/api";
+import { checkClass, checkSymbol } from "../lib/format";
+import PanelNumber from "./PanelNumber";
 import StatusMessage from "./StatusMessage";
 import type { TrustlineCheckResponse } from "../types/api";
 
@@ -23,17 +25,9 @@ import type { TrustlineCheckResponse } from "../types/api";
  * panel to its initial state.
  */
 
-function PanelNumber({ n }: { n: number }) {
-  return <span className="panelNumber">{n}</span>;
-}
 
-function checkClass(valid: boolean) {
-  return valid ? "check" : "check checkFail";
-}
 
-function checkSymbol(valid: boolean) {
-  return valid ? "✔" : "✘";
-}
+
 
 type Props = {
   /** Optional panel number rendered next to the title (matches App layout). */

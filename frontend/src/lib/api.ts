@@ -41,11 +41,6 @@ export function getApiKey(): string {
   return envApiKey();
 }
 
-/** True when an API key was supplied via env (i.e. shipped with the build). */
-export function hasEnvApiKey(): boolean {
-  return envApiKey().length > 0;
-}
-
 /**
  * True when the active API key (the one `getApiKey()` would return) is the
  * build-time `VITE_API_KEY` value rather than a user-entered, browser-stored
