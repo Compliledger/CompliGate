@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 _TRUE_VALUES = ("true", "1", "yes")
+_DEFAULT_API_KEY_HEADER_NAME = "X-API-Key"
 
 
 def _get_bool(name: str, default: str) -> bool:
@@ -21,6 +22,13 @@ def _get_int(name: str, default: str) -> int:
 def _get_csv(name: str, default: str) -> list[str]:
     value = os.getenv(name, default)
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _get_api_keys() -> list[str]:
+    api_keys = _get_csv("API_KEYS", "")
+    if api_keys:
+        return api_keys
+    return _get_csv("AUTH_API_KEYS", "")
 
 
 @dataclass(frozen=True)
@@ -49,9 +57,7 @@ class Settings:
 
 
 def _build_settings() -> Settings:
-    api_keys = _get_csv("API_KEYS", "")
-    if not api_keys:
-        api_keys = _get_csv("AUTH_API_KEYS", "")
+    api_keys = _get_api_keys()
 
     return Settings(
         POLICY_VERSION=os.getenv("POLICY_VERSION", "RLUSD_US_v1"),
@@ -70,7 +76,8 @@ def _build_settings() -> Settings:
         PERMIT_TTL_SECONDS=_get_int("PERMIT_TTL_SECONDS", "300"),
         PERMIT_CONTEXT_CACHE_MAX_ITEMS=_get_int("PERMIT_CONTEXT_CACHE_MAX_ITEMS", "1000"),
         API_KEY_ENABLED=_get_bool("API_KEY_ENABLED", "true"),
-        API_KEY_HEADER_NAME=os.getenv("API_KEY_HEADER_NAME", "X-API-Key").strip() or "X-API-Key",
+        API_KEY_HEADER_NAME=os.getenv("API_KEY_HEADER_NAME", _DEFAULT_API_KEY_HEADER_NAME).strip()
+        or _DEFAULT_API_KEY_HEADER_NAME,
         API_KEYS=api_keys,
         DATABASE_URL=os.getenv("DATABASE_URL", "").strip(),
         AUTH_API_KEYS=api_keys,
@@ -98,10 +105,10 @@ XRPL_REQUIRE_TRUSTLINE = os.getenv("XRPL_REQUIRE_TRUSTLINE", "false").lower() in
 PERMIT_TTL_SECONDS = int(os.getenv("PERMIT_TTL_SECONDS", "300"))
 PERMIT_CONTEXT_CACHE_MAX_ITEMS = int(os.getenv("PERMIT_CONTEXT_CACHE_MAX_ITEMS", "1000"))
 API_KEY_ENABLED = _get_bool("API_KEY_ENABLED", "true")
-API_KEY_HEADER_NAME = os.getenv("API_KEY_HEADER_NAME", "X-API-Key").strip() or "X-API-Key"
-API_KEYS = _get_csv("API_KEYS", "")
-if not API_KEYS:
-    API_KEYS = _get_csv("AUTH_API_KEYS", "")
+API_KEY_HEADER_NAME = (
+    os.getenv("API_KEY_HEADER_NAME", _DEFAULT_API_KEY_HEADER_NAME).strip() or _DEFAULT_API_KEY_HEADER_NAME
+)
+API_KEYS = _get_api_keys()
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 AUTH_API_KEYS = API_KEYS
 XRPL_SIGNING_SEED = os.getenv("XRPL_SIGNING_SEED", "").strip()

@@ -113,7 +113,7 @@ A Proof Bundle is the output of a successful permit issuance. It contains:
 | `API_KEY_ENABLED` | Enables API key auth configuration. Set to `false` to disable in local development. |
 | `API_KEY_HEADER_NAME` | Header name used for API key auth (default: `X-API-Key`). |
 | `API_KEYS` | Comma-separated API keys used by auth configuration. |
-| `AUTH_API_KEYS` | Legacy fallback for API keys; use `API_KEYS` for new deployments. |
+| `AUTH_API_KEYS` | Legacy fallback for API keys; maintained for backward compatibility, but `API_KEYS` is preferred for new deployments. |
 | `DATABASE_URL` | PostgreSQL connection URL used to persist permits and proof artifacts (e.g., `postgresql+psycopg://...`) |
 | `XRPL_RPC_URL` | XRPL JSON-RPC URL for settlement verification (default: XRPL Testnet) |
 | `XRPL_NETWORK` | XRPL network name used in verification metadata (e.g., `xrpl_testnet`) |
