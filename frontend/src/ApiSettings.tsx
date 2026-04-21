@@ -52,11 +52,15 @@ export default function ApiSettings() {
     : "no key";
 
   return (
-    <div className="apiSettings">
+    <div className="apiSettings" data-testid="api-settings">
       <div className="apiSettingsBar">
         <span className="apiSettingsLabel">Backend</span>
         <span className="apiSettingsBase" title={API_BASE}>{API_BASE}</span>
-        <span className={`badge ${hasKey ? "good" : "warn"}`}>
+        <span
+          className={`badge ${hasKey ? "good" : "warn"}`}
+          data-testid="api-settings-status"
+          data-has-key={hasKey ? "true" : "false"}
+        >
           <span className="badgeDot" />
           API Key: {maskedKey(savedKey)}{hasKey ? ` · ${sourceLabel}` : ""}
         </span>
@@ -64,6 +68,7 @@ export default function ApiSettings() {
           type="button"
           className="btn"
           onClick={() => setOpen((v) => !v)}
+          data-testid="api-settings-toggle"
         >
           {open ? "Hide" : hasKey ? "Change" : "Set API Key"}
         </button>
@@ -81,6 +86,7 @@ export default function ApiSettings() {
             placeholder="Paste API key issued by your CompliGate operator"
             spellCheck={false}
             autoComplete="off"
+            data-testid="api-settings-input"
           />
           <p className="muted apiSettingsHint">
             Sent as the <code>{API_KEY_HEADER}</code> header to <code>{API_BASE}</code>.
@@ -88,13 +94,13 @@ export default function ApiSettings() {
             (<code>VITE_API_KEY</code>) if one was provided.
           </p>
           <div className="row">
-            <button type="button" className="btn primary" onClick={handleSave}>
+            <button type="button" className="btn primary" onClick={handleSave} data-testid="api-settings-save">
               Save
             </button>
-            <button type="button" className="btn" onClick={handleClear} disabled={!hasKey}>
+            <button type="button" className="btn" onClick={handleClear} disabled={!hasKey} data-testid="api-settings-clear">
               Clear
             </button>
-            <button type="button" className="btn" onClick={() => setOpen(false)}>
+            <button type="button" className="btn" onClick={() => setOpen(false)} data-testid="api-settings-cancel">
               Cancel
             </button>
           </div>

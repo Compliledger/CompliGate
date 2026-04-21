@@ -136,10 +136,16 @@ export default function XRPLHealthPanel() {
   const badges = buildXrplHealthBadges(health, loading, errored);
 
   return (
-    <div className="adapterBar">
+    <div className="adapterBar" data-testid="xrpl-health-panel">
       <span className="adapterBarLabel">XRPL Network</span>
       {badges.map((badge) => (
-        <span key={badge.label} className={`badge ${badge.tone}`} title={badge.label}>
+        <span
+          key={badge.label}
+          className={`badge ${badge.tone}`}
+          title={badge.label}
+          data-testid="xrpl-health-badge"
+          data-badge-label={badge.label}
+        >
           <span className="badgeDot" />
           <span className="badgeLabel">{badge.label}:</span>
           <span className="badgeValue">{badge.value}</span>

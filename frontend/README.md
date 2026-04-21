@@ -37,6 +37,8 @@ origin where this app is served (e.g. `http://localhost:5173` for `vite dev`).
 | `npm run lint`  | Type-check the project (`tsc --noEmit`).                     |
 | `npm run build` | Type-check and produce a production bundle in `dist/`.       |
 | `npm run preview` | Serve the production bundle locally for smoke testing.     |
+| `npm test`      | Run the UI test suite once (Vitest + React Testing Library). See [`src/__tests__/README.md`](src/__tests__/README.md). |
+| `npm run test:watch` | Re-run tests on file changes during local development. |
 
 ## API key handling
 

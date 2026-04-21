@@ -85,7 +85,7 @@ export default function RequestPermitPanel({ onPermit, onClear }: Props) {
   }
 
   return (
-    <section className="card">
+    <section className="card" data-testid="request-permit-panel">
       <h2>
         <PanelNumber n={1} />
         Request Permit
@@ -102,6 +102,7 @@ export default function RequestPermitPanel({ onPermit, onClear }: Props) {
         onKeyDown={handleKeyDown}
         placeholder="r..."
         spellCheck={false}
+        data-testid="request-permit-subject"
       />
 
       <label className="label">Action</label>
@@ -109,6 +110,7 @@ export default function RequestPermitPanel({ onPermit, onClear }: Props) {
         className="input"
         value={action}
         onChange={(e) => setAction(e.target.value)}
+        data-testid="request-permit-action"
       >
         <option value="transfer">transfer</option>
         <option value="trustset">trustset</option>
@@ -123,6 +125,7 @@ export default function RequestPermitPanel({ onPermit, onClear }: Props) {
         onChange={(e) => setAmount(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="e.g. 100"
+        data-testid="request-permit-amount"
       />
 
       <div className="row">
@@ -130,10 +133,11 @@ export default function RequestPermitPanel({ onPermit, onClear }: Props) {
           className="btn primary"
           onClick={requestPermit}
           disabled={!subject.trim() || loading}
+          data-testid="request-permit-submit"
         >
           {loading ? "Requesting…" : "Request Compliance Permit"}
         </button>
-        <button className="btn" onClick={handleClear}>
+        <button className="btn" onClick={handleClear} data-testid="request-permit-clear">
           Clear
         </button>
       </div>

@@ -81,6 +81,8 @@ export default function StatusMessage({
       role={variant === "error" ? "alert" : "status"}
       aria-live={variant === "loading" ? "polite" : undefined}
       aria-busy={variant === "loading" ? true : undefined}
+      data-testid="status-message"
+      data-variant={variant}
     >
       <span className="statusMessageIcon" aria-hidden="true">
         {variant === "loading" ? <span className="statusMessageSpinner" /> : ICONS[variant]}
