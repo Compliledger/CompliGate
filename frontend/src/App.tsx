@@ -56,13 +56,26 @@ type HealthBadge = {
   tone: BadgeTone;
 };
 
-function buildXrplHealthBadges(health: XRPLHealthResponse | null): HealthBadge[] {
-  if (!health) {
+function buildXrplHealthBadges(
+  health: XRPLHealthResponse | null,
+  loading: boolean,
+  errored: boolean,
+): HealthBadge[] {
+  if (loading) {
     return [
-      { label: "Configured", value: "Checking…", tone: "neutral" },
-      { label: "Reachable", value: "Checking…", tone: "neutral" },
-      { label: "Network", value: "Checking…", tone: "neutral" },
-      { label: "RLUSD", value: "Checking…", tone: "neutral" },
+      { label: "Configured", value: "Loading…", tone: "neutral" },
+      { label: "Reachable", value: "Loading…", tone: "neutral" },
+      { label: "Network", value: "Loading…", tone: "neutral" },
+      { label: "RLUSD", value: "Loading…", tone: "neutral" },
+    ];
+  }
+
+  if (!health || errored) {
+    return [
+      { label: "Configured", value: "Unavailable", tone: "bad" },
+      { label: "Reachable", value: "Unavailable", tone: "bad" },
+      { label: "Network", value: "Unavailable", tone: "bad" },
+      { label: "RLUSD", value: "Unavailable", tone: "bad" },
     ];
   }
 
@@ -134,7 +147,10 @@ export default function App() {
   const [now, setNow] = useState<number>(() => Math.floor(Date.now() / 1000));
   const [verifyResult, setVerifyResult] = useState<VerifyResponse | null>(null);
   const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [verifyingPermit, setVerifyingPermit] = useState(false);
   const [xrplHealth, setXrplHealth] = useState<XRPLHealthResponse | null>(null);
+  const [xrplHealthLoading, setXrplHealthLoading] = useState(true);
+  const [xrplHealthError, setXrplHealthError] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [settledTxHash, setSettledTxHash] = useState("");
   const [settlementResult, setSettlementResult] = useState<SettlementVerifyResponse | null>(null);
@@ -159,21 +175,22 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
+    setXrplHealthLoading(true);
+    setXrplHealthError(false);
     apiGet<XRPLHealthResponse>("/v1/xrpl/health")
       .then((d) => {
-        if (!cancelled) setXrplHealth(d);
+        if (cancelled) return;
+        setXrplHealth(d);
+        setXrplHealthError(false);
       })
       .catch((err) => {
         console.error("Failed to fetch XRPL health:", err);
-        if (!cancelled) {
-          setXrplHealth({
-            configured: false,
-            reachable: false,
-            network: "",
-            rlusd_configured: false,
-            demo_wallet_configured: false,
-          });
-        }
+        if (cancelled) return;
+        setXrplHealth(null);
+        setXrplHealthError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setXrplHealthLoading(false);
       });
     return () => {
       cancelled = true;
@@ -228,6 +245,7 @@ export default function App() {
     if (!permit) return;
     setVerifyError(null);
     setVerifyResult(null);
+    setVerifyingPermit(true);
 
     try {
       const data = await apiPost<unknown>("/v1/verify", {
@@ -246,6 +264,8 @@ export default function App() {
       setVerifyResult(data as VerifyResponse);
     } catch (e: unknown) {
       setVerifyError(describeError(e, "Failed to verify permit."));
+    } finally {
+      setVerifyingPermit(false);
     }
   }
 
@@ -321,7 +341,7 @@ export default function App() {
 
       <div className="adapterBar">
         <span className="adapterBarLabel">XRPL Network</span>
-        {buildXrplHealthBadges(xrplHealth).map((badge) => (
+        {buildXrplHealthBadges(xrplHealth, xrplHealthLoading, xrplHealthError).map((badge) => (
           <span key={badge.label} className={`badge ${badge.tone}`} title={badge.label}>
             <span className="badgeDot" />
             <span className="badgeLabel">{badge.label}:</span>
@@ -765,8 +785,12 @@ export default function App() {
           ) : (
             <>
               <div className="row" style={{ marginTop: 0 }}>
-                <button className="btn primary" onClick={verifyPermit} disabled={!permit}>
-                  Verify Permit Signature
+                <button
+                  className="btn primary"
+                  onClick={verifyPermit}
+                  disabled={!permit || verifyingPermit}
+                >
+                  {verifyingPermit ? "Verifying…" : "Verify Permit Signature"}
                 </button>
               </div>
 
