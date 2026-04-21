@@ -116,6 +116,45 @@ def test_xrpl_health_without_live_network():
     assert response.json() == expected
 
 
+def test_xrpl_health_is_public_when_api_key_auth_enabled():
+    with patch.object(config, "AUTH_API_KEYS", ["test-key"]):
+        response = client.get("/v1/xrpl/health")
+
+    assert response.status_code == 200
+
+
+def test_xrpl_trustline_check_requires_api_key_when_auth_enabled():
+    expected = {
+        "address": VALID_SUBJECT,
+        "trustline_exists": True,
+        "issuer": "rIssuer",
+        "currency": "RLUSD",
+        "raw_lines_checked": 1,
+    }
+    with patch.object(config, "AUTH_API_KEYS", ["test-key"]), patch.object(
+        xrpl_routes, "validate_trustline_check", return_value=expected
+    ) as mock_check:
+        unauthorized_response = client.post("/v1/xrpl/trustline/check", json={"address": VALID_SUBJECT})
+        authorized_response = client.post(
+            "/v1/xrpl/trustline/check",
+            json={"address": VALID_SUBJECT},
+            headers={"X-API-Key": "test-key"},
+        )
+
+    assert unauthorized_response.status_code == 401
+    assert unauthorized_response.json() == {
+        "detail": {"error": "unauthorized", "reason": "Missing or invalid API key"}
+    }
+    assert authorized_response.status_code == 200
+    assert authorized_response.json() == expected
+    mock_check.assert_called_once_with(
+        VALID_SUBJECT,
+        config.RLUSD_ISSUER,
+        config.RLUSD_CURRENCY,
+        xrpl_routes.fetch_account_lines,
+    )
+
+
 def test_xrpl_trustline_check_without_live_network():
     expected = {
         "address": VALID_SUBJECT,
