@@ -12,6 +12,13 @@ from app.services.compliance.engine import (
     ComplianceEvaluation,
     evaluate_compliance,
 )
+from app.services.compliance.kyc import (
+    AssertionValidationOutcome,
+    KycResult,
+    KycStatus,
+    compute_assertion_signature,
+    validate_upstream_assertion,
+)
 from app.services.compliance.providers import (
     ComplianceProvider,
     ProviderResult,
@@ -22,12 +29,17 @@ from app.services.compliance.providers import (
 )
 
 __all__ = [
+    "AssertionValidationOutcome",
     "ComplianceEvaluation",
     "ComplianceProvider",
+    "KycResult",
+    "KycStatus",
     "ProviderResult",
     "ProviderStatus",
+    "compute_assertion_signature",
     "evaluate_compliance",
     "get_kyc_provider",
     "get_reserve_provider",
     "get_sanctions_provider",
+    "validate_upstream_assertion",
 ]

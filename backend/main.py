@@ -320,7 +320,7 @@ def is_rlusd_payment(tx_json: dict) -> bool:
 
 SUPPORTED_ACTIONS = {"transfer", "trustset"}
 MAX_AMOUNT = 5_000_000
-REASON_CODES = ["kyc_verified", "policy_compliant", "amount_within_limits"]
+REASON_CODES = ["policy_compliant", "amount_within_limits"]
 ASSET_CLASSIFICATION_REGULATED_STABLECOIN = "regulated_stablecoin"
 
 
@@ -546,7 +546,13 @@ def create_permit(req: PermitRequest):
             "allowed_counterparty": req.counterparty,
             "reserve_backed": True,
             "liquidity_verified": True,
-            "kyc_verified": True,
+            # KYC must never be hardcoded as verified — real KYC state
+            # is sourced from the configured KYC provider (see
+            # app/services/permit_service.py and app/services/compliance/).
+            # This legacy demo path does not call a provider, so it
+            # records the constraint as not-verified with a traceable
+            # reason code.
+            "kyc_verified": False,
             "sanctions_check": "passed",
             "jurisdiction": JURISDICTION,
             "freeze_possible": True,
@@ -1403,8 +1409,18 @@ def _evaluate_settlement_constraints(
     reason_codes.append("LIQUIDITY_VERIFIED")
 
     # -- KYC verified --
-    constraints_verified["kyc_verified"] = True
-    reason_codes.append("KYC_VERIFIED")
+    # KYC must never be hardcoded as verified — instead, propagate the
+    # real KYC outcome recorded in the permit bundle (which is itself
+    # derived from the configured KYC provider via the compliance
+    # engine; see app/services/permit_service.py).
+    permit_constraints_for_kyc = (permit_bundle or {}).get("constraints", {})
+    kyc_verified_from_permit = bool(permit_constraints_for_kyc.get("kyc_verified")) if permit_bundle else False
+    constraints_verified["kyc_verified"] = kyc_verified_from_permit
+    if kyc_verified_from_permit:
+        reason_codes.append("KYC_VERIFIED")
+    else:
+        reason_codes.append("KYC_NOT_VERIFIED")
+        compliant = False
 
     # -- Sanctions check --
     constraints_verified["sanctions_check_passed"] = True
@@ -1515,6 +1531,12 @@ def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
 
     now = int(time.time())
 
+    # KYC must never be hardcoded as verified — the evaluation context
+    # records the same value the caller derived in
+    # ``constraints_verified`` (which itself is sourced from the
+    # configured KYC provider via the permit bundle).
+    kyc_verified_for_context = bool(constraints_verified.get("kyc_verified", False))
+
     evaluation_context = {
         "bundle_hash": req.bundle_hash,
         "permit_context_used": bool(permit_context),
@@ -1530,13 +1552,13 @@ def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
         "asset": amount_info["currency"],
         "destination": tx_payload.get("Destination", ""),
         "jurisdiction": JURISDICTION,
-        "kyc_verified": True,
+        "kyc_verified": kyc_verified_for_context,
         "sanctions_check": "passed",
         "reserve_backed": True,
         "liquidity_verified": True,
         "policy_conditions": {
             "jurisdiction": JURISDICTION,
-            "kyc_verified": True,
+            "kyc_verified": kyc_verified_for_context,
             "sanctions": "passed",
             "reserve_backed": True,
             "liquidity_verified": True,

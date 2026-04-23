@@ -120,12 +120,18 @@ def evaluate_compliance(
     counterparty: str | None,
     asset: dict[str, Any] | None = None,
     providers: dict[str, ComplianceProvider] | None = None,
+    kyc_assertion: dict[str, Any] | None = None,
 ) -> ComplianceEvaluation:
     """Run every configured compliance provider and aggregate results.
 
     The function is pure with respect to ``providers`` – tests inject a
     custom mapping to exercise allow / deny / unavailable paths
     deterministically.
+
+    ``kyc_assertion`` is an optional trusted upstream KYC payload (see
+    :mod:`app.services.compliance.kyc`) that the ``upstream_assertion``
+    KYC provider validates against the configured shared secret and
+    issuer allowlist. Other providers ignore it.
     """
     providers = providers or _default_providers()
     fail_closed = bool(config.FAIL_CLOSED_COMPLIANCE)
@@ -135,6 +141,7 @@ def evaluate_compliance(
         "amount": amount,
         "counterparty": counterparty,
         "asset": asset or {},
+        "kyc_assertion": kyc_assertion,
     }
 
     reason_codes: list[str] = []

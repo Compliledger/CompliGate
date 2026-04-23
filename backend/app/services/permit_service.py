@@ -85,6 +85,7 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
         amount=req.amount,
         counterparty=req.counterparty,
         asset=asset,
+        kyc_assertion=req.kyc_assertion,
     )
     reason_codes = policy_result["reason_codes"]
     decision_result = policy_result["decision_result"]
@@ -107,6 +108,22 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
     reserve_reference = compliance.reference_for("reserve")
     kyc_reference = compliance.reference_for("kyc")
     sanctions_reference = compliance.reference_for("sanctions")
+
+    # Surface the normalized KYC result (provider_name / source_system,
+    # subject_id, kyc_status, jurisdiction, checked_at,
+    # evidence_reference, reason_codes) as a first-class attestation so
+    # downstream consumers never have to reach into compliance_evidence
+    # to find it. Falls back to ``None`` when no KYC provider was wired
+    # up so the bundle never fabricates a normalized result.
+    kyc_evidence_item = next(
+        (item for item in compliance.evidence if item.get("check") == "kyc"),
+        None,
+    )
+    kyc_result_payload = None
+    if kyc_evidence_item is not None:
+        details = kyc_evidence_item.get("details") or {}
+        if isinstance(details, dict) and isinstance(details.get("kyc_result"), dict):
+            kyc_result_payload = details["kyc_result"]
 
     bundle = {
         "bundle_id": str(uuid4()),
@@ -133,6 +150,7 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
         },
         "attestations": {
             "kyc_reference": kyc_reference,
+            "kyc_result": kyc_result_payload,
             "reserve_reference": reserve_reference,
             "sanctions_reference": sanctions_reference,
         },
