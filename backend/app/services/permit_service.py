@@ -125,6 +125,27 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
         if isinstance(details, dict) and isinstance(details.get("kyc_result"), dict):
             kyc_result_payload = details["kyc_result"]
 
+    # Same treatment for the destination-side KYC evaluation when the
+    # engine resolved it (transfer with a counterparty). Both the
+    # provider-reported reference and the normalized KycResult are
+    # surfaced as first-class attestations so the bundle and proof
+    # artifact carry destination-side KYC evidence explicitly.
+    kyc_destination_evidence_item = next(
+        (
+            item
+            for item in compliance.evidence
+            if item.get("check") == "kyc:destination"
+        ),
+        None,
+    )
+    kyc_destination_reference = None
+    kyc_destination_result_payload = None
+    if kyc_destination_evidence_item is not None:
+        kyc_destination_reference = kyc_destination_evidence_item.get("reference")
+        details = kyc_destination_evidence_item.get("details") or {}
+        if isinstance(details, dict) and isinstance(details.get("kyc_result"), dict):
+            kyc_destination_result_payload = details["kyc_result"]
+
     bundle = {
         "bundle_id": str(uuid4()),
         "subject": req.subject,
@@ -151,6 +172,8 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
         "attestations": {
             "kyc_reference": kyc_reference,
             "kyc_result": kyc_result_payload,
+            "kyc_destination_reference": kyc_destination_reference,
+            "kyc_destination_result": kyc_destination_result_payload,
             "reserve_reference": reserve_reference,
             "sanctions_reference": sanctions_reference,
         },
