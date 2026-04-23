@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import HTTPException
 
 from app.core import config
+from app.services.compliance import ComplianceEvaluation, evaluate_compliance
 
 SUPPORTED_ACTIONS = {"transfer", "trustset"}
 MAX_AMOUNT = 5_000_000
-REASON_CODES = ["kyc_verified", "policy_compliant", "amount_within_limits"]
 ASSET_CLASSIFICATION_REGULATED_STABLECOIN = "regulated_stablecoin"
 
 
@@ -58,61 +60,66 @@ def evaluate_eligibility() -> dict:
     }
 
 
-def evaluate_constraints(
-    action: str,
-    amount: float | int | None,
-    counterparty: str | None,
-) -> list[str]:
-    # reserved for future counterparty validation checks
-    if action not in SUPPORTED_ACTIONS:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "unsupported_action",
-                "reason": f"action '{action}' is not supported; allowed: {sorted(SUPPORTED_ACTIONS)}",
-            },
-        )
-    if amount is not None and amount > MAX_AMOUNT:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "transaction_not_allowed",
-                "reason": "amount exceeds policy maximum",
-            },
-        )
-    reason_codes: list[str] = []
-    reason_codes.append("KYC_VERIFIED")
-    reason_codes.append("SANCTIONS_PASSED")
-    reason_codes.append("RESERVE_BACKED")
-    reason_codes.append("LIQUIDITY_VERIFIED")
-    reason_codes.append("ISSUER_CONTROLS_ACTIVE")
-    if amount is not None:
-        reason_codes.append("AMOUNT_WITHIN_LIMIT")
-    return reason_codes
-
-
 def evaluate_permit_policy(
     *,
+    subject: str,
     action: str,
     amount: float | int | None,
     counterparty: str | None,
+    asset: dict[str, Any] | None = None,
 ) -> dict:
+    """Evaluate the full permit policy and return a structured decision.
+
+    The compliance portion is delegated to provider-backed checks. If any
+    provider denies or is unavailable, the overall decision is ``deny``
+    with explicit reason codes so the caller can surface a fail-closed
+    response that is fully traceable to provider evidence.
+    """
+    validate_action(action)
+    validate_amount(amount)
+
     governance = evaluate_governance()
     eligibility = evaluate_eligibility()
-    constraint_codes = evaluate_constraints(action, amount, counterparty)
+    compliance: ComplianceEvaluation = evaluate_compliance(
+        subject=subject,
+        action=action,
+        amount=amount,
+        counterparty=counterparty,
+        asset=asset,
+    )
 
     reason_codes: list[str] = []
+    decision = "allow"
+
     if governance["state_status"] == "active":
         reason_codes.append("POLICY_ACTIVE")
+    else:
+        reason_codes.append("POLICY_INACTIVE")
+        decision = "deny"
+
     if eligibility["participant_eligible"]:
         reason_codes.append("PARTICIPANT_ELIGIBLE")
+    else:
+        reason_codes.append("PARTICIPANT_NOT_ELIGIBLE")
+        decision = "deny"
+
     if eligibility["asset_admitted"]:
         reason_codes.append("ASSET_ADMITTED")
-    reason_codes.extend(constraint_codes)
+    else:
+        reason_codes.append("ASSET_NOT_ADMITTED")
+        decision = "deny"
+
+    reason_codes.extend(compliance.reason_codes)
+    if not compliance.allowed:
+        decision = "deny"
+
+    if amount is not None:
+        reason_codes.append("AMOUNT_WITHIN_LIMIT")
 
     return {
-        "decision_result": "allow",
+        "decision_result": decision,
         "reason_codes": reason_codes,
         "governance": governance,
         "eligibility": eligibility,
+        "compliance": compliance,
     }
