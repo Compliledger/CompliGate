@@ -65,7 +65,7 @@ def initialize_database() -> None:
     if not persistence_enabled():
         logger.info("database_persistence_disabled")
         return
-    from app.db.models import ProofArtifactRecord, PermitRecord  # noqa: F401
+    from app.db.models import ProofArtifactRecord, PermitRecord, ReserveEvidenceRecord  # noqa: F401
 
     engine = get_engine()
     if engine is None:
