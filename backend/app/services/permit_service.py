@@ -106,6 +106,7 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
     # exist.
     reserve_reference = compliance.reference_for("reserve")
     kyc_reference = compliance.reference_for("kyc")
+    sanctions_reference = compliance.reference_for("sanctions")
 
     bundle = {
         "bundle_id": str(uuid4()),
@@ -133,6 +134,7 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
         "attestations": {
             "kyc_reference": kyc_reference,
             "reserve_reference": reserve_reference,
+            "sanctions_reference": sanctions_reference,
         },
         "compliance_evidence": compliance.evidence,
         "scope": [req.action],
