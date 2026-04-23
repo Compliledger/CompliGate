@@ -88,9 +88,9 @@ Example Flow
 
 Checks:
 	•	Asset classification
-	•	Jurisdiction (KYC / sanctions placeholder)
+	•	Jurisdiction (KYC / sanctions via configured providers)
 	•	Transaction limits
-	•	Reserve signals (policy-driven)
+	•	Reserve attestation via configured provider
 	•	Trustline requirement
 
 ⸻
@@ -139,17 +139,22 @@ CompliGate currently evaluates:
 ✔ Asset Classification
 	•	stablecoin / RWA (policy-defined)
 
-✔ 1:1 Backing (Policy Signal)
-	•	reserve verification placeholder
+✔ 1:1 Backing (Provider-Backed)
+	•	reserve attestation via configured RESERVE_PROVIDER (fail-closed when unavailable)
 
 ✔ Jurisdiction Controls
-	•	KYC / sanctions placeholders
+	•	KYC and sanctions screening via configured KYC_PROVIDER and SANCTIONS_PROVIDER (fail-closed when unavailable)
 
 ✔ Transaction Limits
 	•	policy thresholds
 
 ✔ XRPL Trustlines
 	•	enforced at ledger level
+
+Every compliance decision is traceable to real provider evidence (or
+explicit denial); the per-check provider id, status and reference are
+persisted in the bundle and proof artifact under
+``compliance_evidence``.
 
 ⸻
 

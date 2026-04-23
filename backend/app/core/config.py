@@ -79,6 +79,15 @@ class Settings:
     XRPL_SIGNER_ADDRESS: str
     XRPL_SIGNER_SEED: str
     XRPL_SIGNING_ENABLED: bool
+    KYC_PROVIDER: str
+    KYC_PROVIDER_URL: str
+    KYC_PROVIDER_API_KEY: str
+    SANCTIONS_PROVIDER: str
+    SANCTIONS_PROVIDER_URL: str
+    SANCTIONS_PROVIDER_API_KEY: str
+    RESERVE_PROVIDER: str
+    RESERVE_PROVIDER_URL: str
+    RESERVE_PROVIDER_API_KEY: str
 
 
 def _build_settings() -> Settings:
@@ -110,6 +119,15 @@ def _build_settings() -> Settings:
         XRPL_SIGNER_ADDRESS=os.getenv("XRPL_SIGNER_ADDRESS", "").strip(),
         XRPL_SIGNER_SEED=os.getenv("XRPL_SIGNER_SEED", "").strip(),
         XRPL_SIGNING_ENABLED=_get_bool("XRPL_SIGNING_ENABLED", "true"),
+        KYC_PROVIDER=os.getenv("KYC_PROVIDER", "null").strip(),
+        KYC_PROVIDER_URL=os.getenv("KYC_PROVIDER_URL", "").strip(),
+        KYC_PROVIDER_API_KEY=os.getenv("KYC_PROVIDER_API_KEY", "").strip(),
+        SANCTIONS_PROVIDER=os.getenv("SANCTIONS_PROVIDER", "null").strip(),
+        SANCTIONS_PROVIDER_URL=os.getenv("SANCTIONS_PROVIDER_URL", "").strip(),
+        SANCTIONS_PROVIDER_API_KEY=os.getenv("SANCTIONS_PROVIDER_API_KEY", "").strip(),
+        RESERVE_PROVIDER=os.getenv("RESERVE_PROVIDER", "null").strip(),
+        RESERVE_PROVIDER_URL=os.getenv("RESERVE_PROVIDER_URL", "").strip(),
+        RESERVE_PROVIDER_API_KEY=os.getenv("RESERVE_PROVIDER_API_KEY", "").strip(),
     )
 
 
@@ -142,3 +160,19 @@ XRPL_SIGNING_MODE = _get_xrpl_signing_mode()
 XRPL_SIGNER_ADDRESS = os.getenv("XRPL_SIGNER_ADDRESS", "").strip()
 XRPL_SIGNER_SEED = os.getenv("XRPL_SIGNER_SEED", "").strip()
 XRPL_SIGNING_ENABLED = _get_bool("XRPL_SIGNING_ENABLED", "true")
+
+# --- Compliance providers ---
+# Each check (KYC / sanctions / reserve) is delegated to a configured
+# provider. Supported kinds:
+#   null          - no provider configured; engine fails closed (default)
+#   static_allow  - explicit, traceable approval for dev / tests only
+#   http          - real third-party HTTPS endpoint (URL + API key required)
+KYC_PROVIDER = os.getenv("KYC_PROVIDER", "null").strip()
+KYC_PROVIDER_URL = os.getenv("KYC_PROVIDER_URL", "").strip()
+KYC_PROVIDER_API_KEY = os.getenv("KYC_PROVIDER_API_KEY", "").strip()
+SANCTIONS_PROVIDER = os.getenv("SANCTIONS_PROVIDER", "null").strip()
+SANCTIONS_PROVIDER_URL = os.getenv("SANCTIONS_PROVIDER_URL", "").strip()
+SANCTIONS_PROVIDER_API_KEY = os.getenv("SANCTIONS_PROVIDER_API_KEY", "").strip()
+RESERVE_PROVIDER = os.getenv("RESERVE_PROVIDER", "null").strip()
+RESERVE_PROVIDER_URL = os.getenv("RESERVE_PROVIDER_URL", "").strip()
+RESERVE_PROVIDER_API_KEY = os.getenv("RESERVE_PROVIDER_API_KEY", "").strip()

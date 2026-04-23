@@ -1,0 +1,254 @@
+from __future__ import annotations
+
+from unittest.mock import patch
+
+from fastapi.testclient import TestClient
+
+from app.core import config
+from app.main import app
+from app.services.compliance import (
+    ProviderResult,
+    ProviderStatus,
+    evaluate_compliance,
+)
+from app.services.compliance.providers import (
+    _HttpProvider,
+    _NullProvider,
+    _StaticAllowProvider,
+    get_kyc_provider,
+    get_reserve_provider,
+    get_sanctions_provider,
+)
+
+client = TestClient(app)
+VALID_SUBJECT = "rN7n3473SaZBCG4dFL83w7PB5XDnEHyMQX"
+
+
+# ---------------------------------------------------------------------------
+# Engine-level: fail-closed when no provider is configured
+# ---------------------------------------------------------------------------
+
+
+def test_engine_fails_closed_when_providers_default_to_null():
+    with patch.object(config, "KYC_PROVIDER", "null"), patch.object(
+        config, "SANCTIONS_PROVIDER", "null"
+    ), patch.object(config, "RESERVE_PROVIDER", "null"):
+        evaluation = evaluate_compliance(
+            subject=VALID_SUBJECT,
+            action="transfer",
+            amount=10,
+            counterparty=None,
+        )
+
+    assert evaluation.decision == "deny"
+    assert "KYC_PROVIDER_UNAVAILABLE" in evaluation.reason_codes
+    assert "SANCTIONS_PROVIDER_UNAVAILABLE" in evaluation.reason_codes
+    assert "RESERVE_PROVIDER_UNAVAILABLE" in evaluation.reason_codes
+    # Evidence must be persisted for every check, even when the providers
+    # are unavailable, so the proof artifact is fully traceable.
+    assert {item["check"] for item in evaluation.evidence} == {"kyc", "sanctions", "reserve"}
+    for item in evaluation.evidence:
+        assert item["status"] == ProviderStatus.UNAVAILABLE.value
+        assert item["provider_id"].startswith("null:")
+
+
+def test_engine_static_allow_produces_traceable_evidence():
+    with patch.object(config, "KYC_PROVIDER", "static_allow"), patch.object(
+        config, "SANCTIONS_PROVIDER", "static_allow"
+    ), patch.object(config, "RESERVE_PROVIDER", "static_allow"):
+        evaluation = evaluate_compliance(
+            subject=VALID_SUBJECT,
+            action="transfer",
+            amount=10,
+            counterparty=None,
+        )
+
+    assert evaluation.decision == "allow"
+    assert "KYC_VERIFIED" in evaluation.reason_codes
+    assert "SANCTIONS_PASSED" in evaluation.reason_codes
+    assert "RESERVE_BACKED" in evaluation.reason_codes
+    for item in evaluation.evidence:
+        assert item["provider_id"].startswith("static_allow:")
+        assert item["status"] == ProviderStatus.APPROVED.value
+
+
+def test_engine_denies_when_any_provider_returns_denied():
+    class _DenyKyc(_StaticAllowProvider):
+        def evaluate(self, context):
+            return ProviderResult(
+                check="kyc",
+                status=ProviderStatus.DENIED,
+                provider_id="test:deny",
+                reason="sanctioned_entity",
+            )
+
+    providers = {
+        "kyc": _DenyKyc("kyc"),
+        "sanctions": _StaticAllowProvider("sanctions"),
+        "reserve": _StaticAllowProvider("reserve"),
+    }
+    evaluation = evaluate_compliance(
+        subject=VALID_SUBJECT,
+        action="transfer",
+        amount=10,
+        counterparty=None,
+        providers=providers,
+    )
+    assert evaluation.decision == "deny"
+    assert "KYC_DENIED" in evaluation.reason_codes
+    # Evidence still includes the explicit denial reason.
+    kyc_evidence = next(item for item in evaluation.evidence if item["check"] == "kyc")
+    assert kyc_evidence["status"] == ProviderStatus.DENIED.value
+    assert kyc_evidence["reason"] == "sanctioned_entity"
+
+
+# ---------------------------------------------------------------------------
+# HTTP provider: transport failures must yield an "unavailable" result
+# (fail-closed) rather than raising.
+# ---------------------------------------------------------------------------
+
+
+def test_http_provider_returns_unavailable_on_transport_error():
+    def _fail(_url, _payload, _headers):
+        raise RuntimeError("boom")
+
+    provider = _HttpProvider(
+        "kyc",
+        "https://example.invalid/check",
+        "key",
+        provider_name="kyc",
+        fetcher=_fail,
+    )
+    result = provider.evaluate({"subject": VALID_SUBJECT})
+    assert result.status is ProviderStatus.UNAVAILABLE
+    assert result.reason == "provider_request_failed"
+    assert result.provider_id == "http:kyc"
+
+
+def test_http_provider_uses_response_status_and_reference():
+    def _ok(_url, _payload, _headers):
+        return {"status": "approved", "reference": "ref-123", "details": {"score": 99}}
+
+    provider = _HttpProvider(
+        "kyc",
+        "https://example.invalid/check",
+        "key",
+        provider_name="kyc",
+        fetcher=_ok,
+    )
+    result = provider.evaluate({"subject": VALID_SUBJECT})
+    assert result.status is ProviderStatus.APPROVED
+    assert result.reference == "ref-123"
+    assert result.details == {"score": 99}
+
+
+def test_http_provider_unknown_status_is_unavailable():
+    def _bad(_url, _payload, _headers):
+        return {"status": "maybe"}
+
+    provider = _HttpProvider(
+        "sanctions",
+        "https://example.invalid/check",
+        "",
+        provider_name="sanctions",
+        fetcher=_bad,
+    )
+    result = provider.evaluate({"subject": VALID_SUBJECT})
+    assert result.status is ProviderStatus.UNAVAILABLE
+    assert result.reason == "provider_returned_unknown_status"
+
+
+def test_http_provider_missing_url_is_unavailable():
+    provider = _HttpProvider("kyc", "", "", provider_name="kyc", fetcher=lambda *a, **k: {})
+    result = provider.evaluate({"subject": VALID_SUBJECT})
+    assert result.status is ProviderStatus.UNAVAILABLE
+    assert result.reason == "provider_url_missing"
+
+
+# ---------------------------------------------------------------------------
+# Provider factory wiring
+# ---------------------------------------------------------------------------
+
+
+def test_provider_factory_defaults_to_null_when_not_configured():
+    with patch.object(config, "KYC_PROVIDER", ""), patch.object(
+        config, "SANCTIONS_PROVIDER", ""
+    ), patch.object(config, "RESERVE_PROVIDER", ""):
+        assert isinstance(get_kyc_provider(), _NullProvider)
+        assert isinstance(get_sanctions_provider(), _NullProvider)
+        assert isinstance(get_reserve_provider(), _NullProvider)
+
+
+def test_provider_factory_unknown_kind_falls_back_to_null():
+    with patch.object(config, "KYC_PROVIDER", "definitely-not-supported"):
+        assert isinstance(get_kyc_provider(), _NullProvider)
+
+
+def test_provider_factory_builds_http_provider_when_configured():
+    with patch.object(config, "KYC_PROVIDER", "http"), patch.object(
+        config, "KYC_PROVIDER_URL", "https://example.invalid/kyc"
+    ), patch.object(config, "KYC_PROVIDER_API_KEY", "secret"):
+        provider = get_kyc_provider()
+    assert isinstance(provider, _HttpProvider)
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: /v1/permit reflects the real provider decision
+# ---------------------------------------------------------------------------
+
+
+def test_permit_endpoint_emits_provider_evidence_in_proof_artifact():
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+
+    # decision_result reflects the configured providers (static_allow in tests).
+    assert data["decision_result"] == "allow"
+
+    # The bundle must record the structured per-check evidence used to
+    # derive the decision, not synthetic random hashes.
+    assert "compliance_evidence" in data["bundle"]
+    checks = {item["check"]: item for item in data["bundle"]["compliance_evidence"]}
+    assert set(checks.keys()) == {"kyc", "sanctions", "reserve"}
+    for item in checks.values():
+        assert item["provider_id"].startswith("static_allow:")
+        assert item["status"] == "approved"
+
+    # Old random_hex placeholder attestations must be gone.
+    attestations = data["bundle"]["attestations"]
+    assert "custody_hash" not in attestations
+    assert "reserve_hash" not in attestations
+    # Reserve attestation is now the provider reference.
+    assert attestations["reserve_reference"] == checks["reserve"]["reference"]
+    assert attestations["kyc_reference"] == checks["kyc"]["reference"]
+
+    # Proof artifact must carry the same evidence for downstream auditors.
+    proof_ctx = data["proof_artifact"]["evaluation_context"]
+    assert proof_ctx["compliance_evidence"] == data["bundle"]["compliance_evidence"]
+
+
+def test_permit_endpoint_fails_closed_when_kyc_provider_unavailable():
+    with patch.object(config, "KYC_PROVIDER", "null"):
+        response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "deny"
+    assert "KYC_PROVIDER_UNAVAILABLE" in data["reason_codes"]
+    # The bundle must not claim KYC was verified when no provider was reachable.
+    assert data["bundle"]["constraints"]["kyc_verified"] is False
+    # And the proof artifact's compliance_evidence must reflect the failure.
+    evidence = data["bundle"]["compliance_evidence"]
+    kyc = next(item for item in evidence if item["check"] == "kyc")
+    assert kyc["status"] == "unavailable"
+    assert kyc["provider_id"].startswith("null:")
+
+
+def test_permit_endpoint_records_sanctions_unavailable_status():
+    with patch.object(config, "SANCTIONS_PROVIDER", "null"):
+        response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+
+    data = response.json()
+    assert data["decision_result"] == "deny"
+    assert data["bundle"]["constraints"]["sanctions_check"] == "unavailable"
+    assert "SANCTIONS_PROVIDER_UNAVAILABLE" in data["reason_codes"]
