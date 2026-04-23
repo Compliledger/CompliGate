@@ -392,3 +392,113 @@ def test_permit_endpoint_emits_sanctions_screen_denied_when_provider_denies():
     # Sanctions evidence reference is preserved on the proof artifact
     # even though the decision was a denial.
     assert data["bundle"]["attestations"]["sanctions_reference"] == "case-deny-1"
+
+
+# ---------------------------------------------------------------------------
+# Reserve / liquidity component evaluation for regulated stablecoin flows
+# ---------------------------------------------------------------------------
+
+
+def test_engine_emits_reserve_and_liquidity_component_reason_codes_on_approval():
+    """When the reserve provider approves both components, the engine
+    surfaces RESERVE_VERIFIED and LIQUIDITY_VERIFIED in addition to the
+    legacy RESERVE_BACKED token, so the permit response carries the
+    explicit per-component vocabulary required by the regulated
+    stablecoin permit contract."""
+    with patch.object(config, "RESERVE_PROVIDER", "static_allow"):
+        evaluation = evaluate_compliance(
+            subject=VALID_SUBJECT,
+            action="transfer",
+            amount=10,
+            counterparty=None,
+            asset={"classification": "regulated_stablecoin"},
+        )
+    assert evaluation.decision == "allow"
+    assert "RESERVE_VERIFIED" in evaluation.reason_codes
+    assert "LIQUIDITY_VERIFIED" in evaluation.reason_codes
+    # Legacy RESERVE_BACKED is preserved for backward compatibility.
+    assert "RESERVE_BACKED" in evaluation.reason_codes
+
+
+def test_engine_denies_regulated_stablecoin_when_liquidity_component_denied():
+    """A reserve provider that approves reserves but denies liquidity
+    must block a regulated_stablecoin permit and emit
+    LIQUIDITY_NOT_VERIFIED + RESERVE_VERIFIED so the failure is fully
+    traceable to the liquidity attestation."""
+
+    class _PartialReserveProvider(_StaticAllowProvider):
+        def evaluate(self, context):  # noqa: ARG002
+            return ProviderResult(
+                check="reserve",
+                status=ProviderStatus.APPROVED,
+                provider_id="test:partial",
+                reference="ref-r-1",
+                details={
+                    "reserve_status": "approved",
+                    "liquidity_status": "denied",
+                    "liquidity_reference": "ref-l-1",
+                },
+            )
+
+    evaluation = evaluate_compliance(
+        subject=VALID_SUBJECT,
+        action="transfer",
+        amount=10,
+        counterparty=None,
+        asset={"classification": "regulated_stablecoin"},
+        providers={
+            "kyc": _StaticAllowProvider("kyc"),
+            "sanctions": _StaticAllowProvider("sanctions"),
+            "reserve": _PartialReserveProvider("reserve"),
+        },
+    )
+    assert evaluation.decision == "deny"
+    assert "RESERVE_VERIFIED" in evaluation.reason_codes
+    assert "LIQUIDITY_NOT_VERIFIED" in evaluation.reason_codes
+
+
+def test_engine_emits_evidence_unavailable_when_reserve_provider_unavailable():
+    with patch.object(config, "RESERVE_PROVIDER", "null"), patch.object(
+        config, "FAIL_CLOSED_COMPLIANCE", True
+    ):
+        evaluation = evaluate_compliance(
+            subject=VALID_SUBJECT,
+            action="transfer",
+            amount=10,
+            counterparty=None,
+            asset={"classification": "regulated_stablecoin"},
+        )
+    assert evaluation.decision == "deny"
+    assert "RESERVE_EVIDENCE_UNAVAILABLE" in evaluation.reason_codes
+    assert "LIQUIDITY_EVIDENCE_UNAVAILABLE" in evaluation.reason_codes
+
+
+def test_permit_endpoint_surfaces_liquidity_reference_and_summary_status():
+    """The permit bundle, summary and proof artifact must carry distinct
+    reserve and liquidity references derived from real provider
+    evidence, and the proof artifact's evaluation_context must include
+    those references for downstream auditors."""
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "allow"
+
+    # Bundle attestations carry separate reserve and liquidity
+    # references derived from the real provider evidence.
+    attestations = data["bundle"]["attestations"]
+    assert "reserve_reference" in attestations
+    assert "liquidity_reference" in attestations
+    assert attestations["reserve_reference"] is not None
+    assert attestations["liquidity_reference"] is not None
+
+    # Summary surfaces both component statuses.
+    assert data["summary"]["reserve_status"] == "approved"
+    assert data["summary"]["liquidity_status"] == "approved"
+
+    # Proof artifact evaluation_context includes both references so
+    # downstream auditors can resolve them without parsing the raw
+    # compliance_evidence list.
+    proof_ctx = data["proof_artifact"]["evaluation_context"]
+    assert proof_ctx["reserve_reference"] == attestations["reserve_reference"]
+    assert proof_ctx["liquidity_reference"] == attestations["liquidity_reference"]
+

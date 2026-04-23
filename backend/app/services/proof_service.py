@@ -6,6 +6,7 @@ from app.core import config
 from app.core.logging import get_logger
 from app.models.proof import ProofArtifact, build_proof_artifact
 from app.services.compliance import evaluate_compliance
+from app.services.compliance.engine import derive_reserve_components
 from app.services.policy_service import validate_action, validate_amount, validate_subject
 from app.services.storage_service import save_proof_artifact, save_reserve_evidence
 from app.utils.hashing import proof_hash
@@ -47,6 +48,12 @@ def create_proof_artifact_from_permit_req(req) -> ProofArtifact:
         asset=asset,
     )
 
+    reserve_evidence_item = next(
+        (item for item in compliance.evidence if item.get("check") == "reserve"),
+        None,
+    )
+    reserve_components = derive_reserve_components(reserve_evidence_item)
+
     evaluation_context = {
         "action": req.action,
         "jurisdiction": config.JURISDICTION,
@@ -54,6 +61,11 @@ def create_proof_artifact_from_permit_req(req) -> ProofArtifact:
         "issuer": config.ISSUER_ADDRESS,
         "amount": req.amount,
         "counterparty": req.counterparty,
+        "asset_classification": asset.get("classification"),
+        "reserve_status": reserve_components["reserve_status"].value,
+        "liquidity_status": reserve_components["liquidity_status"].value,
+        "reserve_reference": reserve_components["reserve_reference"],
+        "liquidity_reference": reserve_components["liquidity_reference"],
         "compliance_evidence": compliance.evidence,
     }
 
@@ -82,10 +94,6 @@ def create_proof_artifact_from_permit_req(req) -> ProofArtifact:
     artifact = build_proof_artifact(**core, bundle_hash=artifact_hash)
     save_proof_artifact(bundle_hash=artifact_hash, artifact=artifact, artifact_type="permit_request")
 
-    reserve_evidence_item = next(
-        (item for item in compliance.evidence if item.get("check") == "reserve"),
-        None,
-    )
     save_reserve_evidence(
         bundle_hash=artifact_hash,
         evidence_item=reserve_evidence_item,
@@ -104,6 +112,7 @@ def create_permit_proof_artifact(
     decision_result: str = "allow",
     compliance_evidence: list[dict] | None = None,
 ) -> ProofArtifact:
+    attestations = bundle.get("attestations") or {}
     return build_proof_artifact(
         module="CompliGate",
         entity_id=bundle["bundle_id"],
@@ -118,6 +127,8 @@ def create_permit_proof_artifact(
             "regulatory_treatment": bundle["asset"]["regulatory_treatment"],
             "reserve_backed": bundle["constraints"]["reserve_backed"],
             "liquidity_verified": bundle["constraints"]["liquidity_verified"],
+            "reserve_reference": attestations.get("reserve_reference"),
+            "liquidity_reference": attestations.get("liquidity_reference"),
             "kyc_verified": bundle["constraints"]["kyc_verified"],
             "sanctions_check": bundle["constraints"]["sanctions_check"],
             "jurisdiction": bundle["constraints"]["jurisdiction"],

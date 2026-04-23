@@ -78,6 +78,29 @@ UNAVAILABLE_REASON_CODES = {
     "reserve": "RESERVE_PROVIDER_UNAVAILABLE",
 }
 
+#: Per-component reason codes derived from the reserve provider's
+#: structured evidence (``details.reserve_status`` /
+#: ``details.liquidity_status``). When the reserve provider returns a
+#: single overall status, both reserve_status and liquidity_status fall
+#: back to that overall status. These codes are required by the permit
+#: evaluation contract for regulated stablecoin flows so the bundle and
+#: proof artifact always carry an explicit, machine-readable record of
+#: both the reserve-backing and liquidity attestations.
+RESERVE_COMPONENT_REASON_CODES = {
+    ProviderStatus.APPROVED: "RESERVE_VERIFIED",
+    ProviderStatus.DENIED: "RESERVE_NOT_VERIFIED",
+    ProviderStatus.UNAVAILABLE: "RESERVE_EVIDENCE_UNAVAILABLE",
+}
+LIQUIDITY_COMPONENT_REASON_CODES = {
+    ProviderStatus.APPROVED: "LIQUIDITY_VERIFIED",
+    ProviderStatus.DENIED: "LIQUIDITY_NOT_VERIFIED",
+    ProviderStatus.UNAVAILABLE: "LIQUIDITY_EVIDENCE_UNAVAILABLE",
+}
+
+#: Asset classifications that require both reserve_status and
+#: liquidity_status to be verified before a permit can be issued.
+_RESERVE_LIQUIDITY_REQUIRED_CLASSIFICATIONS = frozenset({"regulated_stablecoin"})
+
 #: Reason code emitted when a provider was missing/unavailable but the
 #: ``FAIL_CLOSED_COMPLIANCE`` flag was explicitly disabled, so the engine
 #: allowed the request anyway. Recorded in the proof artifact so it is
@@ -141,6 +164,93 @@ class ComplianceEvaluation:
     def reference_for(self, check: str) -> str | None:
         result = self.results.get(check)
         return result.reference if result is not None else None
+
+    def reserve_components(self) -> dict[str, Any]:
+        """Return the structured reserve / liquidity component breakdown.
+
+        Reserve providers may attest reserves and liquidity together
+        (single overall ``status``) or separately (via
+        ``details.reserve_status`` / ``details.liquidity_status`` and
+        optional ``details.liquidity_reference``). This helper exposes
+        the normalized breakdown so callers (permit bundle, proof
+        artifact) can render both components without duplicating the
+        derivation logic.
+        """
+        item = next(
+            (e for e in self.evidence if e.get("check") == "reserve"),
+            None,
+        )
+        return derive_reserve_components(item)
+
+
+def derive_reserve_components(
+    evidence_item: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Normalize a reserve evidence dict into reserve/liquidity components.
+
+    Returns a dict with ``reserve_status``, ``liquidity_status`` (each a
+    :class:`ProviderStatus`), ``reserve_reference`` and
+    ``liquidity_reference`` strings (or ``None``). When no reserve
+    evidence is available both statuses default to
+    :attr:`ProviderStatus.UNAVAILABLE` so downstream policy logic can
+    still emit deterministic reason codes.
+    """
+    if not evidence_item:
+        return {
+            "reserve_status": ProviderStatus.UNAVAILABLE,
+            "liquidity_status": ProviderStatus.UNAVAILABLE,
+            "reserve_reference": None,
+            "liquidity_reference": None,
+        }
+
+    overall_status = _coerce_provider_status(evidence_item.get("status"))
+    details = evidence_item.get("details") or {}
+    if not isinstance(details, dict):
+        details = {}
+
+    reserve_status = _coerce_provider_status(
+        details.get("reserve_status"), default=overall_status
+    )
+    liquidity_status = _coerce_provider_status(
+        details.get("liquidity_status"), default=overall_status
+    )
+
+    overall_reference = evidence_item.get("reference")
+    reserve_reference = _normalize_reference(
+        details.get("reserve_reference") or overall_reference
+    )
+    liquidity_reference = _normalize_reference(
+        details.get("liquidity_reference") or overall_reference
+    )
+
+    return {
+        "reserve_status": reserve_status,
+        "liquidity_status": liquidity_status,
+        "reserve_reference": reserve_reference,
+        "liquidity_reference": liquidity_reference,
+    }
+
+
+def _normalize_reference(value: Any) -> str | None:
+    """Return ``value`` as a non-empty string, or ``None``."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value or None
+    return str(value)
+
+
+def _coerce_provider_status(
+    value: Any, *, default: ProviderStatus = ProviderStatus.UNAVAILABLE
+) -> ProviderStatus:
+    if isinstance(value, ProviderStatus):
+        return value
+    if value is None:
+        return default
+    try:
+        return ProviderStatus(str(value).strip().lower())
+    except ValueError:
+        return default
 
 
 def _default_providers() -> dict[str, ComplianceProvider]:
@@ -255,6 +365,45 @@ def evaluate_compliance(
             normalized = NORMALIZED_KYC_REASON_CODES.get(result.status)
             if normalized is not None and normalized not in reason_codes:
                 reason_codes.append(normalized)
+
+    # Surface per-component reason codes for the reserve / liquidity
+    # attestation. The reserve provider may attest both components
+    # together (single overall ``status``) or separately (via
+    # ``details.reserve_status`` / ``details.liquidity_status``). Either
+    # way we always emit explicit RESERVE_<STATUS> and LIQUIDITY_<STATUS>
+    # codes so the permit response and proof artifact carry the required
+    # vocabulary, and so downstream consumers never have to derive them
+    # from the raw evidence list.
+    reserve_evidence_item = next(
+        (item for item in evidence if item.get("check") == "reserve"),
+        None,
+    )
+    components = derive_reserve_components(reserve_evidence_item)
+    reserve_component_status = components["reserve_status"]
+    liquidity_component_status = components["liquidity_status"]
+
+    reserve_code = RESERVE_COMPONENT_REASON_CODES.get(reserve_component_status)
+    if reserve_code and reserve_code not in reason_codes:
+        reason_codes.append(reserve_code)
+    liquidity_code = LIQUIDITY_COMPONENT_REASON_CODES.get(liquidity_component_status)
+    if liquidity_code and liquidity_code not in reason_codes:
+        reason_codes.append(liquidity_code)
+
+    # Regulated stablecoin flows additionally require BOTH the reserve
+    # and liquidity attestations to be verified before a permit can be
+    # issued. An explicit DENIED component always blocks; an UNAVAILABLE
+    # component blocks under FAIL_CLOSED_COMPLIANCE (the default) so a
+    # missing or unreachable attestation never silently approves a
+    # regulated stablecoin transfer.
+    asset_dict = asset or {}
+    asset_classification_raw = asset_dict.get("classification") or ""
+    asset_classification = asset_classification_raw.strip().lower()
+    if asset_classification in _RESERVE_LIQUIDITY_REQUIRED_CLASSIFICATIONS:
+        for component_status in (reserve_component_status, liquidity_component_status):
+            if component_status is ProviderStatus.DENIED:
+                decision = "deny"
+            elif component_status is ProviderStatus.UNAVAILABLE and fail_closed:
+                decision = "deny"
 
     # Resolve destination-side KYC when applicable. We re-use the
     # configured KYC provider with a context whose ``subject`` is the
