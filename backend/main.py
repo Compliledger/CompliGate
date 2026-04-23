@@ -494,7 +494,16 @@ def evaluate_constraints(
             },
         )
     reason_codes: list[str] = []
-    reason_codes.append("KYC_VERIFIED")
+    # KYC must never be hardcoded as verified — real KYC state is
+    # sourced from the configured KYC provider via the modular permit
+    # service (see app/services/permit_service.py and
+    # app/services/compliance/). This legacy demo path does not call a
+    # provider, so it records the constraint as KYC_NOT_VERIFIED with
+    # the normalized KYC_UNAVAILABLE token to make the lack of real
+    # evidence explicit and consistent with bundle["constraints"]
+    # ["kyc_verified"] = False.
+    reason_codes.append("KYC_NOT_VERIFIED")
+    reason_codes.append("KYC_UNAVAILABLE")
     reason_codes.append("SANCTIONS_PASSED")
     reason_codes.append("RESERVE_BACKED")
     reason_codes.append("LIQUIDITY_VERIFIED")
