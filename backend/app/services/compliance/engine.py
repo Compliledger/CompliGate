@@ -68,6 +68,19 @@ SKIPPED_REASON_CODES = {
     "reserve": "RESERVE_CHECK_SKIPPED",
 }
 
+#: Provider-derived sanctions screen reason codes.
+#:
+#: These are emitted *in addition* to the per-status reason codes above
+#: so callers always get an explicit, machine-readable record of the
+#: sanctions provider's screen outcome — independent of how the engine
+#: collapsed it into the overall decision.  They are required by the
+#: permit issuance contract and surfaced in the proof artifact.
+SANCTIONS_SCREEN_REASON_CODES = {
+    ProviderStatus.APPROVED: "SANCTIONS_SCREEN_PASSED",
+    ProviderStatus.DENIED: "SANCTIONS_SCREEN_DENIED",
+    ProviderStatus.UNAVAILABLE: "SANCTIONS_SCREEN_UNAVAILABLE",
+}
+
 
 @dataclass(frozen=True)
 class ComplianceEvaluation:
@@ -142,6 +155,14 @@ def evaluate_compliance(
                 decision = "deny"
             else:
                 reason_codes.append(SKIPPED_REASON_CODES[check])
+            if check == "sanctions":
+                # Always surface a provider-derived screen reason code
+                # so the permit response and proof artifact record the
+                # sanctions outcome explicitly, even when no provider
+                # was registered.
+                reason_codes.append(
+                    SANCTIONS_SCREEN_REASON_CODES[ProviderStatus.UNAVAILABLE]
+                )
             evidence.append(
                 {
                     "check": check,
@@ -172,6 +193,11 @@ def evaluate_compliance(
                 decision = "deny"
             else:
                 reason_codes.append(SKIPPED_REASON_CODES[check])
+
+        if check == "sanctions":
+            screen_code = SANCTIONS_SCREEN_REASON_CODES.get(result.status)
+            if screen_code is not None:
+                reason_codes.append(screen_code)
 
     return ComplianceEvaluation(
         decision=decision,

@@ -298,3 +298,85 @@ def test_permit_endpoint_records_sanctions_unavailable_status():
     assert data["decision_result"] == "deny"
     assert data["bundle"]["constraints"]["sanctions_check"] == "unavailable"
     assert "SANCTIONS_PROVIDER_UNAVAILABLE" in data["reason_codes"]
+    # The provider-derived screen reason code is also surfaced so the
+    # permit response makes the sanctions outcome explicit, regardless
+    # of how the engine collapsed it into the overall decision.
+    assert "SANCTIONS_SCREEN_UNAVAILABLE" in data["reason_codes"]
+    # Proof artifact also carries the screen reason code.
+    assert "SANCTIONS_SCREEN_UNAVAILABLE" in data["proof_artifact"]["reason_codes"]
+
+
+def test_permit_endpoint_emits_sanctions_screen_passed_reason_code():
+    """The successful sanctions outcome surfaces a provider-derived
+    SANCTIONS_SCREEN_PASSED reason code in addition to the legacy
+    SANCTIONS_PASSED code, and the screen evidence reference is wired
+    into the bundle attestations and the proof artifact."""
+    response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "allow"
+    assert "SANCTIONS_SCREEN_PASSED" in data["reason_codes"]
+    assert "SANCTIONS_SCREEN_DENIED" not in data["reason_codes"]
+    assert "SANCTIONS_SCREEN_UNAVAILABLE" not in data["reason_codes"]
+
+    # Sanctions evidence reference must be surfaced as a first-class
+    # attestation so consumers do not have to walk the evidence list to
+    # find it, and it must match the provider-reported reference.
+    sanctions_ev = next(
+        item for item in data["bundle"]["compliance_evidence"]
+        if item["check"] == "sanctions"
+    )
+    assert data["bundle"]["attestations"]["sanctions_reference"] == sanctions_ev[
+        "reference"
+    ]
+
+    # Proof artifact carries the screen code and the same sanctions
+    # evidence (so persisted artifacts always include the normalized
+    # sanctions evidence reference).
+    proof = data["proof_artifact"]
+    assert "SANCTIONS_SCREEN_PASSED" in proof["reason_codes"]
+    proof_evidence = proof["evaluation_context"]["compliance_evidence"]
+    proof_sanctions = next(
+        item for item in proof_evidence if item["check"] == "sanctions"
+    )
+    assert proof_sanctions["reference"] == sanctions_ev["reference"]
+
+
+def test_permit_endpoint_emits_sanctions_screen_denied_when_provider_denies():
+    """A provider-level deny propagates into the SANCTIONS_SCREEN_DENIED
+    reason code and a denied permit decision."""
+    from app.services.compliance.providers import _StaticAllowProvider
+    from app.services.compliance import ProviderResult, ProviderStatus as PS
+
+    class _DenySanctions(_StaticAllowProvider):
+        def evaluate(self, context):  # noqa: ARG002
+            return ProviderResult(
+                check="sanctions",
+                status=PS.DENIED,
+                provider_id="test:deny",
+                reference="case-deny-1",
+                reason="ofac_match",
+            )
+
+    with patch(
+        "app.services.compliance.engine._default_providers",
+        return_value={
+            "kyc": _StaticAllowProvider("kyc"),
+            "sanctions": _DenySanctions("sanctions"),
+            "reserve": _StaticAllowProvider("reserve"),
+        },
+    ):
+        response = client.post(
+            "/v1/permit",
+            json={"subject": VALID_SUBJECT, "counterparty": VALID_SUBJECT},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "deny"
+    assert "SANCTIONS_HIT" in data["reason_codes"]
+    assert "SANCTIONS_SCREEN_DENIED" in data["reason_codes"]
+    assert data["bundle"]["constraints"]["sanctions_check"] == "denied"
+    # Sanctions evidence reference is preserved on the proof artifact
+    # even though the decision was a denial.
+    assert data["bundle"]["attestations"]["sanctions_reference"] == "case-deny-1"

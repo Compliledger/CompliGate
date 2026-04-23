@@ -299,28 +299,47 @@ class _AddressScreenSanctionsProvider(ComplianceProvider):
 
         provider_id = f"address_screen:{normalized.provider_name}"
 
-        # Map the normalized decision onto the engine status.  Anything
-        # that isn't an explicit ``pass`` or ``deny`` collapses into
-        # ``unavailable`` so the fail-closed policy in the engine kicks
-        # in (this includes ``review`` outcomes — by contract a manual
-        # review hold cannot auto-issue a permit).
+        # Map the normalized decision onto the engine status.
+        #
+        # * ``pass``         -> APPROVED   (permit may be issued)
+        # * ``deny``         -> DENIED     (confirmed sanctions hit)
+        # * ``review``       -> DENIED     (deny / conditional deny for
+        #                                   MVP — a manual review hold
+        #                                   must never auto-issue a
+        #                                   permit; we make the cause
+        #                                   explicit via the reason
+        #                                   field rather than collapsing
+        #                                   into "unavailable")
+        # * ``unavailable``  -> UNAVAILABLE (fail-closed via engine when
+        #                                    FAIL_CLOSED_COMPLIANCE=true)
+        review_denied = False
         if normalized.decision is AbstractDecision.PASS:
             status = ProviderStatus.APPROVED
         elif normalized.decision is AbstractDecision.DENY:
             status = ProviderStatus.DENIED
+        elif normalized.decision is AbstractDecision.REVIEW:
+            status = ProviderStatus.DENIED
+            review_denied = True
         else:
             status = ProviderStatus.UNAVAILABLE
 
         # Build a JSON-friendly, secret-free details payload from the
-        # provider's normalized response excerpt.
+        # provider's normalized response excerpt.  The raw decision is
+        # always preserved so auditors can see whether a denial was the
+        # result of a confirmed hit or a review-hold escalation.
         details: dict[str, Any] = {
             "decision": normalized.decision.value,
             "reason_codes": list(normalized.reason_codes),
         }
+        if review_denied:
+            details["review_denied_for_mvp"] = True
         if normalized.raw_response_excerpt is not None:
             details["normalized"] = dict(normalized.raw_response_excerpt)
 
-        reason = normalized.reason_codes[0] if normalized.reason_codes else None
+        if review_denied:
+            reason = "SANCTIONS_REVIEW_DENIED_FOR_MVP"
+        else:
+            reason = normalized.reason_codes[0] if normalized.reason_codes else None
 
         return ProviderResult(
             check=self.check,

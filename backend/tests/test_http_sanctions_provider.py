@@ -444,7 +444,9 @@ def test_engine_address_screen_passes_through_clean_screen():
 
 
 def test_engine_address_screen_review_outcome_fails_closed():
-    """Review = manual hold; engine must not auto-issue a permit."""
+    """Review = manual hold; engine must deny (deny / conditional deny
+    for MVP) rather than auto-issue a permit, and the persisted evidence
+    must make it clear the denial came from a review escalation."""
     def review_factory():
         return HttpSanctionsProvider(
             provider_name="acme",
@@ -467,7 +469,21 @@ def test_engine_address_screen_review_outcome_fails_closed():
             },
         )
     assert evaluation.decision == "deny"
-    assert "SANCTIONS_PROVIDER_UNAVAILABLE" in evaluation.reason_codes
+    # Review collapses to a denial for MVP, so the denial-shaped reason
+    # codes are emitted (not the unavailable ones).
+    assert "SANCTIONS_HIT" in evaluation.reason_codes
+    assert "SANCTIONS_SCREEN_DENIED" in evaluation.reason_codes
+    assert "SANCTIONS_PROVIDER_UNAVAILABLE" not in evaluation.reason_codes
+
+    sanctions_evidence = next(
+        item for item in evaluation.evidence if item["check"] == "sanctions"
+    )
+    assert sanctions_evidence["status"] == "denied"
+    # The original "review" outcome must still be traceable in the
+    # persisted evidence so auditors can see *why* the denial happened.
+    assert sanctions_evidence["details"]["decision"] == "review"
+    assert sanctions_evidence["details"]["review_denied_for_mvp"] is True
+    assert sanctions_evidence["reason"] == "SANCTIONS_REVIEW_DENIED_FOR_MVP"
 
 
 def test_engine_address_screen_kind_is_built_via_factory(monkeypatch):
