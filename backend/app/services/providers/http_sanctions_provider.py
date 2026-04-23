@@ -44,7 +44,7 @@ from app.services.providers.base import (
 )
 from app.services.providers.sanctions_provider import SanctionsProvider
 
-logger = logging.getLogger("compligate.providers.sanctions")
+logger = logging.getLogger("app.services.providers.sanctions")
 
 #: Default per-screen HTTP timeout.  Sanctions screening calls must be
 #: fast or we fail closed, so the timeout is intentionally tight.
@@ -559,7 +559,8 @@ def _extract_destination(context: Mapping[str, Any]) -> str | None:
 def _coerce_str(value: Any) -> str:
     if value is None:
         return ""
-    return str(value).strip().lower() if isinstance(value, str) else str(value).strip()
+    s = str(value).strip()
+    return s.lower() if isinstance(value, str) else s
 
 
 def _safe_token(value: str) -> str:
