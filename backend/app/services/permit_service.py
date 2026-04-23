@@ -15,7 +15,7 @@ from app.models.proof import ProofArtifact
 from app.services.compliance import ProviderStatus
 from app.services.policy_service import MAX_AMOUNT, evaluate_permit_policy, validate_subject
 from app.services.proof_service import create_permit_proof_artifact
-from app.services.storage_service import save_permit, save_proof_artifact
+from app.services.storage_service import save_permit, save_proof_artifact, save_reserve_evidence
 from app.utils.canonical_json import canonical_json
 from app.utils.hashing import proof_hash
 
@@ -208,6 +208,22 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
         compliance_evidence=compliance.evidence,
     )
     save_proof_artifact(bundle_hash=bundle_hash, artifact=proof_artifact, artifact_type="permit_generation")
+
+    # Persist the structured reserve / liquidity evidence as a first-class
+    # record linked to this permit's bundle_hash. Uses the *real* provider
+    # response (no random hashes, no hard-coded ``true``); when no reserve
+    # evidence was produced the call is a no-op.
+    reserve_evidence_item = next(
+        (item for item in compliance.evidence if item.get("check") == "reserve"),
+        None,
+    )
+    save_reserve_evidence(
+        bundle_hash=bundle_hash,
+        evidence_item=reserve_evidence_item,
+        asset=asset.get("currency", ""),
+        issuer=asset.get("issuer", ""),
+        db=db,
+    )
 
     store_recent_permit_context(
         bundle_hash=bundle_hash,

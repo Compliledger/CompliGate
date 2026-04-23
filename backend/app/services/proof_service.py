@@ -7,7 +7,7 @@ from app.core.logging import get_logger
 from app.models.proof import ProofArtifact, build_proof_artifact
 from app.services.compliance import evaluate_compliance
 from app.services.policy_service import validate_action, validate_amount, validate_subject
-from app.services.storage_service import save_proof_artifact
+from app.services.storage_service import save_proof_artifact, save_reserve_evidence
 from app.utils.hashing import proof_hash
 
 logger = get_logger("main")
@@ -81,6 +81,17 @@ def create_proof_artifact_from_permit_req(req) -> ProofArtifact:
     )
     artifact = build_proof_artifact(**core, bundle_hash=artifact_hash)
     save_proof_artifact(bundle_hash=artifact_hash, artifact=artifact, artifact_type="permit_request")
+
+    reserve_evidence_item = next(
+        (item for item in compliance.evidence if item.get("check") == "reserve"),
+        None,
+    )
+    save_reserve_evidence(
+        bundle_hash=artifact_hash,
+        evidence_item=reserve_evidence_item,
+        asset=asset.get("currency", ""),
+        issuer=asset.get("issuer", ""),
+    )
     return artifact
 
 
