@@ -588,8 +588,14 @@ def create_permit(req: PermitRequest):
             "jurisdiction": JURISDICTION,
         },
         "attestations": {
-            "custody_hash": random_hex(32),
-            "reserve_hash": random_hex(32),
+            # Real attestation references are wired in the modular permit
+            # service from configured compliance providers (see
+            # app/services/permit_service.py and app/services/compliance/).
+            # This legacy demo path does not call providers, so it does
+            # not surface placeholder reserve / custody hashes here:
+            # synthetic random bytes were never real evidence and have
+            # been removed to avoid claiming attestations that do not
+            # exist.
         },
         "scope": [req.action],
         "exp": exp,
@@ -605,8 +611,11 @@ def create_permit(req: PermitRequest):
     summary = {
         "issuer_verified": True,
         "asset_classification": bundle["asset"]["classification"],
-        "custody_attestation_bound": True,
-        "reserve_attestation_bound": True,
+        # custody_attestation_bound / reserve_attestation_bound were
+        # always ``True`` in this legacy demo path even though no
+        # provider had actually attested anything; they have been
+        # removed so the summary never claims an attestation binding
+        # that is not derived from real evidence.
         "policy_version": POLICY_VERSION,
         "expires_in_seconds": PERMIT_TTL_SECONDS,
     }

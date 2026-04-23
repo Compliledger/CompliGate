@@ -13,6 +13,7 @@ from app.core.security import SIGNING_KEY, VERIFY_KEY
 from app.models.permit import PermitRequest, PermitResponse, VerifyRequest
 from app.models.proof import ProofArtifact
 from app.services.compliance import ProviderStatus
+from app.services.compliance.engine import derive_reserve_components
 from app.services.policy_service import MAX_AMOUNT, evaluate_permit_policy, validate_subject
 from app.services.proof_service import create_permit_proof_artifact
 from app.services.storage_service import save_permit, save_proof_artifact, save_reserve_evidence
@@ -99,14 +100,29 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
 
     kyc_status = compliance.status_for("kyc")
     sanctions_status = compliance.status_for("sanctions")
-    reserve_status = compliance.status_for("reserve")
+
+    # Decompose the reserve provider's evidence into separate
+    # reserve-backing and liquidity attestations. When the provider
+    # returns a single overall status the components fall back to that
+    # status, so the bundle and proof artifact never invent fields that
+    # were not derived from real provider evidence.
+    reserve_evidence_item = next(
+        (item for item in compliance.evidence if item.get("check") == "reserve"),
+        None,
+    )
+    reserve_components = derive_reserve_components(reserve_evidence_item)
+    reserve_component_status = reserve_components["reserve_status"]
+    liquidity_component_status = reserve_components["liquidity_status"]
+    reserve_component_reference = reserve_components["reserve_reference"]
+    liquidity_component_reference = reserve_components["liquidity_reference"]
 
     # Build attestation references from real provider evidence rather
     # than synthetic random hashes. When a provider did not return a
     # reference (e.g. unavailable), the attestation is recorded as None
     # so the proof artifact never claims an attestation that doesn't
     # exist.
-    reserve_reference = compliance.reference_for("reserve")
+    reserve_reference = reserve_component_reference
+    liquidity_reference = liquidity_component_reference
     kyc_reference = compliance.reference_for("kyc")
     sanctions_reference = compliance.reference_for("sanctions")
 
@@ -192,6 +208,8 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
             "amount": req.amount,
             "within_limit": within_limit,
             "allowed_counterparty": req.counterparty,
+            "reserve_backed": _constraint_value_for(reserve_component_status),
+            "liquidity_verified": _constraint_value_for(liquidity_component_status),
             "reserve_backed": reserve_backed_value,
             "liquidity_verified": liquidity_verified_value,
             "kyc_verified": _constraint_value_for(kyc_status),
@@ -211,6 +229,7 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
             "kyc_destination_reference": kyc_destination_reference,
             "kyc_destination_result": kyc_destination_result_payload,
             "reserve_reference": reserve_reference,
+            "liquidity_reference": liquidity_reference,
             "reserve_result": reserve_result_payload,
             "sanctions_reference": sanctions_reference,
         },
@@ -231,7 +250,8 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
         "asset_classification": bundle["asset"]["classification"],
         "kyc_status": kyc_status.value if kyc_status else "missing",
         "sanctions_status": sanctions_status.value if sanctions_status else "missing",
-        "reserve_status": reserve_status.value if reserve_status else "missing",
+        "reserve_status": reserve_component_status.value,
+        "liquidity_status": liquidity_component_status.value,
         "policy_version": config.POLICY_VERSION,
         "expires_in_seconds": config.PERMIT_TTL_SECONDS,
     }
@@ -250,10 +270,6 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
     # record linked to this permit's bundle_hash. Uses the *real* provider
     # response (no random hashes, no hard-coded ``true``); when no reserve
     # evidence was produced the call is a no-op.
-    reserve_evidence_item = next(
-        (item for item in compliance.evidence if item.get("check") == "reserve"),
-        None,
-    )
     save_reserve_evidence(
         bundle_hash=bundle_hash,
         evidence_item=reserve_evidence_item,
