@@ -27,6 +27,10 @@ from app.services.providers.sanctions_provider import (
     NotConfiguredSanctionsProvider,
     SanctionsProvider,
 )
+from app.services.providers.http_sanctions_provider import (
+    HttpSanctionsProvider,
+    build_sanctions_provider_from_config,
+)
 
 __all__ = [
     "PROVIDER_NOT_CONFIGURED_REASON",
@@ -37,6 +41,8 @@ __all__ = [
     "ProviderStatus",
     "SanctionsProvider",
     "NotConfiguredSanctionsProvider",
+    "HttpSanctionsProvider",
+    "build_sanctions_provider_from_config",
     "KycProvider",
     "NotConfiguredKycProvider",
     "ReserveProvider",

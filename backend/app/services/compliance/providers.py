@@ -234,10 +234,108 @@ class _HttpProvider(ComplianceProvider):
         )
 
 
+class _AddressScreenSanctionsProvider(ComplianceProvider):
+    """Adapter that drives the real :class:`HttpSanctionsProvider`.
+
+    The vendor-neutral abstraction layer in :mod:`app.services.providers`
+    returns a richer :class:`~app.services.providers.ProviderResult`
+    (with a ``decision`` of ``pass`` / ``deny`` / ``review`` /
+    ``unavailable``).  This adapter translates that into the
+    engine-level :class:`ProviderResult` shape so the existing
+    compliance engine — which already implements the fail-closed
+    policy required by ``FAIL_CLOSED_COMPLIANCE`` — can consume it
+    without modification.
+    """
+
+    check = "sanctions"
+    kind = "address_screen"
+
+    def __init__(
+        self,
+        *,
+        provider_factory: Callable[[], Any] | None = None,
+    ) -> None:
+        # Late-imported to avoid a circular import at module load.
+        from app.services.providers import (  # noqa: WPS433 - intentional
+            build_sanctions_provider_from_config,
+        )
+
+        self._provider_factory = (
+            provider_factory or build_sanctions_provider_from_config
+        )
+
+    def evaluate(self, context: dict[str, Any]) -> ProviderResult:
+        from app.services.providers import (  # noqa: WPS433 - intentional
+            ProviderDecision as AbstractDecision,
+        )
+
+        provider = self._provider_factory()
+        subject = str(context.get("subject") or "")
+        screen_context: dict[str, Any] = {
+            k: v
+            for k, v in context.items()
+            if k in {"counterparty", "destination", "destination_address",
+                     "asset", "jurisdiction", "action", "amount"}
+            and v is not None
+        }
+        # The abstraction layer prefers an explicit "destination" key.
+        if "destination" not in screen_context and context.get("counterparty"):
+            screen_context["destination"] = context.get("counterparty")
+
+        try:
+            normalized = provider.screen(subject=subject, context=screen_context)
+        except Exception as exc:  # noqa: BLE001 - never raise to engine
+            logger.warning(
+                "sanctions_address_screen_unexpected_error error=%s",
+                exc.__class__.__name__,
+            )
+            return ProviderResult(
+                check=self.check,
+                status=ProviderStatus.UNAVAILABLE,
+                provider_id="address_screen:unavailable",
+                reason="provider_request_failed",
+                details={"error_type": exc.__class__.__name__},
+            )
+
+        provider_id = f"address_screen:{normalized.provider_name}"
+
+        # Map the normalized decision onto the engine status.  Anything
+        # that isn't an explicit ``pass`` or ``deny`` collapses into
+        # ``unavailable`` so the fail-closed policy in the engine kicks
+        # in (this includes ``review`` outcomes — by contract a manual
+        # review hold cannot auto-issue a permit).
+        if normalized.decision is AbstractDecision.PASS:
+            status = ProviderStatus.APPROVED
+        elif normalized.decision is AbstractDecision.DENY:
+            status = ProviderStatus.DENIED
+        else:
+            status = ProviderStatus.UNAVAILABLE
+
+        # Build a JSON-friendly, secret-free details payload from the
+        # provider's normalized response excerpt.
+        details: dict[str, Any] = {
+            "decision": normalized.decision.value,
+            "reason_codes": list(normalized.reason_codes),
+        }
+        if normalized.raw_response_excerpt is not None:
+            details["normalized"] = dict(normalized.raw_response_excerpt)
+
+        reason = normalized.reason_codes[0] if normalized.reason_codes else None
+
+        return ProviderResult(
+            check=self.check,
+            status=status,
+            provider_id=provider_id,
+            reference=normalized.evidence_reference,
+            reason=reason,
+            details=details,
+        )
+
+
 def _read_provider_kind(env_name: str) -> str:
     raw = getattr(config, env_name, "") or ""
     kind = raw.strip().lower() or "null"
-    if kind not in {"null", "static_allow", "http"}:
+    if kind not in {"null", "static_allow", "http", "address_screen"}:
         logger.warning("unknown_compliance_provider_kind env=%s value=%s -> null", env_name, kind)
         return "null"
     return kind
@@ -258,6 +356,14 @@ def _build_provider(
         url = (getattr(config, url_env, "") or "").strip()
         api_key = (getattr(config, api_key_env, "") or "").strip()
         return _HttpProvider(check, url, api_key, provider_name=provider_name)
+    if kind == "address_screen":
+        if check != "sanctions":
+            logger.warning(
+                "address_screen_kind_only_supported_for_sanctions check=%s -> null",
+                check,
+            )
+            return _NullProvider(check)
+        return _AddressScreenSanctionsProvider()
     return _NullProvider(check)
 
 
