@@ -9,18 +9,25 @@ Policy:
 
 * If **any** required check returns ``denied`` the overall decision is
   ``deny`` with a ``<CHECK>_DENIED`` reason code.
-* If **any** required check returns ``unavailable`` the overall decision
-  is ``deny`` with a ``<CHECK>_PROVIDER_UNAVAILABLE`` reason code –
-  fail-closed so missing providers never silently approve a request.
-* Only when every required check returns ``approved`` is the decision
-  ``allow`` and the corresponding ``<CHECK>_VERIFIED`` reason codes are
-  emitted.
+* If **any** required check returns ``unavailable`` (or is not
+  configured at all) and ``FAIL_CLOSED_COMPLIANCE`` is ``true`` (the
+  default) the overall decision is ``deny`` with a
+  ``<CHECK>_PROVIDER_UNAVAILABLE`` reason code – fail-closed so missing
+  providers never silently approve a request.
+* If ``FAIL_CLOSED_COMPLIANCE`` is explicitly set to ``false``, missing
+  or unavailable providers are recorded with a ``<CHECK>_CHECK_SKIPPED``
+  reason code and do not block the decision. This mode is only
+  intended for narrow local-development scenarios.
+* Only when every required check returns ``approved`` (or is skipped
+  under fail-open) is the decision ``allow`` and the corresponding
+  ``<CHECK>_VERIFIED`` reason codes are emitted.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.core import config
 from app.services.compliance.providers import (
     ComplianceProvider,
     ProviderResult,
@@ -49,6 +56,16 @@ UNAVAILABLE_REASON_CODES = {
     "kyc": "KYC_PROVIDER_UNAVAILABLE",
     "sanctions": "SANCTIONS_PROVIDER_UNAVAILABLE",
     "reserve": "RESERVE_PROVIDER_UNAVAILABLE",
+}
+
+#: Reason code emitted when a provider was missing/unavailable but the
+#: ``FAIL_CLOSED_COMPLIANCE`` flag was explicitly disabled, so the engine
+#: allowed the request anyway. Recorded in the proof artifact so it is
+#: always traceable that no real third-party check was performed.
+SKIPPED_REASON_CODES = {
+    "kyc": "KYC_CHECK_SKIPPED",
+    "sanctions": "SANCTIONS_CHECK_SKIPPED",
+    "reserve": "RESERVE_CHECK_SKIPPED",
 }
 
 
@@ -98,6 +115,7 @@ def evaluate_compliance(
     deterministically.
     """
     providers = providers or _default_providers()
+    fail_closed = bool(getattr(config, "FAIL_CLOSED_COMPLIANCE", True))
     context: dict[str, Any] = {
         "subject": subject,
         "action": action,
@@ -117,8 +135,13 @@ def evaluate_compliance(
         provider = providers.get(check)
         if provider is None:
             # Treat missing providers exactly like unavailable ones:
-            # fail closed with a traceable reason code.
-            reason_codes.append(UNAVAILABLE_REASON_CODES[check])
+            # fail closed with a traceable reason code unless
+            # FAIL_CLOSED_COMPLIANCE has been explicitly disabled.
+            if fail_closed:
+                reason_codes.append(UNAVAILABLE_REASON_CODES[check])
+                decision = "deny"
+            else:
+                reason_codes.append(SKIPPED_REASON_CODES[check])
             evidence.append(
                 {
                     "check": check,
@@ -127,10 +150,9 @@ def evaluate_compliance(
                     "reference": None,
                     "reason": "provider_not_registered",
                     "checked_at": 0,
-                    "details": {},
+                    "details": {"fail_closed": fail_closed},
                 }
             )
-            decision = "deny"
             continue
 
         result = provider.evaluate(context)
@@ -140,11 +162,16 @@ def evaluate_compliance(
         if result.status is ProviderStatus.APPROVED:
             reason_codes.append(APPROVED_REASON_CODES[check])
         elif result.status is ProviderStatus.DENIED:
+            # An explicit denial is always honored regardless of the
+            # FAIL_CLOSED_COMPLIANCE flag.
             reason_codes.append(DENIED_REASON_CODES[check])
             decision = "deny"
         else:  # ProviderStatus.UNAVAILABLE
-            reason_codes.append(UNAVAILABLE_REASON_CODES[check])
-            decision = "deny"
+            if fail_closed:
+                reason_codes.append(UNAVAILABLE_REASON_CODES[check])
+                decision = "deny"
+            else:
+                reason_codes.append(SKIPPED_REASON_CODES[check])
 
     return ComplianceEvaluation(
         decision=decision,

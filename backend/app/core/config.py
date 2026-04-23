@@ -82,16 +82,36 @@ class Settings:
     KYC_PROVIDER: str
     KYC_PROVIDER_URL: str
     KYC_PROVIDER_API_KEY: str
+    KYC_API_KEY: str
     SANCTIONS_PROVIDER: str
     SANCTIONS_PROVIDER_URL: str
     SANCTIONS_PROVIDER_API_KEY: str
+    SANCTIONS_API_KEY: str
     RESERVE_PROVIDER: str
     RESERVE_PROVIDER_URL: str
     RESERVE_PROVIDER_API_KEY: str
+    RESERVE_API_KEY: str
+    FAIL_CLOSED_COMPLIANCE: bool
+
+
+def _get_provider_api_key(short_name: str, legacy_name: str) -> str:
+    """Return the configured API key for a compliance provider.
+
+    The short ``*_API_KEY`` form (e.g. ``KYC_API_KEY``) is preferred. The
+    longer historical ``*_PROVIDER_API_KEY`` form is accepted as a
+    backward-compatible fallback so existing deployments keep working.
+    """
+    short = os.getenv(short_name, "").strip()
+    if short:
+        return short
+    return os.getenv(legacy_name, "").strip()
 
 
 def _build_settings() -> Settings:
     api_keys = _get_api_keys()
+    kyc_api_key = _get_provider_api_key("KYC_API_KEY", "KYC_PROVIDER_API_KEY")
+    sanctions_api_key = _get_provider_api_key("SANCTIONS_API_KEY", "SANCTIONS_PROVIDER_API_KEY")
+    reserve_api_key = _get_provider_api_key("RESERVE_API_KEY", "RESERVE_PROVIDER_API_KEY")
 
     return Settings(
         POLICY_VERSION=os.getenv("POLICY_VERSION", "RLUSD_US_v1"),
@@ -121,13 +141,17 @@ def _build_settings() -> Settings:
         XRPL_SIGNING_ENABLED=_get_bool("XRPL_SIGNING_ENABLED", "true"),
         KYC_PROVIDER=os.getenv("KYC_PROVIDER", "null").strip(),
         KYC_PROVIDER_URL=os.getenv("KYC_PROVIDER_URL", "").strip(),
-        KYC_PROVIDER_API_KEY=os.getenv("KYC_PROVIDER_API_KEY", "").strip(),
+        KYC_PROVIDER_API_KEY=kyc_api_key,
+        KYC_API_KEY=kyc_api_key,
         SANCTIONS_PROVIDER=os.getenv("SANCTIONS_PROVIDER", "null").strip(),
         SANCTIONS_PROVIDER_URL=os.getenv("SANCTIONS_PROVIDER_URL", "").strip(),
-        SANCTIONS_PROVIDER_API_KEY=os.getenv("SANCTIONS_PROVIDER_API_KEY", "").strip(),
+        SANCTIONS_PROVIDER_API_KEY=sanctions_api_key,
+        SANCTIONS_API_KEY=sanctions_api_key,
         RESERVE_PROVIDER=os.getenv("RESERVE_PROVIDER", "null").strip(),
         RESERVE_PROVIDER_URL=os.getenv("RESERVE_PROVIDER_URL", "").strip(),
-        RESERVE_PROVIDER_API_KEY=os.getenv("RESERVE_PROVIDER_API_KEY", "").strip(),
+        RESERVE_PROVIDER_API_KEY=reserve_api_key,
+        RESERVE_API_KEY=reserve_api_key,
+        FAIL_CLOSED_COMPLIANCE=_get_bool("FAIL_CLOSED_COMPLIANCE", "true"),
     )
 
 
@@ -167,12 +191,25 @@ XRPL_SIGNING_ENABLED = _get_bool("XRPL_SIGNING_ENABLED", "true")
 #   null          - no provider configured; engine fails closed (default)
 #   static_allow  - explicit, traceable approval for dev / tests only
 #   http          - real third-party HTTPS endpoint (URL + API key required)
+#
+# API keys can be supplied via the short ``*_API_KEY`` form (preferred for
+# real-provider integrations) or the historical ``*_PROVIDER_API_KEY``
+# form, which is kept for backward compatibility.
 KYC_PROVIDER = os.getenv("KYC_PROVIDER", "null").strip()
 KYC_PROVIDER_URL = os.getenv("KYC_PROVIDER_URL", "").strip()
-KYC_PROVIDER_API_KEY = os.getenv("KYC_PROVIDER_API_KEY", "").strip()
+KYC_API_KEY = _get_provider_api_key("KYC_API_KEY", "KYC_PROVIDER_API_KEY")
+KYC_PROVIDER_API_KEY = KYC_API_KEY
 SANCTIONS_PROVIDER = os.getenv("SANCTIONS_PROVIDER", "null").strip()
 SANCTIONS_PROVIDER_URL = os.getenv("SANCTIONS_PROVIDER_URL", "").strip()
-SANCTIONS_PROVIDER_API_KEY = os.getenv("SANCTIONS_PROVIDER_API_KEY", "").strip()
+SANCTIONS_API_KEY = _get_provider_api_key("SANCTIONS_API_KEY", "SANCTIONS_PROVIDER_API_KEY")
+SANCTIONS_PROVIDER_API_KEY = SANCTIONS_API_KEY
 RESERVE_PROVIDER = os.getenv("RESERVE_PROVIDER", "null").strip()
 RESERVE_PROVIDER_URL = os.getenv("RESERVE_PROVIDER_URL", "").strip()
-RESERVE_PROVIDER_API_KEY = os.getenv("RESERVE_PROVIDER_API_KEY", "").strip()
+RESERVE_API_KEY = _get_provider_api_key("RESERVE_API_KEY", "RESERVE_PROVIDER_API_KEY")
+RESERVE_PROVIDER_API_KEY = RESERVE_API_KEY
+
+# When true (the default), the compliance engine must deny rather than
+# silently pass when a provider is missing or unavailable. Setting this
+# to ``false`` is only intended for narrow local-development scenarios
+# and is unsafe for any real deployment.
+FAIL_CLOSED_COMPLIANCE = _get_bool("FAIL_CLOSED_COMPLIANCE", "true")
