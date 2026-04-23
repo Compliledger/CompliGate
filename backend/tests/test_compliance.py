@@ -32,7 +32,9 @@ VALID_SUBJECT = "rN7n3473SaZBCG4dFL83w7PB5XDnEHyMQX"
 def test_engine_fails_closed_when_providers_default_to_null():
     with patch.object(config, "KYC_PROVIDER", "null"), patch.object(
         config, "SANCTIONS_PROVIDER", "null"
-    ), patch.object(config, "RESERVE_PROVIDER", "null"):
+    ), patch.object(config, "RESERVE_PROVIDER", "null"), patch.object(
+        config, "FAIL_CLOSED_COMPLIANCE", True
+    ):
         evaluation = evaluate_compliance(
             subject=VALID_SUBJECT,
             action="transfer",
@@ -50,6 +52,50 @@ def test_engine_fails_closed_when_providers_default_to_null():
     for item in evaluation.evidence:
         assert item["status"] == ProviderStatus.UNAVAILABLE.value
         assert item["provider_id"].startswith("null:")
+
+
+def test_engine_denies_on_missing_provider_when_fail_closed_enabled():
+    """When FAIL_CLOSED_COMPLIANCE=true (default), a missing provider must
+    deny rather than silently pass."""
+    with patch.object(config, "FAIL_CLOSED_COMPLIANCE", True):
+        evaluation = evaluate_compliance(
+            subject=VALID_SUBJECT,
+            action="transfer",
+            amount=10,
+            counterparty=None,
+            providers={
+                "kyc": _StaticAllowProvider("kyc"),
+                "sanctions": _StaticAllowProvider("sanctions"),
+                # reserve provider intentionally missing
+            },
+        )
+    assert evaluation.decision == "deny"
+    assert "RESERVE_PROVIDER_UNAVAILABLE" in evaluation.reason_codes
+    reserve_evidence = next(item for item in evaluation.evidence if item["check"] == "reserve")
+    assert reserve_evidence["status"] == ProviderStatus.UNAVAILABLE.value
+    assert reserve_evidence["details"]["fail_closed"] is True
+
+
+def test_engine_allows_on_missing_provider_when_fail_closed_disabled():
+    """With FAIL_CLOSED_COMPLIANCE explicitly disabled, missing providers
+    are recorded as skipped instead of blocking the decision."""
+    with patch.object(config, "FAIL_CLOSED_COMPLIANCE", False):
+        evaluation = evaluate_compliance(
+            subject=VALID_SUBJECT,
+            action="transfer",
+            amount=10,
+            counterparty=None,
+            providers={
+                "kyc": _StaticAllowProvider("kyc"),
+                "sanctions": _StaticAllowProvider("sanctions"),
+                # reserve provider intentionally missing
+            },
+        )
+    assert evaluation.decision == "allow"
+    assert "RESERVE_CHECK_SKIPPED" in evaluation.reason_codes
+    assert "RESERVE_PROVIDER_UNAVAILABLE" not in evaluation.reason_codes
+    reserve_evidence = next(item for item in evaluation.evidence if item["check"] == "reserve")
+    assert reserve_evidence["details"]["fail_closed"] is False
 
 
 def test_engine_static_allow_produces_traceable_evidence():
