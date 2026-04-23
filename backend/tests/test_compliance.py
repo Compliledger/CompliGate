@@ -185,7 +185,19 @@ def test_http_provider_uses_response_status_and_reference():
     result = provider.evaluate({"subject": VALID_SUBJECT})
     assert result.status is ProviderStatus.APPROVED
     assert result.reference == "ref-123"
-    assert result.details == {"score": 99}
+    # The base details from the upstream response are preserved...
+    assert result.details["score"] == 99
+    # ...and a normalized KYC result is attached for KYC checks so the
+    # bundle / proof artifact always carries the required fields.
+    kyc_result = result.details["kyc_result"]
+    assert kyc_result["provider_name"] == "http:kyc"
+    assert kyc_result["source_system"] == "http:kyc"
+    assert kyc_result["subject_id"] == VALID_SUBJECT
+    assert kyc_result["kyc_status"] == "verified"
+    assert kyc_result["evidence_reference"] == "ref-123"
+    assert "jurisdiction" in kyc_result
+    assert "checked_at" in kyc_result
+    assert "reason_codes" in kyc_result
 
 
 def test_http_provider_unknown_status_is_unavailable():

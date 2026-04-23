@@ -37,6 +37,11 @@ import requests
 
 from app.core import config
 from app.core.logging import get_logger
+from app.services.compliance.kyc import (
+    KycResult,
+    KycStatus,
+    validate_upstream_assertion,
+)
 
 logger = get_logger("compliance")
 
@@ -44,6 +49,14 @@ logger = get_logger("compliance")
 #: check. They are still traceable in the proof artifact, but they must
 #: never be treated as production-grade compliance evidence.
 NON_PRODUCTION_PROVIDER_KINDS = frozenset({"null", "static_allow"})
+
+#: Provider kinds supported for the KYC check. The KYC check uniquely
+#: supports an ``upstream_assertion`` kind in addition to the
+#: cross-cutting kinds, so a verified institutional system can submit a
+#: signed assertion alongside the permit request instead of forcing
+#: CompliGate to call a third-party identity-verification API.
+_KYC_PROVIDER_KINDS = frozenset({"null", "static_allow", "http", "upstream_assertion"})
+_DEFAULT_PROVIDER_KINDS = frozenset({"null", "static_allow", "http", "address_screen"})
 
 _HTTP_TIMEOUT_SECONDS = 5.0
 
@@ -114,11 +127,21 @@ class _NullProvider(ComplianceProvider):
         self.check = check
 
     def evaluate(self, context: dict[str, Any]) -> ProviderResult:  # noqa: ARG002
+        details: dict[str, Any] = {}
+        if self.check == "kyc":
+            details["kyc_result"] = _kyc_result_from_status(
+                provider_name=f"null:{self.check}",
+                context=context,
+                kyc_status=KycStatus.UNAVAILABLE,
+                evidence_reference=None,
+                reason_codes=("KYC_PROVIDER_NOT_CONFIGURED",),
+            ).to_dict()
         return ProviderResult(
             check=self.check,
             status=ProviderStatus.UNAVAILABLE,
             provider_id=f"null:{self.check}",
             reason="no_provider_configured",
+            details=details,
         )
 
 
@@ -136,13 +159,23 @@ class _StaticAllowProvider(ComplianceProvider):
 
     def evaluate(self, context: dict[str, Any]) -> ProviderResult:
         subject = context.get("subject") or context.get("entity") or "unknown"
+        reference = f"static-{self.check}-{subject}"
+        details: dict[str, Any] = {"mode": "dev"}
+        if self.check == "kyc":
+            details["kyc_result"] = _kyc_result_from_status(
+                provider_name=f"static_allow:{self.check}",
+                context=context,
+                kyc_status=KycStatus.VERIFIED,
+                evidence_reference=reference,
+                reason_codes=("KYC_VERIFIED_VIA_STATIC_ALLOW_PROVIDER",),
+            ).to_dict()
         return ProviderResult(
             check=self.check,
             status=ProviderStatus.APPROVED,
             provider_id=f"static_allow:{self.check}",
-            reference=f"static-{self.check}-{subject}",
+            reference=reference,
             reason="static_allow_provider_configured",
-            details={"mode": "dev"},
+            details=details,
         )
 
 
@@ -190,6 +223,14 @@ class _HttpProvider(ComplianceProvider):
                 status=ProviderStatus.UNAVAILABLE,
                 provider_id=provider_id,
                 reason="provider_url_missing",
+                details=_with_kyc_evidence(
+                    check=self.check,
+                    provider_name=provider_id,
+                    context=context,
+                    status=ProviderStatus.UNAVAILABLE,
+                    evidence_reference=None,
+                    reason_codes=("KYC_PROVIDER_URL_MISSING",),
+                ),
             )
         payload = {"check": self.check, **context}
         headers: dict[str, str] = {"Accept": "application/json"}
@@ -209,7 +250,15 @@ class _HttpProvider(ComplianceProvider):
                 status=ProviderStatus.UNAVAILABLE,
                 provider_id=provider_id,
                 reason="provider_request_failed",
-                details={"error_type": exc.__class__.__name__},
+                details=_with_kyc_evidence(
+                    check=self.check,
+                    provider_name=provider_id,
+                    context=context,
+                    status=ProviderStatus.UNAVAILABLE,
+                    evidence_reference=None,
+                    reason_codes=("KYC_PROVIDER_REQUEST_FAILED",),
+                    base_details={"error_type": exc.__class__.__name__},
+                ),
             )
 
         raw_status = str(data.get("status", "")).lower()
@@ -221,7 +270,15 @@ class _HttpProvider(ComplianceProvider):
                 status=ProviderStatus.UNAVAILABLE,
                 provider_id=provider_id,
                 reason="provider_returned_unknown_status",
-                details={"raw_status": raw_status},
+                details=_with_kyc_evidence(
+                    check=self.check,
+                    provider_name=provider_id,
+                    context=context,
+                    status=ProviderStatus.UNAVAILABLE,
+                    evidence_reference=None,
+                    reason_codes=("KYC_PROVIDER_RETURNED_UNKNOWN_STATUS",),
+                    base_details={"raw_status": raw_status},
+                ),
             )
 
         return ProviderResult(
@@ -230,7 +287,189 @@ class _HttpProvider(ComplianceProvider):
             provider_id=provider_id,
             reference=data.get("reference"),
             reason=data.get("reason"),
-            details=data.get("details", {}) if isinstance(data.get("details"), dict) else {},
+            details=_with_kyc_evidence(
+                check=self.check,
+                provider_name=provider_id,
+                context=context,
+                status=status,
+                evidence_reference=data.get("reference"),
+                reason_codes=_reason_codes_from_response(data),
+                base_details=(
+                    data.get("details") if isinstance(data.get("details"), dict) else {}
+                ),
+            ),
+        )
+
+
+def _reason_codes_from_response(data: dict[str, Any]) -> tuple[str, ...]:
+    raw = data.get("reason_codes")
+    if isinstance(raw, (list, tuple)):
+        return tuple(str(rc).strip() for rc in raw if str(rc).strip())
+    if isinstance(raw, str) and raw.strip():
+        return (raw.strip(),)
+    reason = data.get("reason")
+    if isinstance(reason, str) and reason.strip():
+        return (reason.strip(),)
+    return ()
+
+
+def _kyc_result_from_status(
+    *,
+    provider_name: str,
+    context: dict[str, Any],
+    kyc_status: KycStatus,
+    evidence_reference: str | None,
+    reason_codes: tuple[str, ...],
+) -> KycResult:
+    """Build a normalized :class:`KycResult` from engine context.
+
+    The jurisdiction is resolved from the request asset, the request
+    context, and finally the global :mod:`app.core.config` default so
+    the result always carries an explicit value.
+    """
+    asset = context.get("asset") if isinstance(context.get("asset"), dict) else {}
+    jurisdiction = (
+        context.get("jurisdiction")
+        or (asset.get("jurisdiction") if asset else None)
+        or getattr(config, "JURISDICTION", "")
+        or ""
+    )
+    subject = str(context.get("subject") or "")
+    return KycResult(
+        provider_name=provider_name,
+        subject_id=subject,
+        kyc_status=kyc_status,
+        jurisdiction=str(jurisdiction),
+        evidence_reference=evidence_reference,
+        reason_codes=reason_codes,
+    )
+
+
+def _kyc_status_from_provider_status(status: ProviderStatus) -> KycStatus:
+    if status is ProviderStatus.APPROVED:
+        return KycStatus.VERIFIED
+    if status is ProviderStatus.DENIED:
+        return KycStatus.NOT_VERIFIED
+    return KycStatus.UNAVAILABLE
+
+
+def _with_kyc_evidence(
+    *,
+    check: str,
+    provider_name: str,
+    context: dict[str, Any],
+    status: ProviderStatus,
+    evidence_reference: str | None,
+    reason_codes: tuple[str, ...],
+    base_details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return ``base_details`` with a normalized ``kyc_result`` attached.
+
+    A no-op for non-KYC checks so the helper can be used uniformly.
+    """
+    details = dict(base_details or {})
+    if check != "kyc":
+        return details
+    kyc_status = _kyc_status_from_provider_status(status)
+    details["kyc_result"] = _kyc_result_from_status(
+        provider_name=provider_name,
+        context=context,
+        kyc_status=kyc_status,
+        evidence_reference=evidence_reference,
+        reason_codes=reason_codes,
+    ).to_dict()
+    return details
+
+
+class _UpstreamAssertionKycProvider(ComplianceProvider):
+    """KYC provider backed by a trusted upstream institutional assertion.
+
+    Instead of CompliGate calling a third-party identity-verification
+    API, an upstream institutional system (custodian, broker-dealer,
+    regulated exchange, …) submits a signed assertion alongside the
+    permit request. The assertion is validated against a configured
+    HMAC shared secret and an allowlist of trusted issuer identifiers
+    (see :mod:`app.services.compliance.kyc`).
+
+    The provider returns:
+
+    * ``APPROVED`` when the assertion is valid **and** its
+      ``kyc_status`` is ``verified``;
+    * ``DENIED`` when the assertion is valid but the upstream system
+      explicitly reports ``not_verified``;
+    * ``UNAVAILABLE`` for every other case (assertion missing,
+      malformed, expired, signed by an untrusted issuer, signature
+      mismatch, subject mismatch, …) so the engine can fail closed
+      under ``FAIL_CLOSED_COMPLIANCE``.
+
+    In every case the engine evidence carries the full normalized
+    :class:`KycResult` so the proof artifact records exactly which
+    institutional source the decision was based on (or why no usable
+    upstream evidence was available).
+    """
+
+    check = "kyc"
+    kind = "upstream_assertion"
+
+    def __init__(
+        self,
+        *,
+        secret: str | None = None,
+        trusted_issuers: tuple[str, ...] | list[str] | None = None,
+    ) -> None:
+        self._secret = (
+            secret
+            if secret is not None
+            else (getattr(config, "KYC_UPSTREAM_ASSERTION_SECRET", "") or "")
+        )
+        if trusted_issuers is None:
+            trusted_issuers = getattr(
+                config, "KYC_UPSTREAM_ASSERTION_TRUSTED_ISSUERS", ()
+            )
+        self._trusted_issuers = tuple(trusted_issuers or ())
+
+    def evaluate(self, context: dict[str, Any]) -> ProviderResult:
+        subject = str(context.get("subject") or "")
+        assertion = context.get("kyc_assertion")
+        if assertion is not None and not isinstance(assertion, dict):
+            assertion = None
+
+        outcome = validate_upstream_assertion(
+            assertion=assertion,
+            subject=subject,
+            trusted_issuers=self._trusted_issuers,
+            secret=self._secret,
+        )
+        kyc_result = outcome.result
+        provider_id = kyc_result.provider_name
+
+        if not outcome.valid:
+            return ProviderResult(
+                check=self.check,
+                status=ProviderStatus.UNAVAILABLE,
+                provider_id=provider_id,
+                reference=kyc_result.evidence_reference,
+                reason=outcome.error,
+                details={"kyc_result": kyc_result.to_dict()},
+            )
+
+        if kyc_result.kyc_status is KycStatus.VERIFIED:
+            status = ProviderStatus.APPROVED
+            reason = "KYC_VERIFIED_VIA_UPSTREAM_ASSERTION"
+        elif kyc_result.kyc_status is KycStatus.NOT_VERIFIED:
+            status = ProviderStatus.DENIED
+            reason = "KYC_NOT_VERIFIED_VIA_UPSTREAM_ASSERTION"
+        else:
+            status = ProviderStatus.UNAVAILABLE
+            reason = "KYC_UPSTREAM_ASSERTION_STATUS_UNAVAILABLE"
+
+        return ProviderResult(
+            check=self.check,
+            status=status,
+            provider_id=provider_id,
+            reference=kyc_result.evidence_reference,
+            reason=reason,
+            details={"kyc_result": kyc_result.to_dict()},
         )
 
 
@@ -351,10 +590,11 @@ class _AddressScreenSanctionsProvider(ComplianceProvider):
         )
 
 
-def _read_provider_kind(env_name: str) -> str:
+def _read_provider_kind(env_name: str, *, allowed_kinds: frozenset[str] | None = None) -> str:
+    allowed = allowed_kinds or _DEFAULT_PROVIDER_KINDS
     raw = getattr(config, env_name, "") or ""
     kind = raw.strip().lower() or "null"
-    if kind not in {"null", "static_allow", "http", "address_screen"}:
+    if kind not in allowed:
         logger.warning("unknown_compliance_provider_kind env=%s value=%s -> null", env_name, kind)
         return "null"
     return kind
@@ -367,8 +607,9 @@ def _build_provider(
     url_env: str,
     api_key_env: str,
     provider_name: str,
+    allowed_kinds: frozenset[str] | None = None,
 ) -> ComplianceProvider:
-    kind = _read_provider_kind(kind_env)
+    kind = _read_provider_kind(kind_env, allowed_kinds=allowed_kinds)
     if kind == "static_allow":
         return _StaticAllowProvider(check)
     if kind == "http":
@@ -383,6 +624,14 @@ def _build_provider(
             )
             return _NullProvider(check)
         return _AddressScreenSanctionsProvider()
+    if kind == "upstream_assertion":
+        if check != "kyc":
+            logger.warning(
+                "upstream_assertion_kind_only_supported_for_kyc check=%s -> null",
+                check,
+            )
+            return _NullProvider(check)
+        return _UpstreamAssertionKycProvider()
     return _NullProvider(check)
 
 
@@ -393,6 +642,7 @@ def get_kyc_provider() -> ComplianceProvider:
         url_env="KYC_PROVIDER_URL",
         api_key_env="KYC_PROVIDER_API_KEY",
         provider_name="kyc",
+        allowed_kinds=_KYC_PROVIDER_KINDS,
     )
 
 

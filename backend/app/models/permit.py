@@ -10,6 +10,16 @@ class PermitRequest(BaseModel):
     action: str = Field("transfer", description="Action to authorize ('transfer' or 'trustset').")
     amount: float | int | None = Field(None, description="Optional transfer amount.")
     counterparty: str | None = Field(None, description="Optional counterparty address.")
+    kyc_assertion: dict | None = Field(
+        None,
+        description=(
+            "Optional trusted upstream KYC assertion. When the KYC "
+            "provider is configured as 'upstream_assertion', this "
+            "payload (signed by a trusted institutional system) "
+            "supplies the normalized KYC result. See "
+            "app.services.compliance.kyc for the expected schema."
+        ),
+    )
 
 
 class PermitResponse(BaseModel):

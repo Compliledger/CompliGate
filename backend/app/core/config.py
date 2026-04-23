@@ -83,6 +83,8 @@ class Settings:
     KYC_PROVIDER_URL: str
     KYC_PROVIDER_API_KEY: str
     KYC_API_KEY: str
+    KYC_UPSTREAM_ASSERTION_SECRET: str
+    KYC_UPSTREAM_ASSERTION_TRUSTED_ISSUERS: list[str]
     SANCTIONS_PROVIDER: str
     SANCTIONS_PROVIDER_URL: str
     SANCTIONS_PROVIDER_API_KEY: str
@@ -143,6 +145,8 @@ def _build_settings() -> Settings:
         KYC_PROVIDER_URL=os.getenv("KYC_PROVIDER_URL", "").strip(),
         KYC_PROVIDER_API_KEY=kyc_api_key,
         KYC_API_KEY=kyc_api_key,
+        KYC_UPSTREAM_ASSERTION_SECRET=os.getenv("KYC_UPSTREAM_ASSERTION_SECRET", "").strip(),
+        KYC_UPSTREAM_ASSERTION_TRUSTED_ISSUERS=_get_csv("KYC_UPSTREAM_ASSERTION_TRUSTED_ISSUERS", ""),
         SANCTIONS_PROVIDER=os.getenv("SANCTIONS_PROVIDER", "null").strip(),
         SANCTIONS_PROVIDER_URL=os.getenv("SANCTIONS_PROVIDER_URL", "").strip(),
         SANCTIONS_PROVIDER_API_KEY=sanctions_api_key,
@@ -199,6 +203,16 @@ KYC_PROVIDER = os.getenv("KYC_PROVIDER", "null").strip()
 KYC_PROVIDER_URL = os.getenv("KYC_PROVIDER_URL", "").strip()
 KYC_API_KEY = _get_provider_api_key("KYC_API_KEY", "KYC_PROVIDER_API_KEY")
 KYC_PROVIDER_API_KEY = KYC_API_KEY
+# Trusted upstream KYC assertion settings.
+#
+# When ``KYC_PROVIDER=upstream_assertion``, every permit request is
+# expected to include an HMAC-signed ``kyc_assertion`` payload issued by
+# one of the institutions listed in ``KYC_UPSTREAM_ASSERTION_TRUSTED_ISSUERS``
+# (CSV) and signed with ``KYC_UPSTREAM_ASSERTION_SECRET``. Missing or
+# invalid assertions return ``unavailable`` so the engine can fail
+# closed under ``FAIL_CLOSED_COMPLIANCE``.
+KYC_UPSTREAM_ASSERTION_SECRET = os.getenv("KYC_UPSTREAM_ASSERTION_SECRET", "").strip()
+KYC_UPSTREAM_ASSERTION_TRUSTED_ISSUERS = _get_csv("KYC_UPSTREAM_ASSERTION_TRUSTED_ISSUERS", "")
 SANCTIONS_PROVIDER = os.getenv("SANCTIONS_PROVIDER", "null").strip()
 SANCTIONS_PROVIDER_URL = os.getenv("SANCTIONS_PROVIDER_URL", "").strip()
 SANCTIONS_API_KEY = _get_provider_api_key("SANCTIONS_API_KEY", "SANCTIONS_PROVIDER_API_KEY")

@@ -67,6 +67,7 @@ def evaluate_permit_policy(
     amount: float | int | None,
     counterparty: str | None,
     asset: dict[str, Any] | None = None,
+    kyc_assertion: dict[str, Any] | None = None,
 ) -> dict:
     """Evaluate the full permit policy and return a structured decision.
 
@@ -86,6 +87,7 @@ def evaluate_permit_policy(
         amount=amount,
         counterparty=counterparty,
         asset=asset,
+        kyc_assertion=kyc_assertion,
     )
 
     reason_codes: list[str] = []
