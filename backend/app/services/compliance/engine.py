@@ -115,7 +115,7 @@ def evaluate_compliance(
     deterministically.
     """
     providers = providers or _default_providers()
-    fail_closed = bool(getattr(config, "FAIL_CLOSED_COMPLIANCE", True))
+    fail_closed = bool(config.FAIL_CLOSED_COMPLIANCE)
     context: dict[str, Any] = {
         "subject": subject,
         "action": action,
