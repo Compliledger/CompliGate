@@ -93,6 +93,8 @@ class Settings:
     RESERVE_PROVIDER_URL: str
     RESERVE_PROVIDER_API_KEY: str
     RESERVE_API_KEY: str
+    RESERVE_ATTESTATION_SECRET: str
+    RESERVE_ATTESTATION_TRUSTED_ATTESTORS: list[str]
     FAIL_CLOSED_COMPLIANCE: bool
 
 
@@ -155,6 +157,10 @@ def _build_settings() -> Settings:
         RESERVE_PROVIDER_URL=os.getenv("RESERVE_PROVIDER_URL", "").strip(),
         RESERVE_PROVIDER_API_KEY=reserve_api_key,
         RESERVE_API_KEY=reserve_api_key,
+        RESERVE_ATTESTATION_SECRET=os.getenv("RESERVE_ATTESTATION_SECRET", "").strip(),
+        RESERVE_ATTESTATION_TRUSTED_ATTESTORS=_get_csv(
+            "RESERVE_ATTESTATION_TRUSTED_ATTESTORS", ""
+        ),
         FAIL_CLOSED_COMPLIANCE=_get_bool("FAIL_CLOSED_COMPLIANCE", "true"),
     )
 
@@ -221,6 +227,19 @@ RESERVE_PROVIDER = os.getenv("RESERVE_PROVIDER", "null").strip()
 RESERVE_PROVIDER_URL = os.getenv("RESERVE_PROVIDER_URL", "").strip()
 RESERVE_API_KEY = _get_provider_api_key("RESERVE_API_KEY", "RESERVE_PROVIDER_API_KEY")
 RESERVE_PROVIDER_API_KEY = RESERVE_API_KEY
+# Trusted reserve / liquidity attestation settings.
+#
+# When ``RESERVE_PROVIDER=attestation``, every permit request is
+# expected to include an HMAC-signed ``reserve_attestation`` payload
+# issued by one of the attestors listed in
+# ``RESERVE_ATTESTATION_TRUSTED_ATTESTORS`` (CSV) and signed with
+# ``RESERVE_ATTESTATION_SECRET``. Missing or invalid attestations
+# return ``unavailable`` so the engine can fail closed under
+# ``FAIL_CLOSED_COMPLIANCE``.
+RESERVE_ATTESTATION_SECRET = os.getenv("RESERVE_ATTESTATION_SECRET", "").strip()
+RESERVE_ATTESTATION_TRUSTED_ATTESTORS = _get_csv(
+    "RESERVE_ATTESTATION_TRUSTED_ATTESTORS", ""
+)
 
 # When true (the default), the compliance engine must deny rather than
 # silently pass when a provider is missing or unavailable. Setting this

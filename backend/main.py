@@ -505,8 +505,18 @@ def evaluate_constraints(
     reason_codes.append("KYC_NOT_VERIFIED")
     reason_codes.append("KYC_UNAVAILABLE")
     reason_codes.append("SANCTIONS_PASSED")
-    reason_codes.append("RESERVE_BACKED")
-    reason_codes.append("LIQUIDITY_VERIFIED")
+    # Reserve and liquidity must never be hardcoded as verified —
+    # real reserve / liquidity evidence is sourced from the configured
+    # reserve provider (live integration or trusted custodian /
+    # auditor / issuer attestation) via the modular permit service.
+    # This legacy demo path does not call a provider, so it records
+    # the constraints as not-verified with the normalized
+    # RESERVE_STATUS_UNAVAILABLE / LIQUIDITY_STATUS_UNAVAILABLE
+    # tokens to make the lack of real evidence explicit.
+    reason_codes.append("RESERVE_NOT_VERIFIED")
+    reason_codes.append("RESERVE_STATUS_UNAVAILABLE")
+    reason_codes.append("LIQUIDITY_NOT_VERIFIED")
+    reason_codes.append("LIQUIDITY_STATUS_UNAVAILABLE")
     reason_codes.append("ISSUER_CONTROLS_ACTIVE")
     if amount is not None:
         reason_codes.append("AMOUNT_WITHIN_LIMIT")
@@ -553,8 +563,13 @@ def create_permit(req: PermitRequest):
             "amount": req.amount,
             "within_limit": within_limit,
             "allowed_counterparty": req.counterparty,
-            "reserve_backed": True,
-            "liquidity_verified": True,
+            # Reserve and liquidity must never be hardcoded as verified
+            # — real evidence comes from the configured reserve
+            # provider via the modular permit service. This legacy
+            # demo path does not call a provider, so it records both
+            # constraints as not-verified.
+            "reserve_backed": False,
+            "liquidity_verified": False,
             # KYC must never be hardcoded as verified — real KYC state
             # is sourced from the configured KYC provider (see
             # app/services/permit_service.py and app/services/compliance/).
@@ -1410,12 +1425,35 @@ def _evaluate_settlement_constraints(
         compliant = False
 
     # -- Reserve backed --
-    constraints_verified["reserve_backed"] = True
-    reason_codes.append("RESERVE_BACKED")
+    # Reserve / liquidity must never be hardcoded as verified — instead
+    # propagate the real outcome recorded in the permit bundle (which
+    # is itself derived from the configured reserve provider — live
+    # integration or trusted attestation — via the compliance engine).
+    permit_constraints_for_reserve = (permit_bundle or {}).get("constraints", {})
+    reserve_backed_from_permit = (
+        bool(permit_constraints_for_reserve.get("reserve_backed"))
+        if permit_bundle
+        else False
+    )
+    constraints_verified["reserve_backed"] = reserve_backed_from_permit
+    if reserve_backed_from_permit:
+        reason_codes.append("RESERVE_BACKED")
+    else:
+        reason_codes.append("RESERVE_NOT_VERIFIED")
+        compliant = False
 
     # -- Liquidity verified --
-    constraints_verified["liquidity_verified"] = True
-    reason_codes.append("LIQUIDITY_VERIFIED")
+    liquidity_verified_from_permit = (
+        bool(permit_constraints_for_reserve.get("liquidity_verified"))
+        if permit_bundle
+        else False
+    )
+    constraints_verified["liquidity_verified"] = liquidity_verified_from_permit
+    if liquidity_verified_from_permit:
+        reason_codes.append("LIQUIDITY_VERIFIED")
+    else:
+        reason_codes.append("LIQUIDITY_NOT_VERIFIED")
+        compliant = False
 
     # -- KYC verified --
     # KYC must never be hardcoded as verified — instead, propagate the
@@ -1545,6 +1583,16 @@ def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
     # ``constraints_verified`` (which itself is sourced from the
     # configured KYC provider via the permit bundle).
     kyc_verified_for_context = bool(constraints_verified.get("kyc_verified", False))
+    # Reserve and liquidity values are likewise propagated from
+    # constraints_verified (which comes from the permit bundle and
+    # ultimately from the configured reserve provider) instead of
+    # being hardcoded.
+    reserve_backed_for_context = bool(
+        constraints_verified.get("reserve_backed", False)
+    )
+    liquidity_verified_for_context = bool(
+        constraints_verified.get("liquidity_verified", False)
+    )
 
     evaluation_context = {
         "bundle_hash": req.bundle_hash,
@@ -1563,14 +1611,14 @@ def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
         "jurisdiction": JURISDICTION,
         "kyc_verified": kyc_verified_for_context,
         "sanctions_check": "passed",
-        "reserve_backed": True,
-        "liquidity_verified": True,
+        "reserve_backed": reserve_backed_for_context,
+        "liquidity_verified": liquidity_verified_for_context,
         "policy_conditions": {
             "jurisdiction": JURISDICTION,
             "kyc_verified": kyc_verified_for_context,
             "sanctions": "passed",
-            "reserve_backed": True,
-            "liquidity_verified": True,
+            "reserve_backed": reserve_backed_for_context,
+            "liquidity_verified": liquidity_verified_for_context,
         },
         "constraints_verified": constraints_verified,
     }

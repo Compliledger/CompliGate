@@ -20,6 +20,17 @@ class PermitRequest(BaseModel):
             "app.services.compliance.kyc for the expected schema."
         ),
     )
+    reserve_attestation: dict | None = Field(
+        None,
+        description=(
+            "Optional trusted reserve / liquidity attestation supplied "
+            "by a custodian, auditor, or issuer evidence source. When "
+            "the reserve provider is configured as 'attestation', this "
+            "HMAC-signed payload supplies the normalized reserve and "
+            "liquidity statuses. See app.services.compliance.reserve "
+            "for the expected schema."
+        ),
+    )
 
 
 class PermitResponse(BaseModel):

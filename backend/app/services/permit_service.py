@@ -86,6 +86,7 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
         counterparty=req.counterparty,
         asset=asset,
         kyc_assertion=req.kyc_assertion,
+        reserve_attestation=req.reserve_attestation,
     )
     reason_codes = policy_result["reason_codes"]
     decision_result = policy_result["decision_result"]
@@ -146,6 +147,41 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
         if isinstance(details, dict) and isinstance(details.get("kyc_result"), dict):
             kyc_destination_result_payload = details["kyc_result"]
 
+    # Surface the normalized ReserveResult (provider_name /
+    # attestor_name, reserve_status, liquidity_status, checked_at,
+    # evidence_reference, reason_codes) as a first-class attestation so
+    # the bundle and proof artifact carry the per-dimension reserve and
+    # liquidity outcome explicitly. Falls back to ``None`` when no
+    # reserve provider was wired up so the bundle never fabricates a
+    # normalized result. The ``reserve_backed`` and
+    # ``liquidity_verified`` constraints below are then derived
+    # independently from the two normalized statuses, instead of being
+    # collapsed onto a single provider-level approval.
+    reserve_evidence_item = next(
+        (item for item in compliance.evidence if item.get("check") == "reserve"),
+        None,
+    )
+    reserve_result_payload: dict | None = None
+    if reserve_evidence_item is not None:
+        details = reserve_evidence_item.get("details") or {}
+        if isinstance(details, dict) and isinstance(details.get("reserve_result"), dict):
+            reserve_result_payload = details["reserve_result"]
+
+    if reserve_result_payload is not None:
+        reserve_backed_value = (
+            reserve_result_payload.get("reserve_status") == "verified"
+        )
+        liquidity_verified_value = (
+            reserve_result_payload.get("liquidity_status") == "verified"
+        )
+    else:
+        # No normalized ReserveResult was surfaced (e.g. provider not
+        # registered). Fall back to the engine-level provider status so
+        # the constraint never claims a check succeeded when it did
+        # not.
+        reserve_backed_value = reserve_status is ProviderStatus.APPROVED
+        liquidity_verified_value = reserve_status is ProviderStatus.APPROVED
+
     bundle = {
         "bundle_id": str(uuid4()),
         "subject": req.subject,
@@ -156,8 +192,8 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
             "amount": req.amount,
             "within_limit": within_limit,
             "allowed_counterparty": req.counterparty,
-            "reserve_backed": _constraint_value_for(reserve_status),
-            "liquidity_verified": _constraint_value_for(reserve_status),
+            "reserve_backed": reserve_backed_value,
+            "liquidity_verified": liquidity_verified_value,
             "kyc_verified": _constraint_value_for(kyc_status),
             "sanctions_check": _sanctions_constraint_value(sanctions_status),
             "jurisdiction": config.JURISDICTION,
@@ -175,6 +211,7 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
             "kyc_destination_reference": kyc_destination_reference,
             "kyc_destination_result": kyc_destination_result_payload,
             "reserve_reference": reserve_reference,
+            "reserve_result": reserve_result_payload,
             "sanctions_reference": sanctions_reference,
         },
         "compliance_evidence": compliance.evidence,

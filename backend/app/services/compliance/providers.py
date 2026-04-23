@@ -42,6 +42,11 @@ from app.services.compliance.kyc import (
     KycStatus,
     validate_upstream_assertion,
 )
+from app.services.compliance.reserve import (
+    ReserveResult,
+    ReserveStatus,
+    validate_reserve_attestation,
+)
 
 logger = get_logger("compliance")
 
@@ -56,6 +61,7 @@ NON_PRODUCTION_PROVIDER_KINDS = frozenset({"null", "static_allow"})
 #: signed assertion alongside the permit request instead of forcing
 #: CompliGate to call a third-party identity-verification API.
 _KYC_PROVIDER_KINDS = frozenset({"null", "static_allow", "http", "upstream_assertion"})
+_RESERVE_PROVIDER_KINDS = frozenset({"null", "static_allow", "http", "attestation"})
 _DEFAULT_PROVIDER_KINDS = frozenset({"null", "static_allow", "http", "address_screen"})
 
 _HTTP_TIMEOUT_SECONDS = 5.0
@@ -136,6 +142,15 @@ class _NullProvider(ComplianceProvider):
                 evidence_reference=None,
                 reason_codes=("KYC_PROVIDER_NOT_CONFIGURED",),
             ).to_dict()
+        elif self.check == "reserve":
+            details["reserve_result"] = _reserve_result_from_status(
+                provider_name=f"null:{self.check}",
+                context=context,
+                reserve_status=ReserveStatus.UNAVAILABLE,
+                liquidity_status=ReserveStatus.UNAVAILABLE,
+                evidence_reference=None,
+                reason_codes=("RESERVE_PROVIDER_NOT_CONFIGURED",),
+            ).to_dict()
         return ProviderResult(
             check=self.check,
             status=ProviderStatus.UNAVAILABLE,
@@ -168,6 +183,17 @@ class _StaticAllowProvider(ComplianceProvider):
                 kyc_status=KycStatus.VERIFIED,
                 evidence_reference=reference,
                 reason_codes=("KYC_VERIFIED_VIA_STATIC_ALLOW_PROVIDER",),
+            ).to_dict()
+        elif self.check == "reserve":
+            details["reserve_result"] = _reserve_result_from_status(
+                provider_name=f"static_allow:{self.check}",
+                context=context,
+                reserve_status=ReserveStatus.VERIFIED,
+                liquidity_status=ReserveStatus.VERIFIED,
+                evidence_reference=reference,
+                reason_codes=(
+                    "RESERVE_EVIDENCE_VIA_STATIC_ALLOW_PROVIDER",
+                ),
             ).to_dict()
         return ProviderResult(
             check=self.check,
@@ -262,6 +288,13 @@ class _HttpProvider(ComplianceProvider):
             )
 
         raw_status = str(data.get("status", "")).lower()
+        if self.check == "reserve":
+            return _build_reserve_http_result(
+                provider_id=provider_id,
+                data=data,
+                context=context,
+                raw_status=raw_status,
+            )
         try:
             status = ProviderStatus(raw_status)
         except ValueError:
@@ -351,6 +384,177 @@ def _kyc_status_from_provider_status(status: ProviderStatus) -> KycStatus:
     if status is ProviderStatus.DENIED:
         return KycStatus.NOT_VERIFIED
     return KycStatus.UNAVAILABLE
+
+
+def _resolve_asset_currency(context: dict[str, Any]) -> str:
+    """Resolve the asset currency the reserve check relates to.
+
+    Tries the request asset, the request context, and finally the
+    global :mod:`app.core.config` default so callers always have a
+    non-empty value to bind a reserve attestation against.
+    """
+    asset = context.get("asset") if isinstance(context.get("asset"), dict) else {}
+    asset_currency = (
+        (asset.get("currency") if asset else None)
+        or context.get("currency")
+        or getattr(config, "CURRENCY", "")
+        or ""
+    )
+    return str(asset_currency)
+
+
+def _reserve_result_from_status(
+    *,
+    provider_name: str,
+    context: dict[str, Any],  # noqa: ARG001 - kept for symmetry / future use
+    reserve_status: ReserveStatus,
+    liquidity_status: ReserveStatus,
+    evidence_reference: str | None,
+    reason_codes: tuple[str, ...],
+) -> ReserveResult:
+    """Build a normalized :class:`ReserveResult` from engine context."""
+    return ReserveResult(
+        provider_name=provider_name,
+        reserve_status=reserve_status,
+        liquidity_status=liquidity_status,
+        evidence_reference=evidence_reference,
+        reason_codes=reason_codes,
+    )
+
+
+def _provider_status_from_reserve_pair(
+    reserve_status: ReserveStatus,
+    liquidity_status: ReserveStatus,
+) -> ProviderStatus:
+    """Collapse the ``(reserve, liquidity)`` pair into the engine-level status.
+
+    * APPROVED  — both dimensions explicitly verified.
+    * DENIED    — either dimension explicitly not_verified.
+    * UNAVAILABLE — anything else (at least one dimension lacks
+      conclusive evidence).
+    """
+    if (
+        reserve_status is ReserveStatus.NOT_VERIFIED
+        or liquidity_status is ReserveStatus.NOT_VERIFIED
+    ):
+        return ProviderStatus.DENIED
+    if (
+        reserve_status is ReserveStatus.VERIFIED
+        and liquidity_status is ReserveStatus.VERIFIED
+    ):
+        return ProviderStatus.APPROVED
+    return ProviderStatus.UNAVAILABLE
+
+
+def _build_reserve_http_result(
+    *,
+    provider_id: str,
+    data: dict[str, Any],
+    context: dict[str, Any],
+    raw_status: str,
+) -> ProviderResult:
+    """Translate an HTTP reserve provider response into a ProviderResult.
+
+    The reserve provider response is expected to carry an explicit
+    ``reserve_status`` and ``liquidity_status`` (``verified`` /
+    ``not_verified`` / ``unavailable``). For backward compatibility a
+    response with only the legacy top-level ``status`` field is also
+    accepted: ``approved`` is treated as both reserve and liquidity
+    verified, ``denied`` as both not_verified, and ``unavailable`` as
+    both unavailable.
+    """
+    from app.services.compliance.reserve import _coerce_status as _reserve_coerce
+
+    reason_codes_from_response = list(_reason_codes_from_response(data))
+    base_details = (
+        dict(data.get("details")) if isinstance(data.get("details"), dict) else {}
+    )
+
+    reserve_status_raw = data.get("reserve_status")
+    liquidity_status_raw = data.get("liquidity_status")
+    has_explicit_pair = (
+        reserve_status_raw is not None or liquidity_status_raw is not None
+    )
+
+    if has_explicit_pair:
+        reserve_status = _reserve_coerce(reserve_status_raw)
+        liquidity_status = _reserve_coerce(liquidity_status_raw)
+        if reserve_status is None or liquidity_status is None:
+            return ProviderResult(
+                check="reserve",
+                status=ProviderStatus.UNAVAILABLE,
+                provider_id=provider_id,
+                reason="provider_returned_unknown_reserve_or_liquidity_status",
+                details={
+                    **base_details,
+                    "raw_reserve_status": str(reserve_status_raw or ""),
+                    "raw_liquidity_status": str(liquidity_status_raw or ""),
+                    "reserve_result": _reserve_result_from_status(
+                        provider_name=provider_id,
+                        context=context,
+                        reserve_status=ReserveStatus.UNAVAILABLE,
+                        liquidity_status=ReserveStatus.UNAVAILABLE,
+                        evidence_reference=data.get("reference"),
+                        reason_codes=(
+                            "RESERVE_PROVIDER_RETURNED_UNKNOWN_STATUS",
+                        ),
+                    ).to_dict(),
+                },
+            )
+    else:
+        try:
+            legacy_status = ProviderStatus(raw_status)
+        except ValueError:
+            return ProviderResult(
+                check="reserve",
+                status=ProviderStatus.UNAVAILABLE,
+                provider_id=provider_id,
+                reason="provider_returned_unknown_status",
+                details={
+                    **base_details,
+                    "raw_status": raw_status,
+                    "reserve_result": _reserve_result_from_status(
+                        provider_name=provider_id,
+                        context=context,
+                        reserve_status=ReserveStatus.UNAVAILABLE,
+                        liquidity_status=ReserveStatus.UNAVAILABLE,
+                        evidence_reference=data.get("reference"),
+                        reason_codes=(
+                            "RESERVE_PROVIDER_RETURNED_UNKNOWN_STATUS",
+                        ),
+                    ).to_dict(),
+                },
+            )
+        if legacy_status is ProviderStatus.APPROVED:
+            reserve_status = ReserveStatus.VERIFIED
+            liquidity_status = ReserveStatus.VERIFIED
+        elif legacy_status is ProviderStatus.DENIED:
+            reserve_status = ReserveStatus.NOT_VERIFIED
+            liquidity_status = ReserveStatus.NOT_VERIFIED
+        else:
+            reserve_status = ReserveStatus.UNAVAILABLE
+            liquidity_status = ReserveStatus.UNAVAILABLE
+
+    overall_status = _provider_status_from_reserve_pair(
+        reserve_status, liquidity_status
+    )
+    reserve_result = _reserve_result_from_status(
+        provider_name=provider_id,
+        context=context,
+        reserve_status=reserve_status,
+        liquidity_status=liquidity_status,
+        evidence_reference=data.get("reference"),
+        reason_codes=tuple(reason_codes_from_response),
+    )
+    base_details["reserve_result"] = reserve_result.to_dict()
+    return ProviderResult(
+        check="reserve",
+        status=overall_status,
+        provider_id=provider_id,
+        reference=data.get("reference"),
+        reason=data.get("reason"),
+        details=base_details,
+    )
 
 
 def _with_kyc_evidence(
@@ -470,6 +674,100 @@ class _UpstreamAssertionKycProvider(ComplianceProvider):
             reference=kyc_result.evidence_reference,
             reason=reason,
             details={"kyc_result": kyc_result.to_dict()},
+        )
+
+
+class _AttestationReserveProvider(ComplianceProvider):
+    """Reserve provider backed by a trusted custodian / auditor / issuer
+    attestation.
+
+    Instead of CompliGate calling a live reserve / proof-of-reserves
+    API, an upstream evidence source (custodian, independent auditor,
+    or the asset issuer itself) submits a signed attestation alongside
+    the permit request. The attestation is validated against a
+    configured HMAC shared secret and an allowlist of trusted attestor
+    identifiers (see :mod:`app.services.compliance.reserve`).
+
+    The provider returns:
+
+    * ``APPROVED`` when the attestation is valid **and** both
+      ``reserve_status`` and ``liquidity_status`` are ``verified``;
+    * ``DENIED`` when the attestation is valid but either dimension is
+      explicitly ``not_verified``;
+    * ``UNAVAILABLE`` for every other case (attestation missing,
+      malformed, expired, signed by an untrusted attestor, signature
+      mismatch, asset mismatch, …) so the engine can fail closed under
+      ``FAIL_CLOSED_COMPLIANCE``.
+
+    In every case the engine evidence carries the full normalized
+    :class:`ReserveResult` so the proof artifact records exactly which
+    attestation source the decision was based on (or why no usable
+    attestation evidence was available).
+    """
+
+    check = "reserve"
+    kind = "attestation"
+
+    def __init__(
+        self,
+        *,
+        secret: str | None = None,
+        trusted_attestors: tuple[str, ...] | list[str] | None = None,
+    ) -> None:
+        self._secret = (
+            secret
+            if secret is not None
+            else (getattr(config, "RESERVE_ATTESTATION_SECRET", "") or "")
+        )
+        if trusted_attestors is None:
+            trusted_attestors = getattr(
+                config, "RESERVE_ATTESTATION_TRUSTED_ATTESTORS", ()
+            )
+        self._trusted_attestors = tuple(trusted_attestors or ())
+
+    def evaluate(self, context: dict[str, Any]) -> ProviderResult:
+        asset_currency = _resolve_asset_currency(context)
+        attestation = context.get("reserve_attestation")
+        if attestation is not None and not isinstance(attestation, dict):
+            attestation = None
+
+        outcome = validate_reserve_attestation(
+            attestation=attestation,
+            asset=asset_currency,
+            trusted_attestors=self._trusted_attestors,
+            secret=self._secret,
+        )
+        reserve_result = outcome.result
+        provider_id = reserve_result.provider_name
+
+        if not outcome.valid:
+            return ProviderResult(
+                check=self.check,
+                status=ProviderStatus.UNAVAILABLE,
+                provider_id=provider_id,
+                reference=reserve_result.evidence_reference,
+                reason=outcome.error,
+                details={"reserve_result": reserve_result.to_dict()},
+            )
+
+        status = _provider_status_from_reserve_pair(
+            reserve_result.reserve_status,
+            reserve_result.liquidity_status,
+        )
+        if status is ProviderStatus.APPROVED:
+            reason = "RESERVE_VERIFIED_VIA_ATTESTATION"
+        elif status is ProviderStatus.DENIED:
+            reason = "RESERVE_NOT_VERIFIED_VIA_ATTESTATION"
+        else:
+            reason = "RESERVE_ATTESTATION_STATUS_UNAVAILABLE"
+
+        return ProviderResult(
+            check=self.check,
+            status=status,
+            provider_id=provider_id,
+            reference=reserve_result.evidence_reference,
+            reason=reason,
+            details={"reserve_result": reserve_result.to_dict()},
         )
 
 
@@ -632,6 +930,14 @@ def _build_provider(
             )
             return _NullProvider(check)
         return _UpstreamAssertionKycProvider()
+    if kind == "attestation":
+        if check != "reserve":
+            logger.warning(
+                "attestation_kind_only_supported_for_reserve check=%s -> null",
+                check,
+            )
+            return _NullProvider(check)
+        return _AttestationReserveProvider()
     return _NullProvider(check)
 
 
@@ -663,4 +969,5 @@ def get_reserve_provider() -> ComplianceProvider:
         url_env="RESERVE_PROVIDER_URL",
         api_key_env="RESERVE_PROVIDER_API_KEY",
         provider_name="reserve",
+        allowed_kinds=_RESERVE_PROVIDER_KINDS,
     )
