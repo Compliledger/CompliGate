@@ -205,22 +205,47 @@ def _evaluate_settlement_constraints(
         reason_codes.append("ASSET_NOT_RLUSD")
         compliant = False
 
-    constraints_verified["reserve_backed"] = True
-    reason_codes.append("RESERVE_BACKED")
-
-    constraints_verified["liquidity_verified"] = True
-    reason_codes.append("LIQUIDITY_VERIFIED")
-
-    constraints_verified["kyc_verified"] = True
-    reason_codes.append("KYC_VERIFIED")
-
-    constraints_verified["sanctions_check_passed"] = True
-    reason_codes.append("SANCTIONS_PASSED")
-
-    constraints_verified["jurisdiction_match"] = True
-    reason_codes.append("JURISDICTION_MATCH")
-
     permit_constraints = (permit_bundle or {}).get("constraints", {})
+
+    constraints_verified["reserve_backed"] = bool(permit_constraints.get("reserve_backed")) if permit_bundle else False
+    if constraints_verified["reserve_backed"]:
+        reason_codes.append("RESERVE_BACKED")
+    else:
+        reason_codes.append("RESERVE_NOT_VERIFIED")
+        compliant = False
+
+    constraints_verified["liquidity_verified"] = bool(permit_constraints.get("liquidity_verified")) if permit_bundle else False
+    if constraints_verified["liquidity_verified"]:
+        reason_codes.append("LIQUIDITY_VERIFIED")
+    else:
+        reason_codes.append("LIQUIDITY_NOT_VERIFIED")
+        compliant = False
+
+    constraints_verified["kyc_verified"] = bool(permit_constraints.get("kyc_verified")) if permit_bundle else False
+    if constraints_verified["kyc_verified"]:
+        reason_codes.append("KYC_VERIFIED")
+    else:
+        reason_codes.append("KYC_NOT_VERIFIED")
+        compliant = False
+
+    sanctions_value = permit_constraints.get("sanctions_check") if permit_bundle else None
+    sanctions_passed = sanctions_value == "passed"
+    constraints_verified["sanctions_check_passed"] = sanctions_passed
+    if sanctions_passed:
+        reason_codes.append("SANCTIONS_PASSED")
+    else:
+        reason_codes.append("SANCTIONS_NOT_VERIFIED")
+        compliant = False
+
+    permit_jurisdiction = (permit_bundle or {}).get("policy", {}).get("jurisdiction") or permit_constraints.get("jurisdiction")
+    jurisdiction_match = permit_jurisdiction == config.JURISDICTION
+    constraints_verified["jurisdiction_match"] = jurisdiction_match
+    if jurisdiction_match:
+        reason_codes.append("JURISDICTION_MATCH")
+    else:
+        reason_codes.append("JURISDICTION_MISMATCH")
+        compliant = False
+
     if permit_bundle:
         max_amount = permit_constraints.get("max_amount")
         if max_amount is None:
@@ -324,6 +349,8 @@ def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerif
     memo = _parse_first_memo(tx_payload)
     now = int(time.time())
 
+    permit_constraints_for_ctx = (permit_bundle or {}).get("constraints", {})
+    permit_evidence = (permit_bundle or {}).get("compliance_evidence", [])
     evaluation_context = {
         "bundle_hash": bundle_hash,
         "permit_context_used": True,
@@ -338,18 +365,19 @@ def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerif
         "asset_classification": ASSET_CLASSIFICATION_REGULATED_STABLECOIN,
         "asset": amount_info["currency"],
         "destination": tx_payload.get("Destination", ""),
-        "jurisdiction": config.JURISDICTION,
-        "kyc_verified": True,
-        "sanctions_check": "passed",
-        "reserve_backed": True,
-        "liquidity_verified": True,
+        "jurisdiction": permit_constraints_for_ctx.get("jurisdiction", config.JURISDICTION),
+        "kyc_verified": permit_constraints_for_ctx.get("kyc_verified", False),
+        "sanctions_check": permit_constraints_for_ctx.get("sanctions_check", "unavailable"),
+        "reserve_backed": permit_constraints_for_ctx.get("reserve_backed", False),
+        "liquidity_verified": permit_constraints_for_ctx.get("liquidity_verified", False),
         "policy_conditions": {
-            "jurisdiction": config.JURISDICTION,
-            "kyc_verified": True,
-            "sanctions": "passed",
-            "reserve_backed": True,
-            "liquidity_verified": True,
+            "jurisdiction": permit_constraints_for_ctx.get("jurisdiction", config.JURISDICTION),
+            "kyc_verified": permit_constraints_for_ctx.get("kyc_verified", False),
+            "sanctions": permit_constraints_for_ctx.get("sanctions_check", "unavailable"),
+            "reserve_backed": permit_constraints_for_ctx.get("reserve_backed", False),
+            "liquidity_verified": permit_constraints_for_ctx.get("liquidity_verified", False),
         },
+        "compliance_evidence": permit_evidence,
         "constraints_verified": constraints_verified,
     }
     evaluation_context["permit_issued_at"] = permit_context["issued_at"]
