@@ -107,6 +107,23 @@ NORMALIZED_KYC_DESTINATION_REASON_CODES = {
     ProviderStatus.UNAVAILABLE: "KYC_DESTINATION_UNAVAILABLE",
 }
 
+#: Normalized reserve/liquidity reason codes derived from the reserve
+#: provider's :class:`ReserveResult`. These are emitted *in addition*
+#: to the per-status reserve codes above so callers always get an
+#: explicit, machine-readable record of the reserve and liquidity
+#: dimensions — independent of how the engine collapsed them into the
+#: overall decision.
+NORMALIZED_RESERVE_STATUS_REASON_CODES = {
+    "verified": "RESERVE_STATUS_VERIFIED",
+    "not_verified": "RESERVE_STATUS_NOT_VERIFIED",
+    "unavailable": "RESERVE_STATUS_UNAVAILABLE",
+}
+NORMALIZED_LIQUIDITY_STATUS_REASON_CODES = {
+    "verified": "LIQUIDITY_STATUS_VERIFIED",
+    "not_verified": "LIQUIDITY_STATUS_NOT_VERIFIED",
+    "unavailable": "LIQUIDITY_STATUS_UNAVAILABLE",
+}
+
 #: Provider-derived sanctions screen reason codes.
 #:
 #: These are emitted *in addition* to the per-status reason codes above
@@ -160,6 +177,7 @@ def evaluate_compliance(
     asset: dict[str, Any] | None = None,
     providers: dict[str, ComplianceProvider] | None = None,
     kyc_assertion: dict[str, Any] | None = None,
+    reserve_attestation: dict[str, Any] | None = None,
 ) -> ComplianceEvaluation:
     """Run every configured compliance provider and aggregate results.
 
@@ -170,7 +188,10 @@ def evaluate_compliance(
     ``kyc_assertion`` is an optional trusted upstream KYC payload (see
     :mod:`app.services.compliance.kyc`) that the ``upstream_assertion``
     KYC provider validates against the configured shared secret and
-    issuer allowlist. Other providers ignore it.
+    issuer allowlist. ``reserve_attestation`` is the equivalent trusted
+    payload for the ``attestation`` reserve provider (see
+    :mod:`app.services.compliance.reserve`). Other providers ignore
+    them.
     """
     providers = providers or _default_providers()
     fail_closed = bool(config.FAIL_CLOSED_COMPLIANCE)
@@ -181,6 +202,7 @@ def evaluate_compliance(
         "counterparty": counterparty,
         "asset": asset or {},
         "kyc_assertion": kyc_assertion,
+        "reserve_attestation": reserve_attestation,
     }
 
     reason_codes: list[str] = []
@@ -216,6 +238,17 @@ def evaluate_compliance(
                 normalized = NORMALIZED_KYC_REASON_CODES[ProviderStatus.UNAVAILABLE]
                 if normalized not in reason_codes:
                     reason_codes.append(normalized)
+            if check == "reserve":
+                # Always surface normalized RESERVE_STATUS_<STATUS> and
+                # LIQUIDITY_STATUS_<STATUS> reason codes so callers see
+                # the per-dimension outcome explicitly, even when no
+                # provider was registered.
+                reason_codes.append(
+                    NORMALIZED_RESERVE_STATUS_REASON_CODES["unavailable"]
+                )
+                reason_codes.append(
+                    NORMALIZED_LIQUIDITY_STATUS_REASON_CODES["unavailable"]
+                )
             evidence.append(
                 {
                     "check": check,
@@ -255,6 +288,42 @@ def evaluate_compliance(
             normalized = NORMALIZED_KYC_REASON_CODES.get(result.status)
             if normalized is not None and normalized not in reason_codes:
                 reason_codes.append(normalized)
+        if check == "reserve":
+            reserve_result_dict = None
+            details = result.details if isinstance(result.details, dict) else {}
+            if isinstance(details.get("reserve_result"), dict):
+                reserve_result_dict = details["reserve_result"]
+            if reserve_result_dict is not None:
+                reserve_status_value = str(
+                    reserve_result_dict.get("reserve_status") or "unavailable"
+                ).lower()
+                liquidity_status_value = str(
+                    reserve_result_dict.get("liquidity_status") or "unavailable"
+                ).lower()
+            else:
+                # The reserve provider did not surface a normalized
+                # ``reserve_result``; fall back to the engine-level
+                # provider status so the per-dimension reason codes are
+                # still emitted (treating both dimensions identically).
+                if result.status is ProviderStatus.APPROVED:
+                    reserve_status_value = "verified"
+                    liquidity_status_value = "verified"
+                elif result.status is ProviderStatus.DENIED:
+                    reserve_status_value = "not_verified"
+                    liquidity_status_value = "not_verified"
+                else:
+                    reserve_status_value = "unavailable"
+                    liquidity_status_value = "unavailable"
+            reserve_code = NORMALIZED_RESERVE_STATUS_REASON_CODES.get(
+                reserve_status_value,
+                NORMALIZED_RESERVE_STATUS_REASON_CODES["unavailable"],
+            )
+            liquidity_code = NORMALIZED_LIQUIDITY_STATUS_REASON_CODES.get(
+                liquidity_status_value,
+                NORMALIZED_LIQUIDITY_STATUS_REASON_CODES["unavailable"],
+            )
+            reason_codes.append(reserve_code)
+            reason_codes.append(liquidity_code)
 
     # Resolve destination-side KYC when applicable. We re-use the
     # configured KYC provider with a context whose ``subject`` is the
