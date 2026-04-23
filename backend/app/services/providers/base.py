@@ -62,11 +62,20 @@ class ProviderStatus(str, Enum):
 
 
 class ProviderDecision(str, Enum):
-    """Compliance decision derived from a provider response."""
+    """Compliance decision derived from a provider response.
 
-    ALLOW = "allow"
+    The ``PASS`` / ``DENY`` / ``REVIEW`` / ``UNAVAILABLE`` set is the
+    vocabulary used by the per-domain screening providers (sanctions,
+    address screening, etc.). ``ALLOW`` and ``UNKNOWN`` are kept for
+    backward compatibility with earlier callers; new code should prefer
+    ``PASS`` and ``UNAVAILABLE`` to match the documented contract.
+    """
+
+    PASS = "pass"
     DENY = "deny"
     REVIEW = "review"
+    UNAVAILABLE = "unavailable"
+    ALLOW = "allow"
     UNKNOWN = "unknown"
 
 
