@@ -66,15 +66,15 @@ function EvidenceRow({
         <div className="evidenceField">
           <dt>Provider / Source</dt>
           <dd>
-            {provider || source ? (
-              <>
-                {provider ?? ""}
-                {provider && source && source !== provider ? ` (${source})` : ""}
-                {!provider && source ? source : ""}
-              </>
-            ) : (
-              <span className="textMuted">Not Provided</span>
-            )}
+            {(() => {
+              if (!provider && !source) {
+                return <span className="textMuted">Not Provided</span>;
+              }
+              if (provider && source && source !== provider) {
+                return `${provider} (${source})`;
+              }
+              return provider ?? source;
+            })()}
           </dd>
         </div>
         <div className="evidenceField">
