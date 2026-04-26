@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { apiPost, describeError } from "../lib/api";
 import StatusMessage from "./StatusMessage";
 import PanelNumber from "./PanelNumber";
+import ProviderStatusSummary from "./ProviderStatusSummary";
 import { checkClass, checkSymbol } from "../lib/format";
 import type { PermitResponse, VerifyResponse } from "../types/api";
 
@@ -174,6 +175,7 @@ export default function PermitVerificationPanel({ permit, panelNumber, order }: 
                     </div>
                   </div>
                 )}
+                <ProviderStatusSummary permit={permit} />
               </div>
             );
           })()}
