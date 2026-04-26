@@ -1,7 +1,16 @@
 import { useMemo } from "react";
 
 import StatusMessage from "./StatusMessage";
-import { checkClass, checkSymbol, formatSeconds } from "../lib/format";
+import {
+  checkClass,
+  checkSymbol,
+  formatSeconds,
+  formatStatusLabel,
+  outcomeClass,
+  outcomeSymbol,
+  outcomeTextClass,
+  providerOutcome,
+} from "../lib/format";
 import type { PermitResponse } from "../types/api";
 
 export type PermitStatus = {
@@ -57,7 +66,7 @@ export default function PermitSummaryPanel({ permit, status, remaining, order }:
               <span className={checkClass(permit.summary.issuer_verified)}>
                 {checkSymbol(permit.summary.issuer_verified)}
               </span>
-              <span className="summaryLabel">Issuer verified</span>
+              <span className="summaryLabel">Issuer configured</span>
               <span className="summaryValue">
                 {permit.summary.issuer_verified ? "Yes" : "No"}
               </span>
@@ -74,24 +83,6 @@ export default function PermitSummaryPanel({ permit, status, remaining, order }:
                 <span className="summaryValue">{permit.bundle.asset.regulatory_treatment}</span>
               </div>
             )}
-            <div className="summaryRow">
-              <span className={checkClass(permit.summary.custody_attestation_bound)}>
-                {checkSymbol(permit.summary.custody_attestation_bound)}
-              </span>
-              <span className="summaryLabel">Custody attestation</span>
-              <span className="summaryValue">
-                {permit.summary.custody_attestation_bound ? "Bound" : "Unbound"}
-              </span>
-            </div>
-            <div className="summaryRow">
-              <span className={checkClass(permit.summary.reserve_attestation_bound)}>
-                {checkSymbol(permit.summary.reserve_attestation_bound)}
-              </span>
-              <span className="summaryLabel">Reserve attestation</span>
-              <span className="summaryValue">
-                {permit.summary.reserve_attestation_bound ? "Bound" : "Unbound"}
-              </span>
-            </div>
             <div className="summaryRow">
               <span className="check">✔</span>
               <span className="summaryLabel">Policy version</span>
@@ -124,50 +115,128 @@ export default function PermitSummaryPanel({ permit, status, remaining, order }:
             </div>
           </div>
 
-          <div className="regulatoryControlsHeader">XRPL / RLUSD Regulatory Controls</div>
+          <div className="regulatoryControlsHeader">Provider-Backed Compliance Checks</div>
           <div className="summary">
-            {permit.bundle.constraints.reserve_backed !== undefined && (
-              <div className="summaryRow">
-                <span className={checkClass(permit.bundle.constraints.reserve_backed)}>
-                  {checkSymbol(permit.bundle.constraints.reserve_backed)}
-                </span>
-                <span className="summaryLabel">Reserve backed</span>
-                <span className="summaryValue">
-                  {permit.bundle.constraints.reserve_backed ? "Yes" : "No"}
-                </span>
-              </div>
-            )}
-            {permit.bundle.constraints.liquidity_verified !== undefined && (
-              <div className="summaryRow">
-                <span className={checkClass(permit.bundle.constraints.liquidity_verified)}>
-                  {checkSymbol(permit.bundle.constraints.liquidity_verified)}
-                </span>
-                <span className="summaryLabel">Liquidity verified</span>
-                <span className="summaryValue">
-                  {permit.bundle.constraints.liquidity_verified ? "Yes" : "No"}
-                </span>
-              </div>
-            )}
-            {permit.bundle.constraints.kyc_verified !== undefined && (
-              <div className="summaryRow">
-                <span className={checkClass(permit.bundle.constraints.kyc_verified)}>
-                  {checkSymbol(permit.bundle.constraints.kyc_verified)}
-                </span>
-                <span className="summaryLabel">KYC verified</span>
-                <span className="summaryValue">
-                  {permit.bundle.constraints.kyc_verified ? "Yes" : "No"}
-                </span>
-              </div>
-            )}
-            {permit.bundle.constraints.sanctions_check !== undefined && (
-              <div className="summaryRow">
-                <span className={checkClass(permit.bundle.constraints.sanctions_check === "passed")}>
-                  {checkSymbol(permit.bundle.constraints.sanctions_check === "passed")}
-                </span>
-                <span className="summaryLabel">Sanctions check</span>
-                <span className="summaryValue">{permit.bundle.constraints.sanctions_check}</span>
-              </div>
-            )}
+            {(() => {
+              const kycOutcome = providerOutcome(permit.summary.kyc_status);
+              const kycResult = permit.bundle.attestations.kyc_result;
+              const kycReference = permit.bundle.attestations.kyc_reference;
+              return (
+                <div className="summaryRow">
+                  <span className={outcomeClass(kycOutcome)}>
+                    {outcomeSymbol(kycOutcome)}
+                  </span>
+                  <span className="summaryLabel">
+                    KYC
+                    {(kycResult?.provider_name || kycReference) && (
+                      <span className="evidenceMeta">
+                        {kycResult?.provider_name && (
+                          <>
+                            <span className="evidenceMetaLabel">Provider</span>
+                            {kycResult.provider_name}
+                          </>
+                        )}
+                        {kycReference && (
+                          <>
+                            {kycResult?.provider_name ? " · " : ""}
+                            <span className="evidenceMetaLabel">Ref</span>
+                            {kycReference}
+                          </>
+                        )}
+                      </span>
+                    )}
+                  </span>
+                  <span className={`summaryValue ${outcomeTextClass(kycOutcome)}`}>
+                    {formatStatusLabel(permit.summary.kyc_status)}
+                  </span>
+                </div>
+              );
+            })()}
+            {(() => {
+              const sanctionsOutcome = providerOutcome(permit.summary.sanctions_status);
+              const sanctionsReference = permit.bundle.attestations.sanctions_reference;
+              return (
+                <div className="summaryRow">
+                  <span className={outcomeClass(sanctionsOutcome)}>
+                    {outcomeSymbol(sanctionsOutcome)}
+                  </span>
+                  <span className="summaryLabel">
+                    Sanctions screening
+                    {sanctionsReference && (
+                      <span className="evidenceMeta">
+                        <span className="evidenceMetaLabel">Ref</span>
+                        {sanctionsReference}
+                      </span>
+                    )}
+                  </span>
+                  <span className={`summaryValue ${outcomeTextClass(sanctionsOutcome)}`}>
+                    {formatStatusLabel(permit.summary.sanctions_status)}
+                  </span>
+                </div>
+              );
+            })()}
+            {(() => {
+              const reserveOutcome = providerOutcome(permit.summary.reserve_status);
+              const reserveResult = permit.bundle.attestations.reserve_result;
+              const reserveReference = permit.bundle.attestations.reserve_reference;
+              return (
+                <div className="summaryRow">
+                  <span className={outcomeClass(reserveOutcome)}>
+                    {outcomeSymbol(reserveOutcome)}
+                  </span>
+                  <span className="summaryLabel">
+                    Reserve backing
+                    {(reserveResult?.provider_name || reserveReference) && (
+                      <span className="evidenceMeta">
+                        {reserveResult?.provider_name && (
+                          <>
+                            <span className="evidenceMetaLabel">Attestor</span>
+                            {reserveResult.provider_name}
+                          </>
+                        )}
+                        {reserveReference && (
+                          <>
+                            {reserveResult?.provider_name ? " · " : ""}
+                            <span className="evidenceMetaLabel">Ref</span>
+                            {reserveReference}
+                          </>
+                        )}
+                      </span>
+                    )}
+                  </span>
+                  <span className={`summaryValue ${outcomeTextClass(reserveOutcome)}`}>
+                    {formatStatusLabel(permit.summary.reserve_status)}
+                  </span>
+                </div>
+              );
+            })()}
+            {(() => {
+              const liquidityOutcome = providerOutcome(permit.summary.liquidity_status);
+              const liquidityReference = permit.bundle.attestations.liquidity_reference;
+              return (
+                <div className="summaryRow">
+                  <span className={outcomeClass(liquidityOutcome)}>
+                    {outcomeSymbol(liquidityOutcome)}
+                  </span>
+                  <span className="summaryLabel">
+                    Liquidity
+                    {liquidityReference && (
+                      <span className="evidenceMeta">
+                        <span className="evidenceMetaLabel">Ref</span>
+                        {liquidityReference}
+                      </span>
+                    )}
+                  </span>
+                  <span className={`summaryValue ${outcomeTextClass(liquidityOutcome)}`}>
+                    {formatStatusLabel(permit.summary.liquidity_status)}
+                  </span>
+                </div>
+              );
+            })()}
+          </div>
+
+          <div className="regulatoryControlsHeader">XRPL / RLUSD Issuer Controls</div>
+          <div className="summary">
             {permit.bundle.constraints.jurisdiction && (
               <div className="summaryRow">
                 <span className="check">✔</span>

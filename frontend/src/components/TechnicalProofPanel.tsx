@@ -26,19 +26,51 @@ export default function TechnicalProofPanel({ permit, panelNumber, order }: Prop
 
   const regulatoryControlsJson = useMemo(() => {
     if (!permit) return "";
-    return JSON.stringify({
-      asset_classification: permit.bundle.asset.classification,
-      regulatory_treatment: permit.bundle.asset.regulatory_treatment,
-      reserve_backed: permit.bundle.constraints.reserve_backed,
-      liquidity_verified: permit.bundle.constraints.liquidity_verified,
-      kyc_verified: permit.bundle.constraints.kyc_verified,
-      sanctions_check: permit.bundle.constraints.sanctions_check,
-      jurisdiction: permit.bundle.constraints.jurisdiction,
-      max_amount: permit.bundle.constraints.max_amount,
-      freeze_possible: permit.bundle.constraints.freeze_possible,
-      clawback_possible: permit.bundle.constraints.clawback_possible,
-      trustline_required: permit.bundle.constraints.trustline_required,
-    }, null, 2);
+    // Project the *real* provider-backed evidence rather than just the
+    // derived booleans. Each compliance dimension is rendered as an
+    // explicit `{ status, reference }` so it is impossible to confuse
+    // "the provider denied this" with "no provider was available", and
+    // so the proof view never claims an attestation that does not
+    // exist (the references are `null` in that case).
+    return JSON.stringify(
+      {
+        asset_classification: permit.bundle.asset.classification,
+        regulatory_treatment: permit.bundle.asset.regulatory_treatment,
+        jurisdiction: permit.bundle.constraints.jurisdiction,
+        max_amount: permit.bundle.constraints.max_amount,
+        compliance: {
+          kyc: {
+            status: permit.summary.kyc_status,
+            reference: permit.bundle.attestations.kyc_reference,
+            provider:
+              permit.bundle.attestations.kyc_result?.provider_name ?? null,
+          },
+          sanctions: {
+            status: permit.summary.sanctions_status,
+            reference: permit.bundle.attestations.sanctions_reference,
+          },
+          reserve: {
+            status: permit.summary.reserve_status,
+            reference: permit.bundle.attestations.reserve_reference,
+            provider:
+              permit.bundle.attestations.reserve_result?.provider_name ?? null,
+          },
+          liquidity: {
+            status: permit.summary.liquidity_status,
+            reference: permit.bundle.attestations.liquidity_reference,
+          },
+        },
+        issuer_controls: {
+          freeze_possible: permit.bundle.constraints.freeze_possible,
+          clawback_possible: permit.bundle.constraints.clawback_possible,
+          trustline_required: permit.bundle.constraints.trustline_required,
+        },
+        decision_result: permit.decision_result,
+        reason_codes: permit.reason_codes,
+      },
+      null,
+      2,
+    );
   }, [permit]);
 
   return (
