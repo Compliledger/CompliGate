@@ -16,7 +16,13 @@ from app.services.compliance import ProviderStatus
 from app.services.compliance.engine import derive_reserve_components
 from app.services.policy_service import MAX_AMOUNT, evaluate_permit_policy, validate_subject
 from app.services.proof_service import create_permit_proof_artifact
-from app.services.storage_service import save_permit, save_proof_artifact, save_reserve_evidence
+from app.services.storage_service import (
+    save_kyc_evidence,
+    save_permit,
+    save_proof_artifact,
+    save_reserve_evidence,
+    save_sanctions_evidence,
+)
 from app.utils.canonical_json import canonical_json
 from app.utils.hashing import proof_hash
 
@@ -275,6 +281,36 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
         evidence_item=reserve_evidence_item,
         asset=asset.get("currency", ""),
         issuer=asset.get("issuer", ""),
+        db=db,
+    )
+
+    # Persist the structured sanctions screening evidence, again linked
+    # by ``bundle_hash`` (which is shared by the permit and proof
+    # artifact records). No-op when no provider produced evidence.
+    sanctions_evidence_item = next(
+        (item for item in compliance.evidence if item.get("check") == "sanctions"),
+        None,
+    )
+    save_sanctions_evidence(
+        bundle_hash=bundle_hash,
+        evidence_item=sanctions_evidence_item,
+        subject=req.subject,
+        jurisdiction=config.JURISDICTION,
+        db=db,
+    )
+
+    # Persist the structured KYC verification evidence (subject side and,
+    # when present, the destination side of a transfer). Each is linked
+    # by ``bundle_hash`` and tagged with its ``check_type`` so auditors
+    # can tell source vs destination KYC apart.
+    save_kyc_evidence(
+        bundle_hash=bundle_hash,
+        evidence_item=kyc_evidence_item,
+        db=db,
+    )
+    save_kyc_evidence(
+        bundle_hash=bundle_hash,
+        evidence_item=kyc_destination_evidence_item,
         db=db,
     )
 
