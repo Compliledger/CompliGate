@@ -4,7 +4,6 @@ import sys
 import base64
 import json
 import logging
-import os
 import time
 import hashlib
 from collections import OrderedDict
@@ -114,10 +113,6 @@ def canonical_json(obj: dict) -> str:
 def proof_hash(bundle: dict) -> str:
     canonical = canonical_json(bundle).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
-
-
-def random_hex(n_bytes: int = 32) -> str:
-    return "0x" + os.urandom(n_bytes).hex()
 
 
 def enrich_proof_artifact_with_anchor(
@@ -504,7 +499,17 @@ def evaluate_constraints(
     # ["kyc_verified"] = False.
     reason_codes.append("KYC_NOT_VERIFIED")
     reason_codes.append("KYC_UNAVAILABLE")
-    reason_codes.append("SANCTIONS_PASSED")
+    # Sanctions must never be hardcoded as passed — real sanctions
+    # screening evidence is sourced from the configured sanctions
+    # provider via the modular permit service (see
+    # app/services/permit_service.py and app/services/compliance/).
+    # This legacy demo path does not call a provider, so it records
+    # the constraint as not-verified with the normalized
+    # SANCTIONS_UNAVAILABLE token to make the lack of real evidence
+    # explicit and consistent with bundle["constraints"]
+    # ["sanctions_check"] = "unavailable".
+    reason_codes.append("SANCTIONS_NOT_VERIFIED")
+    reason_codes.append("SANCTIONS_UNAVAILABLE")
     # Reserve and liquidity must never be hardcoded as verified —
     # real reserve / liquidity evidence is sourced from the configured
     # reserve provider (live integration or trusted custodian /
@@ -577,7 +582,14 @@ def create_permit(req: PermitRequest):
             # records the constraint as not-verified with a traceable
             # reason code.
             "kyc_verified": False,
-            "sanctions_check": "passed",
+            # Sanctions must never be hardcoded as passed — real
+            # evidence comes from the configured sanctions provider via
+            # the modular permit service. This legacy demo path does
+            # not call a provider, so it records the constraint as
+            # ``"unavailable"`` to make the absence of real screening
+            # evidence explicit instead of silently approving the
+            # transfer.
+            "sanctions_check": "unavailable",
             "jurisdiction": JURISDICTION,
             "freeze_possible": True,
             "clawback_possible": True,
@@ -1479,12 +1491,37 @@ def _evaluate_settlement_constraints(
         compliant = False
 
     # -- Sanctions check --
-    constraints_verified["sanctions_check_passed"] = True
-    reason_codes.append("SANCTIONS_PASSED")
+    # Sanctions must never be hardcoded as passed — instead propagate
+    # the real outcome recorded in the permit bundle (which is itself
+    # derived from the configured sanctions provider via the
+    # compliance engine; see app/services/permit_service.py).
+    sanctions_value = (
+        permit_constraints_for_kyc.get("sanctions_check") if permit_bundle else None
+    )
+    sanctions_passed = sanctions_value == "passed"
+    constraints_verified["sanctions_check_passed"] = sanctions_passed
+    if sanctions_passed:
+        reason_codes.append("SANCTIONS_PASSED")
+    else:
+        reason_codes.append("SANCTIONS_NOT_VERIFIED")
+        compliant = False
 
     # -- Jurisdiction matches active policy --
-    constraints_verified["jurisdiction_match"] = True
-    reason_codes.append("JURISDICTION_MATCH")
+    # The jurisdiction match must be derived from the permit bundle
+    # (which records the issuer / policy jurisdiction at issuance time)
+    # against the locally-configured active jurisdiction, not hardcoded
+    # to ``True``.
+    permit_jurisdiction = (
+        (permit_bundle or {}).get("policy", {}).get("jurisdiction")
+        or permit_constraints_for_kyc.get("jurisdiction")
+    )
+    jurisdiction_match = permit_jurisdiction == JURISDICTION
+    constraints_verified["jurisdiction_match"] = jurisdiction_match
+    if jurisdiction_match:
+        reason_codes.append("JURISDICTION_MATCH")
+    else:
+        reason_codes.append("JURISDICTION_MISMATCH")
+        compliant = False
 
     # -- Amount within limit (permit max when present) --
     permit_constraints = (permit_bundle or {}).get("constraints", {})
@@ -1602,6 +1639,21 @@ def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
     liquidity_verified_for_context = bool(
         constraints_verified.get("liquidity_verified", False)
     )
+    # Sanctions value is sourced from the permit bundle (which itself
+    # is provider-derived). When no permit context is available the
+    # value falls back to ``"unavailable"`` to make the absence of a
+    # real sanctions screen explicit instead of claiming a pass.
+    permit_constraints_for_ctx = (permit_bundle or {}).get("constraints", {})
+    sanctions_check_for_context = (
+        permit_constraints_for_ctx.get("sanctions_check", "unavailable")
+        if permit_bundle
+        else "unavailable"
+    )
+    jurisdiction_for_context = (
+        (permit_bundle or {}).get("policy", {}).get("jurisdiction")
+        or permit_constraints_for_ctx.get("jurisdiction")
+        or JURISDICTION
+    )
 
     evaluation_context = {
         "bundle_hash": req.bundle_hash,
@@ -1617,15 +1669,15 @@ def verify_settlement_by_hash(req: SettlementVerifyByHashRequest):
         "asset_classification": ASSET_CLASSIFICATION_REGULATED_STABLECOIN,
         "asset": amount_info["currency"],
         "destination": tx_payload.get("Destination", ""),
-        "jurisdiction": JURISDICTION,
+        "jurisdiction": jurisdiction_for_context,
         "kyc_verified": kyc_verified_for_context,
-        "sanctions_check": "passed",
+        "sanctions_check": sanctions_check_for_context,
         "reserve_backed": reserve_backed_for_context,
         "liquidity_verified": liquidity_verified_for_context,
         "policy_conditions": {
-            "jurisdiction": JURISDICTION,
+            "jurisdiction": jurisdiction_for_context,
             "kyc_verified": kyc_verified_for_context,
-            "sanctions": "passed",
+            "sanctions": sanctions_check_for_context,
             "reserve_backed": reserve_backed_for_context,
             "liquidity_verified": liquidity_verified_for_context,
         },
