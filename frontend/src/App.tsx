@@ -53,7 +53,10 @@ export default function App() {
 
   const settlementPassed = useMemo(() => {
     if (!settlementResult) return false;
-    const d = settlementResult.decision_result.toLowerCase();
+    if (settlementResult.unavailable === true) return false;
+    const decision = settlementResult.decision_result ?? "";
+    if (decision.toUpperCase() === "SETTLED_COMPLIANT") return true;
+    const d = decision.toLowerCase();
     return d === "permit" || d === "allow" || d === "approved";
   }, [settlementResult]);
 
