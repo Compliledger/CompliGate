@@ -297,8 +297,16 @@ body {
   color: var(--muted);
 }
 
+.checkNotEvaluated {
+  background: transparent;
+  border-color: var(--border);
+  border-style: dashed;
+  color: var(--muted);
+}
+
 .textWarn { color: var(--warn); }
 .textBad  { color: var(--bad); }
+.textMuted { color: var(--muted); }
 
 /* ── Alerts ── */
 

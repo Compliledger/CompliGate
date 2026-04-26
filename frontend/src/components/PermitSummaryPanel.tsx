@@ -155,6 +155,9 @@ export default function PermitSummaryPanel({ permit, status, remaining, order }:
             {(() => {
               const sanctionsOutcome = providerOutcome(permit.summary.sanctions_status);
               const sanctionsReference = permit.bundle.attestations.sanctions_reference;
+              const sanctionsProvider = permit.bundle.compliance_evidence?.find(
+                (e) => e.check === "sanctions",
+              )?.provider_id;
               return (
                 <div className="summaryRow">
                   <span className={outcomeClass(sanctionsOutcome)}>
@@ -162,10 +165,21 @@ export default function PermitSummaryPanel({ permit, status, remaining, order }:
                   </span>
                   <span className="summaryLabel">
                     Sanctions screening
-                    {sanctionsReference && (
+                    {(sanctionsProvider || sanctionsReference) && (
                       <span className="evidenceMeta">
-                        <span className="evidenceMetaLabel">Ref</span>
-                        {sanctionsReference}
+                        {sanctionsProvider && (
+                          <>
+                            <span className="evidenceMetaLabel">Provider</span>
+                            {sanctionsProvider}
+                          </>
+                        )}
+                        {sanctionsReference && (
+                          <>
+                            {sanctionsProvider ? " · " : ""}
+                            <span className="evidenceMetaLabel">Ref</span>
+                            {sanctionsReference}
+                          </>
+                        )}
                       </span>
                     )}
                   </span>
@@ -212,6 +226,7 @@ export default function PermitSummaryPanel({ permit, status, remaining, order }:
             })()}
             {(() => {
               const liquidityOutcome = providerOutcome(permit.summary.liquidity_status);
+              const reserveResult = permit.bundle.attestations.reserve_result;
               const liquidityReference = permit.bundle.attestations.liquidity_reference;
               return (
                 <div className="summaryRow">
@@ -220,10 +235,21 @@ export default function PermitSummaryPanel({ permit, status, remaining, order }:
                   </span>
                   <span className="summaryLabel">
                     Liquidity
-                    {liquidityReference && (
+                    {(reserveResult?.provider_name || liquidityReference) && (
                       <span className="evidenceMeta">
-                        <span className="evidenceMetaLabel">Ref</span>
-                        {liquidityReference}
+                        {reserveResult?.provider_name && (
+                          <>
+                            <span className="evidenceMetaLabel">Attestor</span>
+                            {reserveResult.provider_name}
+                          </>
+                        )}
+                        {liquidityReference && (
+                          <>
+                            {reserveResult?.provider_name ? " · " : ""}
+                            <span className="evidenceMetaLabel">Ref</span>
+                            {liquidityReference}
+                          </>
+                        )}
                       </span>
                     )}
                   </span>
