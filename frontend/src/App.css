@@ -776,6 +776,70 @@ details[open] > .proofArtifactSummary::before {
 
 .commitMetaBlock .codeTitle { margin-top: 0; }
 
+/* ── Compliance Evidence section (Technical Proof panel) ── */
+
+.evidenceSection {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.evidenceSubheader {
+  margin-top: 14px;
+  margin-bottom: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.evidenceItem {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.evidenceItemHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.evidenceItemTitle {
+  flex: 1;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.evidenceFieldList {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(160px, max-content) 1fr;
+  gap: 4px 16px;
+}
+
+.evidenceField {
+  display: contents;
+}
+
+.evidenceField dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.evidenceField dd {
+  margin: 0;
+  font-size: 12.5px;
+  word-break: break-word;
+}
+
 /* ── Footer ── */
 
 .footer {
