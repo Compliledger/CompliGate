@@ -25,7 +25,7 @@ from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 
 # Reason code emitted whenever a "not configured" provider fails closed.
 PROVIDER_NOT_CONFIGURED_REASON = "PROVIDER_NOT_CONFIGURED"
@@ -217,3 +217,64 @@ class _DomainProvider(_BaseProvider):
     @abstractmethod
     def is_configured(self) -> bool:
         """Return True when the provider has enough configuration to be called."""
+
+
+@dataclass
+class SanctionsResult:
+    """Normalized result of a sanctions / watchlist screening check.
+
+    This is the simple, contract-only shape returned by every
+    :class:`SanctionsProvider` implementation. It is intentionally decoupled
+    from the richer :class:`ProviderResult` so the sanctions interface can
+    evolve independently and so callers that only need the screening signal
+    do not have to reason about the broader provider abstraction.
+
+    Attributes:
+        provider_name: Stable, human-readable identifier of the provider
+            implementation that produced this result (e.g. ``"ofac:http"``).
+        decision: Compliance decision for the screened address. One of
+            ``"pass"`` (no sanctions hit), ``"deny"`` (a sanctions hit was
+            found), or ``"unavailable"`` (the provider could not produce a
+            definitive answer, e.g. transport failure or missing config).
+        reason_codes: Machine-readable reason codes that justify
+            ``decision``. Ordered most- to least-significant.
+        checked_at: Unix epoch seconds (UTC) at which the check was
+            performed.
+        evidence_reference: Optional external reference (URL, case id,
+            document id, etc.) auditors can use to retrieve the original
+            evidence from the provider. ``None`` when no external evidence
+            exists.
+        metadata: Free-form, JSON-serializable provider metadata. Must not
+            contain secrets, full PII payloads, or unbounded blobs.
+    """
+
+    provider_name: str
+    decision: str
+    reason_codes: list[str]
+    checked_at: int
+    evidence_reference: Optional[str]
+    metadata: dict[str, Any]
+
+
+class SanctionsProvider(ABC):
+    """Abstract contract for sanctions / watchlist screening providers.
+
+    Concrete implementations screen a single address (typically an XRPL
+    classic address, but the interface is intentionally agnostic) against
+    one or more sanctions lists and return a normalized
+    :class:`SanctionsResult`.
+
+    This base class defines only the contract; it does not implement any
+    screening logic.
+    """
+
+    @abstractmethod
+    async def screen_address(self, address: str) -> SanctionsResult:
+        """Screen ``address`` against the provider's sanctions data.
+
+        Args:
+            address: The address to screen.
+
+        Returns:
+            A :class:`SanctionsResult` describing the screening decision.
+        """
