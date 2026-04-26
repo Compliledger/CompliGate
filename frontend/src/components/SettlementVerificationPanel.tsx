@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { apiPost, describeError } from "../lib/api";
 import StatusMessage from "./StatusMessage";
 import PanelNumber from "./PanelNumber";
+import ProviderStatusSummary from "./ProviderStatusSummary";
 import { useCopyToClipboard } from "../lib/useCopyToClipboard";
 import { checkClass, checkSymbol } from "../lib/format";
 import type { PermitResponse, SettlementVerifyResponse } from "../types/api";
@@ -315,6 +316,8 @@ export default function SettlementVerificationPanel({
                   <pre className="proofArtifactPre">{JSON.stringify(artifact, null, 2)}</pre>
                 </details>
               </div>
+
+              <ProviderStatusSummary permit={permit} />
             </div>
           );
         })()}
