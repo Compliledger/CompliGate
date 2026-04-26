@@ -75,18 +75,26 @@ export default function App() {
   }, [permit]);
 
   const status = useMemo<PermitStatus>(() => {
-    if (settlementResult && settlementPassed) return { label: "Verified", kind: "anchored" };
-    if (settlementResult && !settlementPassed) return { label: "Settlement Failed", kind: "bad" };
+    // Settlement outcomes take precedence: once a payment has been
+    // verified (or rejected) against the permit, that is the most
+    // operationally-meaningful state to surface.
+    if (settlementResult && settlementPassed) return { label: "Settlement Verified", kind: "anchored" };
+    if (settlementResult && !settlementPassed) return { label: "Settlement Non-Compliant", kind: "bad" };
     if (!permit) return { label: "No Permit", kind: "neutral" };
     if (permitDenied) {
+      // Distinguish a substantive denial ("Authorization Denied") from
+      // a fail-closed denial caused by missing provider evidence
+      // ("Evidence Unavailable") so operators know whether the gate
+      // refused the request on its merits or because an upstream
+      // provider could not be reached.
       return {
-        label: permitUnavailableCodes.length > 0 ? "Provider Unavailable" : "Permit Denied",
+        label: permitUnavailableCodes.length > 0 ? "Evidence Unavailable" : "Authorization Denied",
         kind: "bad",
       };
     }
-    if (remaining <= 0) return { label: "Expired", kind: "bad" };
+    if (remaining <= 0) return { label: "Authorization Expired", kind: "bad" };
     if (remaining < 60) return { label: "Expiring Soon", kind: "warn" };
-    return { label: "Active", kind: "good" };
+    return { label: "Authorized", kind: "good" };
   }, [permit, remaining, settlementResult, settlementPassed, permitDenied, permitUnavailableCodes]);
 
   function handlePermit(p: PermitResponse) {
