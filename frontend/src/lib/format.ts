@@ -6,6 +6,26 @@
  * the app).
  */
 
+/**
+ * Format a compliance "checked_at" unix timestamp (seconds) as an ISO
+ * 8601 UTC string. Returns `null` for missing or non-finite values so
+ * callers can decide whether to render a fallback / hide the row.
+ */
+export function formatCheckedAt(
+  checkedAt: number | null | undefined,
+): string | null {
+  if (typeof checkedAt !== "number" || !Number.isFinite(checkedAt)) {
+    return null;
+  }
+  // Backend providers emit `checked_at` as unix seconds; if a millisecond
+  // value sneaks through (>= ~year 2100 in seconds) treat it as ms so we
+  // never render a date in the year 50000+.
+  const ms = checkedAt > 1e12 ? checkedAt : checkedAt * 1000;
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
 /** Format a duration in seconds as "MM:SS". */
 export function formatSeconds(s: number): string {
   const safe = Math.max(0, Math.floor(s));

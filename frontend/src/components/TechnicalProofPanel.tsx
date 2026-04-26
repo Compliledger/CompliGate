@@ -3,7 +3,18 @@ import { useMemo } from "react";
 import StatusMessage from "./StatusMessage";
 import PanelNumber from "./PanelNumber";
 import { useCopyToClipboard } from "../lib/useCopyToClipboard";
-import type { PermitResponse } from "../types/api";
+import {
+  formatCheckedAt,
+  formatStatusLabel,
+  outcomeClass,
+  outcomeSymbol,
+  outcomeTextClass,
+  providerOutcome,
+} from "../lib/format";
+import type {
+  ComplianceEvidenceItem,
+  PermitResponse,
+} from "../types/api";
 
 type Props = {
   permit: PermitResponse | null;
@@ -14,12 +25,99 @@ type Props = {
 };
 
 /**
+ * Render a single human-readable evidence row inside the Compliance
+ * Evidence section. Used for KYC, sanctions, and reserve / liquidity.
+ *
+ * Each row exposes the same four fields the regulator-facing audit
+ * trail cares about: provider / source, decision / status, the time
+ * the check was performed, and the underlying evidence reference. We
+ * render `Not Provided` for missing fields rather than fabricating a
+ * value so the proof view never claims evidence that does not exist.
+ */
+function EvidenceRow({
+  title,
+  status,
+  provider,
+  source,
+  checkedAt,
+  evidenceReference,
+  reasonCodes,
+}: {
+  title: string;
+  status: string | null | undefined;
+  provider?: string | null;
+  source?: string | null;
+  checkedAt?: number | null;
+  evidenceReference?: string | null;
+  reasonCodes?: string[];
+}) {
+  const outcome = providerOutcome(status);
+  const checkedAtLabel = formatCheckedAt(checkedAt);
+  return (
+    <div className="evidenceItem">
+      <div className="evidenceItemHeader">
+        <span className={outcomeClass(outcome)}>{outcomeSymbol(outcome)}</span>
+        <span className="evidenceItemTitle">{title}</span>
+        <span className={`summaryValue ${outcomeTextClass(outcome)}`}>
+          {formatStatusLabel(status)}
+        </span>
+      </div>
+      <dl className="evidenceFieldList">
+        <div className="evidenceField">
+          <dt>Provider / Source</dt>
+          <dd>
+            {(() => {
+              if (!provider && !source) {
+                return <span className="textMuted">Not Provided</span>;
+              }
+              if (provider && source && source !== provider) {
+                return `${provider} (${source})`;
+              }
+              return provider ?? source;
+            })()}
+          </dd>
+        </div>
+        <div className="evidenceField">
+          <dt>Decision / Status</dt>
+          <dd>{status ? String(status) : <span className="textMuted">Not Provided</span>}</dd>
+        </div>
+        <div className="evidenceField">
+          <dt>Checked At</dt>
+          <dd>
+            {checkedAtLabel ?? <span className="textMuted">Not Provided</span>}
+          </dd>
+        </div>
+        <div className="evidenceField">
+          <dt>Evidence Reference</dt>
+          <dd className="commitValueMono breakAll">
+            {evidenceReference ? (
+              evidenceReference
+            ) : (
+              <span className="textMuted">Not Provided</span>
+            )}
+          </dd>
+        </div>
+        {reasonCodes && reasonCodes.length > 0 && (
+          <div className="evidenceField">
+            <dt>Reason Codes</dt>
+            <dd>{reasonCodes.join(", ")}</dd>
+          </div>
+        )}
+      </dl>
+    </div>
+  );
+}
+
+/**
  * TechnicalProofPanel
  *
  * Renders the raw technical artifacts that back a compliance permit:
- * the bundle hash, the regulatory controls JSON projection, the full
- * proof bundle, the issuer signature, and (when present) the proof
- * artifact. Each block has a copy-to-clipboard button.
+ * a human-readable Compliance Evidence summary (Sanctions / KYC /
+ * Reserve & Liquidity) sourced from the real provider attestations,
+ * followed by the bundle hash, the regulatory controls JSON
+ * projection, the full proof bundle, the issuer signature, and (when
+ * present) the proof artifact. Each block has a copy-to-clipboard
+ * button.
  */
 export default function TechnicalProofPanel({ permit, panelNumber, order }: Props) {
   const { copied, copy: copyToClipboard } = useCopyToClipboard();
@@ -73,6 +171,20 @@ export default function TechnicalProofPanel({ permit, panelNumber, order }: Prop
     );
   }, [permit]);
 
+  // Lookup helper for the structured per-check evidence records the
+  // backend emits in `bundle.compliance_evidence`. Sanctions does not
+  // currently get a first-class normalized result on `attestations`
+  // (unlike KYC and reserve), so we read the provider id and timestamp
+  // from this list. Looking up KYC / reserve here as well lets us fall
+  // back to a real `checked_at` if the normalized result is absent.
+  const evidenceByCheck = useMemo(() => {
+    const map = new Map<string, ComplianceEvidenceItem>();
+    for (const item of permit?.bundle.compliance_evidence ?? []) {
+      map.set(item.check, item);
+    }
+    return map;
+  }, [permit]);
+
   return (
     <section className="card spanFull" style={order !== undefined ? { order } : undefined}>
       <h2>
@@ -85,6 +197,125 @@ export default function TechnicalProofPanel({ permit, panelNumber, order }: Prop
         </StatusMessage>
       ) : (
         <div className="codeBlock">
+          {(() => {
+            const attestations = permit.bundle.attestations;
+            const sanctionsItem = evidenceByCheck.get("sanctions");
+            const kycItem = evidenceByCheck.get("kyc");
+            const reserveItem = evidenceByCheck.get("reserve");
+            const liquidityItem = evidenceByCheck.get("liquidity");
+
+            return (
+              <div className="evidenceSection">
+                <div className="codeTitle">Compliance Evidence</div>
+
+                <div className="evidenceSubheader">Sanctions Evidence</div>
+                <EvidenceRow
+                  title="Sanctions screening"
+                  status={permit.summary.sanctions_status}
+                  provider={sanctionsItem?.provider_id}
+                  checkedAt={sanctionsItem?.checked_at}
+                  evidenceReference={
+                    attestations.sanctions_reference ??
+                    sanctionsItem?.reference ??
+                    null
+                  }
+                  reasonCodes={
+                    sanctionsItem?.reason ? [sanctionsItem.reason] : undefined
+                  }
+                />
+
+                <div className="evidenceSubheader">KYC Evidence</div>
+                <EvidenceRow
+                  title="KYC (subject)"
+                  status={
+                    attestations.kyc_result?.kyc_status ??
+                    permit.summary.kyc_status
+                  }
+                  provider={
+                    attestations.kyc_result?.provider_name ??
+                    kycItem?.provider_id ??
+                    null
+                  }
+                  source={attestations.kyc_result?.source_system}
+                  checkedAt={
+                    attestations.kyc_result?.checked_at ?? kycItem?.checked_at
+                  }
+                  evidenceReference={
+                    attestations.kyc_result?.evidence_reference ??
+                    attestations.kyc_reference ??
+                    kycItem?.reference ??
+                    null
+                  }
+                  reasonCodes={attestations.kyc_result?.reason_codes}
+                />
+                {attestations.kyc_destination_result && (
+                  <EvidenceRow
+                    title="KYC (destination)"
+                    status={attestations.kyc_destination_result.kyc_status}
+                    provider={attestations.kyc_destination_result.provider_name}
+                    source={attestations.kyc_destination_result.source_system}
+                    checkedAt={attestations.kyc_destination_result.checked_at}
+                    evidenceReference={
+                      attestations.kyc_destination_result.evidence_reference ??
+                      attestations.kyc_destination_reference ??
+                      null
+                    }
+                    reasonCodes={attestations.kyc_destination_result.reason_codes}
+                  />
+                )}
+
+                <div className="evidenceSubheader">Reserve / Liquidity Evidence</div>
+                <EvidenceRow
+                  title="Reserve backing"
+                  status={
+                    attestations.reserve_result?.reserve_status ??
+                    permit.summary.reserve_status
+                  }
+                  provider={
+                    attestations.reserve_result?.provider_name ??
+                    reserveItem?.provider_id ??
+                    null
+                  }
+                  source={attestations.reserve_result?.attestor_name}
+                  checkedAt={
+                    attestations.reserve_result?.checked_at ??
+                    reserveItem?.checked_at
+                  }
+                  evidenceReference={
+                    attestations.reserve_result?.evidence_reference ??
+                    attestations.reserve_reference ??
+                    reserveItem?.reference ??
+                    null
+                  }
+                  reasonCodes={attestations.reserve_result?.reason_codes}
+                />
+                <EvidenceRow
+                  title="Liquidity"
+                  status={
+                    attestations.reserve_result?.liquidity_status ??
+                    permit.summary.liquidity_status
+                  }
+                  provider={
+                    attestations.reserve_result?.provider_name ??
+                    liquidityItem?.provider_id ??
+                    null
+                  }
+                  source={attestations.reserve_result?.attestor_name}
+                  checkedAt={
+                    attestations.reserve_result?.checked_at ??
+                    liquidityItem?.checked_at
+                  }
+                  evidenceReference={
+                    attestations.liquidity_reference ??
+                    liquidityItem?.reference ??
+                    null
+                  }
+                  reasonCodes={attestations.reserve_result?.reason_codes}
+                />
+              </div>
+            );
+          })()}
+
           <div className="codeTitleRow">
             <div className="codeTitle">Bundle Hash (SHA-256)</div>
             <button
