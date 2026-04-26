@@ -22,14 +22,6 @@ settled XRPL transactions against a permit's bundle hash.
 `VITE_*` values are inlined at build time, so any change requires
 re-running `npm run dev` or `npm run build`.
 
-| Command         | Description                                                  |
-| --------------- | ------------------------------------------------------------ |
-| `npm run dev`   | Start the Vite dev server on `http://localhost:5173`.        |
-| `npm run lint`  | Type-check the project (`tsc --noEmit`).                     |
-| `npm run build` | Type-check and produce a production bundle in `dist/`.       |
-| `npm run preview` | Serve the production bundle locally for smoke testing.     |
-| `npm test`      | Run the UI test suite once (Vitest + React Testing Library). See [`src/__tests__/README.md`](src/__tests__/README.md). |
-| `npm run test:watch` | Re-run tests on file changes during local development. |
 The CORS allow-list on the backend (`CORS_ORIGINS`) must include the
 origin where this app is served (e.g. `http://localhost:5173` for
 `vite dev`).
@@ -42,13 +34,16 @@ cp .env.example .env   # set VITE_API_BASE / VITE_API_KEY as needed
 npm run dev            # http://localhost:5173
 ```
 
-Other scripts:
+## Scripts
 
-| Command           | Description                                            |
-| ----------------- | ------------------------------------------------------ |
-| `npm run lint`    | Type-check the project (`tsc --noEmit`).               |
-| `npm run build`   | Type-check and produce a production bundle in `dist/`. |
-| `npm run preview` | Serve the production bundle locally for smoke testing. |
+| Command              | Description                                                                                                           |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`        | Start the Vite dev server on `http://localhost:5173`.                                                                 |
+| `npm run lint`       | Type-check the project (`tsc --noEmit`).                                                                              |
+| `npm run build`      | Type-check and produce a production bundle in `dist/`.                                                                |
+| `npm run preview`    | Serve the production bundle locally for smoke testing.                                                                |
+| `npm test`           | Run the UI test suite once (Vitest + React Testing Library). See [`src/__tests__/README.md`](src/__tests__/README.md). |
+| `npm run test:watch` | Re-run tests on file changes during local development.                                                                |
 
 ## Production build
 
@@ -102,21 +97,62 @@ surface a clear `Unauthorized — check that your API key is set and
 valid.` error. A `403` is reported as `Forbidden — this API key is not
 allowed to perform this action.`
 
-## Verification flow
+## Provider-backed compliance
+
+CompliGate's compliance decisions are backed by real upstream providers
+(sanctions, KYC, reserve / liquidity attestation). The frontend never
+synthesizes compliance data — it only renders what the backend
+returned in the permit and settlement payloads.
+
+**Fail-closed behavior.** If a configured provider is unavailable, the
+backend issues a denial (or marks the check `unavailable`) rather than
+silently passing. The UI reflects this directly:
+
+- denied permits and `unavailable` settlement results render in their
+  failure styling (no green checkmarks);
+- unavailable / not-evaluated checks show a neutral indicator and the
+  `Last checked` timestamp is omitted, never faked;
+- if no API key is configured or an upstream call fails, calls surface
+  a typed error (`Unauthorized`, `Forbidden`, timeout, network) instead
+  of falling through to a "compliant" view.
+
+**What the UI shows.** The `Provider Status` summary (rendered under
+the permit / settlement results, see
+`src/components/ProviderStatusSummary.tsx`) lists three rows sourced
+from `bundle.compliance_evidence` and `bundle.attestations`:
+
+| Row                  | Source fields                                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------------ |
+| Sanctions            | `summary.sanctions_status`, `compliance_evidence[check=sanctions].provider_id` / `checked_at`          |
+| KYC                  | `summary.kyc_status`, `attestations.kyc_result.provider_name` / `checked_at` (falls back to evidence)  |
+| Reserve / Liquidity  | `summary.reserve_status` (or `liquidity_status`), `attestations.reserve_result.provider_name` / `checked_at` (falls back to evidence) |
+
+Each row shows the provider id, the normalized outcome
+(`pass` / `fail` / `unavailable` / `not_evaluated`) and the last-checked
+timestamp when the backend supplied one. Full per-check evidence
+(provider id, status, reference, raw response excerpt) is rendered in
+the **Technical Proof** panel.
+
+## User flow
 
 The UI walks through the end-to-end compliance + settlement loop:
 
-1. **Request Permit** — issue a signed, time-bound permit for a subject;
-   the backend returns the bundle, signature and bundle hash.
+1. **Request Permit** — issue a signed, time-bound permit for a subject.
+   The backend evaluates configured providers and returns the bundle,
+   signature, bundle hash, and `compliance_evidence` for each check.
 2. **Trustline Check** — confirm the XRPL account holds the expected
-   trustline for the configured RLUSD issuer/currency.
+   trustline for the configured RLUSD issuer / currency.
 3. **XRPL Payment** — submit (or paste) the hash of a settled XRPL
-   payment made from your own wallet that satisfies the permit.
+   payment that satisfies the permit, with `bundle_hash` embedded as a
+   memo.
 4. **Settlement Verification** — verify the settled transaction against
-   the permit's bundle hash and regulatory constraints.
+   the permit's bundle hash, regulatory constraints and provider
+   evidence. The result is fail-closed: a missing or `unavailable`
+   provider becomes a non-compliant settlement.
 5. **Proof Artifact** — verify the permit signature and inspect the
    persisted proof artifact (bundle, signature, controls, settlement
-   evidence) returned by the backend.
+   evidence, per-provider attestations) returned by the backend.
 
-Supplemental cards: **Permit Constraints Snapshot** and **Transaction
-Lookup** (look up any XRPL tx by hash and reuse it for verification).
+Supplemental cards: **Permit Constraints Snapshot**, **Provider
+Status**, and **Transaction Lookup** (look up any XRPL tx by hash and
+reuse it for verification).
