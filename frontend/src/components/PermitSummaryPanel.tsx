@@ -6,12 +6,18 @@ import {
   checkSymbol,
   formatSeconds,
   formatStatusLabel,
+  isDeniedDecision,
   outcomeClass,
   outcomeSymbol,
   outcomeTextClass,
   providerOutcome,
+  unavailableReasonCodes,
 } from "../lib/format";
-import type { PermitResponse } from "../types/api";
+import type {
+  BaseComplianceCheckResult,
+  PermitResponse,
+  SanctionsCheckResult,
+} from "../types/api";
 
 export type PermitStatus = {
   label: string;
@@ -27,6 +33,42 @@ type Props = {
   /** Optional CSS flex order, used to position among sibling panels. */
   order?: number;
 };
+
+/**
+ * Returns true when a normalized compliance check result represents a
+ * passing/allowing outcome. Used to coerce the widened
+ * `boolean | <CheckResult>` constraint fields into the boolean shape
+ * `checkClass`/`checkSymbol` expect, without changing rendered behavior
+ * for the legacy primitive form.
+ */
+function isCheckPassing(
+  value: boolean | BaseComplianceCheckResult | undefined,
+): boolean {
+  if (typeof value === "boolean") return value;
+  if (!value) return false;
+  if (value.decision) return value.decision === "allow";
+  return value.status === "pass";
+}
+
+/**
+ * Display string for the legacy `sanctions_check` field, which historically
+ * was a plain string (e.g. "passed") but may now arrive as a normalized
+ * `SanctionsCheckResult`.
+ */
+function sanctionsLabel(value: string | SanctionsCheckResult | undefined): string {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  return value.decision ?? value.status;
+}
+
+function isSanctionsPassing(
+  value: string | SanctionsCheckResult | undefined,
+): boolean {
+  if (!value) return false;
+  if (typeof value === "string") return value === "passed";
+  if (value.decision) return value.decision === "allow";
+  return value.status === "pass";
+}
 
 /**
  * PermitSummaryPanel
@@ -61,6 +103,51 @@ export default function PermitSummaryPanel({ permit, status, remaining, order }:
         </StatusMessage>
       ) : (
         <>
+          {(() => {
+            const decision =
+              permit.decision_result ?? permit.proof_artifact?.decision_result;
+            const reasonCodes =
+              permit.reason_codes ?? permit.proof_artifact?.reason_codes ?? [];
+            const denied =
+              permit.denied || permit.unavailable || isDeniedDecision(decision);
+            if (!denied) return null;
+            const unavailable = unavailableReasonCodes(reasonCodes);
+            const variant = unavailable.length > 0 ? "warning" : "error";
+            const title =
+              unavailable.length > 0
+                ? "Permit denied — required compliance check unavailable"
+                : "Permit denied";
+            return (
+              <StatusMessage variant={variant} title={title}>
+                <div data-testid="permit-summary-denial">
+                  <p style={{ margin: "0 0 8px" }}>
+                    {unavailable.length > 0
+                      ? "The backend failed closed because one or more required provider checks could not return a definitive result. The constraints below reflect the unverified state and must not be treated as a passing compliance outcome."
+                      : "The backend denied this permit. The constraints below reflect the unverified state and must not be treated as a passing compliance outcome."}
+                  </p>
+                  {reasonCodes.length > 0 && (
+                    <div
+                      className="reasonCodesList"
+                      data-testid="permit-summary-denial-codes"
+                    >
+                      {reasonCodes.map((rc) => (
+                        <span
+                          key={rc}
+                          className={`reasonCode ${
+                            unavailable.includes(rc)
+                              ? "reasonCodeWarn"
+                              : "reasonCodeBad"
+                          }`}
+                        >
+                          {rc}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </StatusMessage>
+            );
+          })()}
           <div className="summary">
             <div className="summaryRow">
               <span className={checkClass(permit.summary.issuer_verified)}>
@@ -155,6 +242,9 @@ export default function PermitSummaryPanel({ permit, status, remaining, order }:
             {(() => {
               const sanctionsOutcome = providerOutcome(permit.summary.sanctions_status);
               const sanctionsReference = permit.bundle.attestations.sanctions_reference;
+              const sanctionsProvider = permit.bundle.compliance_evidence?.find(
+                (e) => e.check === "sanctions",
+              )?.provider_id;
               return (
                 <div className="summaryRow">
                   <span className={outcomeClass(sanctionsOutcome)}>
@@ -162,10 +252,21 @@ export default function PermitSummaryPanel({ permit, status, remaining, order }:
                   </span>
                   <span className="summaryLabel">
                     Sanctions screening
-                    {sanctionsReference && (
+                    {(sanctionsProvider || sanctionsReference) && (
                       <span className="evidenceMeta">
-                        <span className="evidenceMetaLabel">Ref</span>
-                        {sanctionsReference}
+                        {sanctionsProvider && (
+                          <>
+                            <span className="evidenceMetaLabel">Provider</span>
+                            {sanctionsProvider}
+                          </>
+                        )}
+                        {sanctionsReference && (
+                          <>
+                            {sanctionsProvider ? " · " : ""}
+                            <span className="evidenceMetaLabel">Ref</span>
+                            {sanctionsReference}
+                          </>
+                        )}
                       </span>
                     )}
                   </span>
@@ -212,6 +313,7 @@ export default function PermitSummaryPanel({ permit, status, remaining, order }:
             })()}
             {(() => {
               const liquidityOutcome = providerOutcome(permit.summary.liquidity_status);
+              const reserveResult = permit.bundle.attestations.reserve_result;
               const liquidityReference = permit.bundle.attestations.liquidity_reference;
               return (
                 <div className="summaryRow">
@@ -220,10 +322,21 @@ export default function PermitSummaryPanel({ permit, status, remaining, order }:
                   </span>
                   <span className="summaryLabel">
                     Liquidity
-                    {liquidityReference && (
+                    {(reserveResult?.provider_name || liquidityReference) && (
                       <span className="evidenceMeta">
-                        <span className="evidenceMetaLabel">Ref</span>
-                        {liquidityReference}
+                        {reserveResult?.provider_name && (
+                          <>
+                            <span className="evidenceMetaLabel">Attestor</span>
+                            {reserveResult.provider_name}
+                          </>
+                        )}
+                        {liquidityReference && (
+                          <>
+                            {reserveResult?.provider_name ? " · " : ""}
+                            <span className="evidenceMetaLabel">Ref</span>
+                            {liquidityReference}
+                          </>
+                        )}
                       </span>
                     )}
                   </span>
@@ -237,6 +350,48 @@ export default function PermitSummaryPanel({ permit, status, remaining, order }:
 
           <div className="regulatoryControlsHeader">XRPL / RLUSD Issuer Controls</div>
           <div className="summary">
+            {permit.bundle.constraints.reserve_backed !== undefined && (
+              <div className="summaryRow">
+                <span className={checkClass(isCheckPassing(permit.bundle.constraints.reserve_backed))}>
+                  {checkSymbol(isCheckPassing(permit.bundle.constraints.reserve_backed))}
+                </span>
+                <span className="summaryLabel">Reserve backed</span>
+                <span className="summaryValue">
+                  {isCheckPassing(permit.bundle.constraints.reserve_backed) ? "Yes" : "No"}
+                </span>
+              </div>
+            )}
+            {permit.bundle.constraints.liquidity_verified !== undefined && (
+              <div className="summaryRow">
+                <span className={checkClass(isCheckPassing(permit.bundle.constraints.liquidity_verified))}>
+                  {checkSymbol(isCheckPassing(permit.bundle.constraints.liquidity_verified))}
+                </span>
+                <span className="summaryLabel">Liquidity verified</span>
+                <span className="summaryValue">
+                  {isCheckPassing(permit.bundle.constraints.liquidity_verified) ? "Yes" : "No"}
+                </span>
+              </div>
+            )}
+            {permit.bundle.constraints.kyc_verified !== undefined && (
+              <div className="summaryRow">
+                <span className={checkClass(isCheckPassing(permit.bundle.constraints.kyc_verified))}>
+                  {checkSymbol(isCheckPassing(permit.bundle.constraints.kyc_verified))}
+                </span>
+                <span className="summaryLabel">KYC verified</span>
+                <span className="summaryValue">
+                  {isCheckPassing(permit.bundle.constraints.kyc_verified) ? "Yes" : "No"}
+                </span>
+              </div>
+            )}
+            {permit.bundle.constraints.sanctions_check !== undefined && (
+              <div className="summaryRow">
+                <span className={checkClass(isSanctionsPassing(permit.bundle.constraints.sanctions_check))}>
+                  {checkSymbol(isSanctionsPassing(permit.bundle.constraints.sanctions_check))}
+                </span>
+                <span className="summaryLabel">Sanctions check</span>
+                <span className="summaryValue">{sanctionsLabel(permit.bundle.constraints.sanctions_check)}</span>
+              </div>
+            )}
             {permit.bundle.constraints.jurisdiction && (
               <div className="summaryRow">
                 <span className="check">✔</span>
