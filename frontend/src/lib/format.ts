@@ -25,18 +25,29 @@ export function checkSymbol(valid: boolean): string {
 }
 
 /**
- * Tri-state outcome for a provider-backed compliance check.
+ * Four-state outcome for a provider-backed compliance check.
  *
- * The frontend renders three distinct visual states so it never
- * conflates "the provider denied this" with "no provider was
- * available". Anything else (including the literal `"missing"` the
- * backend reports when no provider is wired up) is treated as
- * `"unavailable"`.
+ * The frontend renders four distinct visual states so it never
+ * conflates the meaningfully different cases:
+ *
+ *  - `"verified"`     — the provider returned an explicit pass.
+ *  - `"denied"`       — the provider returned an explicit fail.
+ *  - `"unavailable"`  — a provider was wired up but could not return
+ *                       a definitive answer (timeout, error, etc.).
+ *  - `"not_evaluated"`— no provider was configured for this control,
+ *                       so the platform did not even attempt a check.
+ *
+ * Only `"verified"` is styled as success. The other three are all
+ * non-success and never present a green check.
  */
-export type ProviderOutcome = "ok" | "denied" | "unavailable";
+export type ProviderOutcome =
+  | "verified"
+  | "denied"
+  | "unavailable"
+  | "not_evaluated";
 
 /**
- * Map a backend compliance-status string onto a tri-state outcome.
+ * Map a backend compliance-status string onto the four-state outcome.
  *
  * Accepts any of the vocabularies actually emitted by the backend:
  *  - cross-cutting `ProviderStatus` — `"approved" | "denied" |
@@ -46,8 +57,9 @@ export type ProviderOutcome = "ok" | "denied" | "unavailable";
  *  - the sanctions constraint projection — `"passed" | "denied" |
  *    "unavailable"`
  *
- * Anything unrecognised maps to `"unavailable"` so the UI fails closed
- * rather than showing a green check by accident.
+ * `"missing"`, `null`, `undefined`, and anything unrecognised all map
+ * to `"not_evaluated"` so the UI fails closed and never shows a
+ * synthetic pass for a control the platform never actually evaluated.
  */
 export function providerOutcome(
   status: string | null | undefined,
@@ -56,70 +68,82 @@ export function providerOutcome(
     case "approved":
     case "verified":
     case "passed":
-      return "ok";
+      return "verified";
     case "denied":
     case "not_verified":
       return "denied";
-    default:
+    case "unavailable":
       return "unavailable";
+    case "missing":
+      return "not_evaluated";
+    default:
+      return "not_evaluated";
   }
 }
 
 /** CSS class for the small check / cross / dash indicator. */
 export function outcomeClass(outcome: ProviderOutcome): string {
   switch (outcome) {
-    case "ok":
+    case "verified":
       return "check";
     case "denied":
       return "check checkFail";
     case "unavailable":
       return "check checkUnavailable";
+    case "not_evaluated":
+      return "check checkNotEvaluated";
   }
 }
 
 /** Glyph used inside the small check / cross / dash indicator. */
 export function outcomeSymbol(outcome: ProviderOutcome): string {
   switch (outcome) {
-    case "ok":
+    case "verified":
       return "✔";
     case "denied":
       return "✘";
     case "unavailable":
       return "—";
+    case "not_evaluated":
+      return "·";
   }
 }
 
-/** Human-readable label for a backend compliance-status string. */
+/**
+ * Human-readable label for a backend compliance-status string.
+ *
+ * Collapses the multiple backend vocabularies into the four canonical
+ * executive-friendly states: `Verified`, `Denied`, `Unavailable`,
+ * `Not Evaluated`.
+ */
 export function formatStatusLabel(status: string | null | undefined): string {
-  if (!status) return "Unavailable";
-  switch (status) {
-    case "approved":
-      return "Approved";
+  return outcomeLabel(providerOutcome(status));
+}
+
+/** Human-readable label for a `ProviderOutcome`. */
+export function outcomeLabel(outcome: ProviderOutcome): string {
+  switch (outcome) {
     case "verified":
       return "Verified";
-    case "passed":
-      return "Passed";
     case "denied":
       return "Denied";
-    case "not_verified":
-      return "Not verified";
     case "unavailable":
       return "Unavailable";
-    case "missing":
-      return "No provider";
-    default:
-      return status;
+    case "not_evaluated":
+      return "Not Evaluated";
   }
 }
 
 /** Optional CSS modifier for the value text colour. */
 export function outcomeTextClass(outcome: ProviderOutcome): string {
   switch (outcome) {
-    case "ok":
+    case "verified":
       return "textGood";
     case "denied":
       return "textBad";
     case "unavailable":
       return "textWarn";
+    case "not_evaluated":
+      return "textMuted";
   }
 }
