@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent } from "react";
 
 import { apiPost, describeError } from "../lib/api";
+import { isDeniedDecision, unavailableReasonCodes } from "../lib/format";
 import StatusMessage from "./StatusMessage";
 import PanelNumber from "./PanelNumber";
 import type { PermitResponse } from "../types/api";
@@ -30,9 +31,15 @@ export default function RequestPermitPanel({ onPermit, onClear }: Props) {
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [denial, setDenial] = useState<{
+    decision: string;
+    reasonCodes: string[];
+    unavailable: string[];
+  } | null>(null);
 
   async function requestPermit() {
     setError(null);
+    setDenial(null);
 
     const trimmed = subject.trim();
     if (!trimmed) {
@@ -62,7 +69,19 @@ export default function RequestPermitPanel({ onPermit, onClear }: Props) {
         setError("Unexpected response from server.");
         return;
       }
-      onPermit(data as PermitResponse);
+      const permit = data as PermitResponse;
+      const decision =
+        permit.decision_result ?? permit.proof_artifact?.decision_result;
+      const reasonCodes =
+        permit.reason_codes ?? permit.proof_artifact?.reason_codes ?? [];
+      if (isDeniedDecision(decision) || permit.denied || permit.unavailable) {
+        setDenial({
+          decision: String(decision ?? "deny"),
+          reasonCodes,
+          unavailable: unavailableReasonCodes(reasonCodes),
+        });
+      }
+      onPermit(permit);
     } catch (e: unknown) {
       setError(describeError(e, "Failed to request permit."));
     } finally {
@@ -81,6 +100,7 @@ export default function RequestPermitPanel({ onPermit, onClear }: Props) {
     setAction("transfer");
     setAmount("");
     setError(null);
+    setDenial(null);
     onClear();
   }
 
@@ -150,6 +170,40 @@ export default function RequestPermitPanel({ onPermit, onClear }: Props) {
       {!error && loading && (
         <StatusMessage variant="loading" title="Requesting permit…">
           Contacting the CompliGate backend.
+        </StatusMessage>
+      )}
+      {!error && !loading && denial && (
+        <StatusMessage
+          variant={denial.unavailable.length > 0 ? "warning" : "error"}
+          title={
+            denial.unavailable.length > 0
+              ? "Permit denied — required compliance check unavailable"
+              : "Permit denied"
+          }
+        >
+          <div data-testid="request-permit-denial">
+            {denial.unavailable.length > 0 ? (
+              <p style={{ margin: "0 0 8px" }}>
+                The backend failed closed because one or more required
+                provider checks could not return a definitive result. No
+                permit was issued for this request.
+              </p>
+            ) : (
+              <p style={{ margin: "0 0 8px" }}>
+                The backend denied this permit request. The reason codes
+                below describe which controls blocked issuance.
+              </p>
+            )}
+            {denial.reasonCodes.length > 0 && (
+              <div className="reasonCodesList" data-testid="request-permit-denial-codes">
+                {denial.reasonCodes.map((rc) => (
+                  <span key={rc} className="reasonCode reasonCodeBad">
+                    {rc}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         </StatusMessage>
       )}
     </section>

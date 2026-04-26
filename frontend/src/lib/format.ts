@@ -167,3 +167,40 @@ export function outcomeTextClass(outcome: ProviderOutcome): string {
       return "textMuted";
   }
 }
+
+const DENIED_DECISIONS = new Set([
+  "deny",
+  "denied",
+  "reject",
+  "rejected",
+  "block",
+  "blocked",
+  "unavailable",
+]);
+
+/**
+ * True when the backend's `decision_result` represents a denied or
+ * not-issued permit. The backend may return any of `"deny"`, `"denied"`,
+ * `"reject"`, etc.; everything that is not an explicit allow is treated
+ * as denied so the UI fails closed.
+ */
+export function isDeniedDecision(decision: string | null | undefined): boolean {
+  if (!decision) return false;
+  const d = decision.toLowerCase();
+  if (d === "allow" || d === "permit" || d === "approved") return false;
+  return DENIED_DECISIONS.has(d);
+}
+
+/**
+ * Filter a list of reason codes down to the ones that signal a
+ * provider check could not be performed (e.g. `KYC_UNAVAILABLE`,
+ * `SANCTIONS_SCREEN_UNAVAILABLE`, `RESERVE_EVIDENCE_UNAVAILABLE`,
+ * `*_PROVIDER_UNAVAILABLE`). Used to render fail-closed denials with
+ * the specific missing checks called out.
+ */
+export function unavailableReasonCodes(
+  reasonCodes: readonly string[] | null | undefined,
+): string[] {
+  if (!reasonCodes) return [];
+  return reasonCodes.filter((rc) => /UNAVAILABLE$/.test(rc));
+}

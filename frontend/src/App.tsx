@@ -12,7 +12,7 @@ import TransactionLookupPanel from "./components/TransactionLookupPanel";
 import TrustlineCheckPanel from "./components/TrustlineCheckPanel";
 import XRPLHealthPanel from "./components/XRPLHealthPanel";
 import XRPLPaymentPanel from "./components/XRPLPaymentPanel";
-import { formatSeconds } from "./lib/format";
+import { formatSeconds, isDeniedDecision, unavailableReasonCodes } from "./lib/format";
 import type {
   PermitResponse,
   SettlementVerifyResponse,
@@ -57,14 +57,33 @@ export default function App() {
     return d === "permit" || d === "allow" || d === "approved";
   }, [settlementResult]);
 
+  const permitDenied = useMemo(() => {
+    if (!permit) return false;
+    if (permit.denied || permit.unavailable) return true;
+    const decision = permit.decision_result ?? permit.proof_artifact?.decision_result;
+    return isDeniedDecision(decision);
+  }, [permit]);
+
+  const permitUnavailableCodes = useMemo(() => {
+    if (!permit) return [];
+    const codes = permit.reason_codes ?? permit.proof_artifact?.reason_codes ?? [];
+    return unavailableReasonCodes(codes);
+  }, [permit]);
+
   const status = useMemo<PermitStatus>(() => {
     if (settlementResult && settlementPassed) return { label: "Verified", kind: "anchored" };
     if (settlementResult && !settlementPassed) return { label: "Settlement Failed", kind: "bad" };
     if (!permit) return { label: "No Permit", kind: "neutral" };
+    if (permitDenied) {
+      return {
+        label: permitUnavailableCodes.length > 0 ? "Provider Unavailable" : "Permit Denied",
+        kind: "bad",
+      };
+    }
     if (remaining <= 0) return { label: "Expired", kind: "bad" };
     if (remaining < 60) return { label: "Expiring Soon", kind: "warn" };
     return { label: "Active", kind: "good" };
-  }, [permit, remaining, settlementResult, settlementPassed]);
+  }, [permit, remaining, settlementResult, settlementPassed, permitDenied, permitUnavailableCodes]);
 
   function handlePermit(p: PermitResponse) {
     setPermit(p);
@@ -93,7 +112,7 @@ export default function App() {
         <div className={`pill ${status.kind}`}>
           <span className="dot" />
           {status.label}
-          {permit && remaining > 0 && !settlementResult && (
+          {permit && remaining > 0 && !settlementResult && !permitDenied && (
             <span className="pillRight">{formatSeconds(remaining)}</span>
           )}
         </div>
