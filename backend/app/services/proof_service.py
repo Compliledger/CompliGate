@@ -54,6 +54,31 @@ def create_proof_artifact_from_permit_req(req) -> ProofArtifact:
     )
     reserve_components = derive_reserve_components(reserve_evidence_item)
 
+    sanctions_reference = next(
+        (
+            item.get("reference")
+            for item in compliance.evidence
+            if item.get("check") == "sanctions"
+        ),
+        None,
+    )
+    kyc_reference = next(
+        (
+            item.get("reference")
+            for item in compliance.evidence
+            if item.get("check") == "kyc"
+        ),
+        None,
+    )
+    kyc_destination_reference = next(
+        (
+            item.get("reference")
+            for item in compliance.evidence
+            if item.get("check") == "kyc:destination"
+        ),
+        None,
+    )
+
     evaluation_context = {
         "action": req.action,
         "jurisdiction": config.JURISDICTION,
@@ -66,6 +91,9 @@ def create_proof_artifact_from_permit_req(req) -> ProofArtifact:
         "liquidity_status": reserve_components["liquidity_status"].value,
         "reserve_reference": reserve_components["reserve_reference"],
         "liquidity_reference": reserve_components["liquidity_reference"],
+        "kyc_reference": kyc_reference,
+        "kyc_destination_reference": kyc_destination_reference,
+        "sanctions_reference": sanctions_reference,
         "compliance_evidence": compliance.evidence,
     }
 
@@ -129,6 +157,9 @@ def create_permit_proof_artifact(
             "liquidity_verified": bundle["constraints"]["liquidity_verified"],
             "reserve_reference": attestations.get("reserve_reference"),
             "liquidity_reference": attestations.get("liquidity_reference"),
+            "kyc_reference": attestations.get("kyc_reference"),
+            "kyc_destination_reference": attestations.get("kyc_destination_reference"),
+            "sanctions_reference": attestations.get("sanctions_reference"),
             "kyc_verified": bundle["constraints"]["kyc_verified"],
             "sanctions_check": bundle["constraints"]["sanctions_check"],
             "jurisdiction": bundle["constraints"]["jurisdiction"],
