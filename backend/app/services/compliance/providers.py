@@ -18,7 +18,9 @@ Three built-in provider kinds are supported:
     The provider id (e.g. ``static_allow:dev``) is recorded in the
     evidence so it is obvious in the proof artifact that no real
     third-party check was performed. This is **not** suitable for
-    production and is rejected by :func:`require_production_provider`.
+    production: the provider kind is listed in
+    :data:`NON_PRODUCTION_PROVIDER_KINDS` so deployments can detect and
+    reject it before issuing permits against real funds.
 
 ``http``
     Calls a configured HTTPS endpoint (provider URL + API key) and uses

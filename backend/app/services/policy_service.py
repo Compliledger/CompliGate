@@ -43,23 +43,6 @@ def validate_amount(amount: float | int | None) -> None:
         )
 
 
-def evaluate_governance() -> dict:
-    return {
-        "policy_version": config.POLICY_VERSION,
-        "jurisdiction": config.JURISDICTION,
-        "state_status": "active",
-        "state_ref": "gov_demo_001",
-    }
-
-
-def evaluate_eligibility() -> dict:
-    return {
-        "participant_eligible": True,
-        "asset_admitted": True,
-        "admission_ref": "admission_demo_001",
-    }
-
-
 def evaluate_permit_policy(
     *,
     subject: str,
@@ -76,12 +59,20 @@ def evaluate_permit_policy(
     provider denies or is unavailable, the overall decision is ``deny``
     with explicit reason codes so the caller can surface a fail-closed
     response that is fully traceable to provider evidence.
+
+    Earlier iterations of this function emitted ``POLICY_ACTIVE``,
+    ``PARTICIPANT_ELIGIBLE`` and ``ASSET_ADMITTED`` reason codes derived
+    from hardcoded ``True`` / ``"active"`` stubs (``state_ref =
+    "gov_demo_001"``, ``admission_ref = "admission_demo_001"``). Those
+    placeholders were not backed by any real governance / admission
+    provider, so they were misleading evidence in the proof artifact and
+    have been removed. The real authorization gate is the
+    provider-backed compliance evaluation below; the policy version and
+    jurisdiction are still embedded in every bundle by ``permit_service``.
     """
     validate_action(action)
     validate_amount(amount)
 
-    governance = evaluate_governance()
-    eligibility = evaluate_eligibility()
     compliance: ComplianceEvaluation = evaluate_compliance(
         subject=subject,
         action=action,
@@ -92,30 +83,8 @@ def evaluate_permit_policy(
         reserve_attestation=reserve_attestation,
     )
 
-    reason_codes: list[str] = []
-    decision = "allow"
-
-    if governance["state_status"] == "active":
-        reason_codes.append("POLICY_ACTIVE")
-    else:
-        reason_codes.append("POLICY_INACTIVE")
-        decision = "deny"
-
-    if eligibility["participant_eligible"]:
-        reason_codes.append("PARTICIPANT_ELIGIBLE")
-    else:
-        reason_codes.append("PARTICIPANT_NOT_ELIGIBLE")
-        decision = "deny"
-
-    if eligibility["asset_admitted"]:
-        reason_codes.append("ASSET_ADMITTED")
-    else:
-        reason_codes.append("ASSET_NOT_ADMITTED")
-        decision = "deny"
-
-    reason_codes.extend(compliance.reason_codes)
-    if not compliance.allowed:
-        decision = "deny"
+    reason_codes: list[str] = list(compliance.reason_codes)
+    decision = "allow" if compliance.allowed else "deny"
 
     if amount is not None:
         reason_codes.append("AMOUNT_WITHIN_LIMIT")
@@ -123,7 +92,5 @@ def evaluate_permit_policy(
     return {
         "decision_result": decision,
         "reason_codes": reason_codes,
-        "governance": governance,
-        "eligibility": eligibility,
         "compliance": compliance,
     }

@@ -40,12 +40,44 @@ User → CompliGate Backend → Proof Bundle → User settles tx on XRPL → POS
 
 ## Role Within CompliLedger
 
-CompliGate operates at the point of authorization and post-settlement verification. It does not perform:
-- Asset or transaction classification
-- Reserve or collateral validation
-- Identity verification or KYC
+CompliGate operates at the point of authorization and post-settlement
+verification. It is the **enforcement gate** — it does not itself
+perform the underlying compliance work:
 
-It consumes validated inputs provided by upstream CompliLedger components and returns a binary authorization decision: **ALLOW** or **DENY**, backed by a cryptographic Proof Bundle.
+- It does not capture identity documents, run identity verification, or
+  maintain sanctions / watchlist data.
+- It does not generate reserve / proof-of-reserves attestations.
+- It does not classify assets.
+
+Instead, CompliGate **consumes structured evidence** from configured
+providers and trusted upstream sources, and enforces a fail-closed
+policy gate before issuing a signed permit. For each request it
+evaluates:
+
+- **KYC** — provider-backed (`KYC_PROVIDER=http`) **or**
+  trusted-upstream-backed (`KYC_PROVIDER=upstream_assertion`, an
+  HMAC-signed assertion from an institution listed in
+  `KYC_UPSTREAM_ASSERTION_TRUSTED_ISSUERS`).
+- **Sanctions screening** — provider-backed (`SANCTIONS_PROVIDER=http`
+  or `address_screen`).
+- **Reserve / liquidity** — provider-backed (`RESERVE_PROVIDER=http`)
+  **or** attestor-backed (`RESERVE_PROVIDER=attestation`, an HMAC-signed
+  attestation from a custodian / auditor / issuer listed in
+  `RESERVE_ATTESTATION_TRUSTED_ATTESTORS`).
+
+When `FAIL_CLOSED_COMPLIANCE=true` (the default) any provider that
+returns `denied` **or** `unavailable` causes the request to be denied
+with an explicit `*_DENIED` / `*_PROVIDER_UNAVAILABLE` reason code.
+Missing provider configuration is treated identically to an unavailable
+response. The provider response, including its evidence reference, is
+persisted in the proof artifact so every decision is traceable to the
+source that produced it. The default provider kind for every check is
+`null`, so an unconfigured deployment denies every request rather than
+silently approving anything.
+
+The decision returned to the caller is binary — **ALLOW** or **DENY** —
+backed by a cryptographic Proof Bundle that records the underlying
+provider evidence.
 
 ---
 
@@ -212,6 +244,27 @@ The `/v1/xrpl/payment` endpoint can sign and submit XRPL transactions on behalf 
 | `API_KEY_HEADER_NAME` | Header used for API key auth (default: `X-API-Key`). |
 | `API_KEYS` | Comma-separated valid API keys. Preferred variable. |
 | `AUTH_API_KEYS` | Legacy fallback for API keys; `API_KEYS` takes precedence when both are set. |
+
+### Compliance providers
+
+CompliGate's authorization gate is provider-driven and fail-closed. The
+default kind for every check is `null` — an unconfigured deployment
+denies every request. Configure each check explicitly for any
+non-trivial environment.
+
+| Variable | Description |
+|----------|-------------|
+| `FAIL_CLOSED_COMPLIANCE` | When `true` (default), any `denied` or `unavailable` provider response causes the request to be denied. Set to `false` only for narrow local development. |
+| `KYC_PROVIDER` | One of `null`, `static_allow`, `http`, `upstream_assertion`. `static_allow` is **not** suitable for production. |
+| `KYC_PROVIDER_URL`, `KYC_API_KEY` (or legacy `KYC_PROVIDER_API_KEY`) | HTTPS endpoint and bearer key used when `KYC_PROVIDER=http`. |
+| `KYC_UPSTREAM_ASSERTION_SECRET` | HMAC shared secret used to validate trusted-upstream KYC assertions when `KYC_PROVIDER=upstream_assertion`. |
+| `KYC_UPSTREAM_ASSERTION_TRUSTED_ISSUERS` | Comma-separated allowlist of upstream institutional issuer ids whose KYC assertions are accepted. |
+| `SANCTIONS_PROVIDER` | One of `null`, `static_allow`, `http`, `address_screen`. |
+| `SANCTIONS_PROVIDER_URL`, `SANCTIONS_API_KEY` (or legacy `SANCTIONS_PROVIDER_API_KEY`) | HTTPS endpoint and bearer key used when `SANCTIONS_PROVIDER=http`. |
+| `RESERVE_PROVIDER` | One of `null`, `static_allow`, `http`, `attestation`. |
+| `RESERVE_PROVIDER_URL`, `RESERVE_API_KEY` (or legacy `RESERVE_PROVIDER_API_KEY`) | HTTPS endpoint and bearer key used when `RESERVE_PROVIDER=http`. |
+| `RESERVE_ATTESTATION_SECRET` | HMAC shared secret used to validate trusted reserve / liquidity attestations when `RESERVE_PROVIDER=attestation`. |
+| `RESERVE_ATTESTATION_TRUSTED_ATTESTORS` | Comma-separated allowlist of attestor ids (custodian / auditor / issuer) whose reserve attestations are accepted. |
 
 ### XRPL network & RLUSD
 
