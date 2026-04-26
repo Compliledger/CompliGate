@@ -235,8 +235,21 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
 
     bundle_hash = proof_hash(bundle)
 
+    # ``issuer_verified`` is a configuration assertion, not a third-party
+    # verification: the bundle binds the asset to ``config.ISSUER_ADDRESS``
+    # and the Ed25519 signature commits to that binding. We therefore
+    # report ``True`` only when the operator has actually configured a
+    # non-default issuer address. The placeholder default
+    # ``rEXAMPLE_ISSUER_ADDRESS`` (used for local experimentation) maps to
+    # ``False`` so the summary never claims an issuer binding that has
+    # not been configured.
+    configured_issuer = (config.ISSUER_ADDRESS or "").strip()
+    issuer_configured = bool(configured_issuer) and not configured_issuer.upper().startswith(
+        "REXAMPLE"
+    )
+
     summary = {
-        "issuer_verified": True,
+        "issuer_verified": issuer_configured,
         "asset_classification": bundle["asset"]["classification"],
         "kyc_status": kyc_status.value if kyc_status else "missing",
         "sanctions_status": sanctions_status.value if sanctions_status else "missing",

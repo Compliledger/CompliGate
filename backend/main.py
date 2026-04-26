@@ -445,21 +445,37 @@ def validate_amount(amount: float | int | None) -> None:
 # -----------------------
 
 def evaluate_governance() -> dict:
-    """Return current governance context."""
+    """Return current governance context.
+
+    Note: this legacy demo path does not call a real governance provider.
+    The ``state_status`` is reported as ``"unverified"`` — and no
+    placeholder ``state_ref`` is fabricated — so the emitted bundle never
+    carries a fake ``POLICY_ACTIVE`` claim that is not backed by real
+    evidence. The production code path (``app/services/policy_service.py``)
+    derives policy decisions from provider-backed compliance checks
+    instead.
+    """
     return {
         "policy_version": POLICY_VERSION,
         "jurisdiction": JURISDICTION,
-        "state_status": "active",
-        "state_ref": "gov_demo_001",
+        "state_status": "unverified",
     }
 
 
 def evaluate_eligibility() -> dict:
-    """Return participant and asset eligibility."""
+    """Return participant and asset eligibility.
+
+    Note: this legacy demo path does not call a real eligibility /
+    admission provider. The fields are reported as ``False`` — and no
+    placeholder ``admission_ref`` is fabricated — so the emitted bundle
+    never carries fake ``PARTICIPANT_ELIGIBLE`` or ``ASSET_ADMITTED``
+    claims that are not backed by real evidence. The production code
+    path (``app/services/policy_service.py``) derives the authorization
+    decision from provider-backed compliance checks instead.
+    """
     return {
-        "participant_eligible": True,
-        "asset_admitted": True,
-        "admission_ref": "admission_demo_001",
+        "participant_eligible": False,
+        "asset_admitted": False,
     }
 
 
@@ -537,12 +553,14 @@ def create_permit(req: PermitRequest):
     constraint_codes = evaluate_constraints(req.action, req.amount, req.counterparty)
 
     reason_codes: list[str] = []
-    if gov["state_status"] == "active":
-        reason_codes.append("POLICY_ACTIVE")
-    if elig["participant_eligible"]:
-        reason_codes.append("PARTICIPANT_ELIGIBLE")
-    if elig["asset_admitted"]:
-        reason_codes.append("ASSET_ADMITTED")
+    # Governance / eligibility reason codes are intentionally NOT emitted
+    # from this legacy demo path: ``evaluate_governance`` and
+    # ``evaluate_eligibility`` above are stubs that are not backed by a
+    # real governance / admission provider, so emitting
+    # ``POLICY_ACTIVE`` / ``PARTICIPANT_ELIGIBLE`` / ``ASSET_ADMITTED``
+    # would be a fake compliance claim. The production permit service
+    # (``app/services/permit_service.py``) derives the decision from
+    # provider-backed compliance checks instead.
     reason_codes.extend(constraint_codes)
 
     decision_result = "allow"
@@ -620,8 +638,20 @@ def create_permit(req: PermitRequest):
 
     bundle_hash = proof_hash(bundle)
 
+    # ``issuer_verified`` is a configuration assertion: the bundle binds
+    # the asset to ``ISSUER_ADDRESS`` and the Ed25519 signature commits to
+    # that binding. We therefore report ``True`` only when the operator
+    # has actually configured a non-default issuer address. The
+    # placeholder default ``rEXAMPLE_ISSUER_ADDRESS`` (used for local
+    # experimentation) maps to ``False`` so the summary never claims an
+    # issuer binding that has not been configured.
+    _configured_issuer = (ISSUER_ADDRESS or "").strip()
+    _issuer_configured = bool(_configured_issuer) and not _configured_issuer.upper().startswith(
+        "REXAMPLE"
+    )
+
     summary = {
-        "issuer_verified": True,
+        "issuer_verified": _issuer_configured,
         "asset_classification": bundle["asset"]["classification"],
         # custody_attestation_bound / reserve_attestation_bound were
         # always ``True`` in this legacy demo path even though no
