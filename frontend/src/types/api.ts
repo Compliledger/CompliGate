@@ -6,12 +6,43 @@
 
 export type AnchorMetadata = Record<string, unknown>;
 
+/**
+ * Typed shape for the `evaluation_context` carried inside a proof
+ * artifact. The backend records the *real* evidence references
+ * returned by the configured compliance providers — sanctions, KYC
+ * (subject and, where applicable, destination), and reserve /
+ * liquidity. Each field is `null` (or absent) when no provider
+ * returned a reference; the artifact never fabricates one.
+ *
+ * The type is intentionally permissive (`& Record<string, unknown>`):
+ * `evaluation_context` is the open extension point of the proof
+ * artifact and may carry additional, module-specific keys (for
+ * example `tx_hash`, `permit_bundle`, `compliance_evidence`) that
+ * downstream auditors may inspect but the renderer does not need to
+ * know about.
+ */
+export type ProofArtifactEvaluationContext = {
+  sanctions_reference?: string | null;
+  kyc_reference?: string | null;
+  kyc_destination_reference?: string | null;
+  reserve_reference?: string | null;
+  liquidity_reference?: string | null;
+} & Record<string, unknown>;
+
+/**
+ * Universal proof artifact shape emitted by the backend for every
+ * compliance decision (permit issuance, settlement verification,
+ * etc.). A proof artifact is *authorization / verification evidence*
+ * only — it records that a decision was evaluated and what evidence
+ * backed it. It does **not** imply that any on-ledger enforcement
+ * action was taken.
+ */
 export type ProofArtifact = {
   module: string;
   entity_id: string;
   rule_version_used: string;
   decision_result: string;
-  evaluation_context: Record<string, unknown>;
+  evaluation_context: ProofArtifactEvaluationContext;
   reason_codes: string[];
   timestamp: number;
   bundle_hash: string;
