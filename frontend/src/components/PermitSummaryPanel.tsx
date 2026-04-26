@@ -2,7 +2,11 @@ import { useMemo } from "react";
 
 import StatusMessage from "./StatusMessage";
 import { checkClass, checkSymbol, formatSeconds } from "../lib/format";
-import type { PermitResponse } from "../types/api";
+import type {
+  BaseComplianceCheckResult,
+  PermitResponse,
+  SanctionsCheckResult,
+} from "../types/api";
 
 export type PermitStatus = {
   label: string;
@@ -18,6 +22,42 @@ type Props = {
   /** Optional CSS flex order, used to position among sibling panels. */
   order?: number;
 };
+
+/**
+ * Returns true when a normalized compliance check result represents a
+ * passing/allowing outcome. Used to coerce the widened
+ * `boolean | <CheckResult>` constraint fields into the boolean shape
+ * `checkClass`/`checkSymbol` expect, without changing rendered behavior
+ * for the legacy primitive form.
+ */
+function isCheckPassing(
+  value: boolean | BaseComplianceCheckResult | undefined,
+): boolean {
+  if (typeof value === "boolean") return value;
+  if (!value) return false;
+  if (value.decision) return value.decision === "allow";
+  return value.status === "pass";
+}
+
+/**
+ * Display string for the legacy `sanctions_check` field, which historically
+ * was a plain string (e.g. "passed") but may now arrive as a normalized
+ * `SanctionsCheckResult`.
+ */
+function sanctionsLabel(value: string | SanctionsCheckResult | undefined): string {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  return value.decision ?? value.status;
+}
+
+function isSanctionsPassing(
+  value: string | SanctionsCheckResult | undefined,
+): boolean {
+  if (!value) return false;
+  if (typeof value === "string") return value === "passed";
+  if (value.decision) return value.decision === "allow";
+  return value.status === "pass";
+}
 
 /**
  * PermitSummaryPanel
@@ -128,44 +168,44 @@ export default function PermitSummaryPanel({ permit, status, remaining, order }:
           <div className="summary">
             {permit.bundle.constraints.reserve_backed !== undefined && (
               <div className="summaryRow">
-                <span className={checkClass(permit.bundle.constraints.reserve_backed)}>
-                  {checkSymbol(permit.bundle.constraints.reserve_backed)}
+                <span className={checkClass(isCheckPassing(permit.bundle.constraints.reserve_backed))}>
+                  {checkSymbol(isCheckPassing(permit.bundle.constraints.reserve_backed))}
                 </span>
                 <span className="summaryLabel">Reserve backed</span>
                 <span className="summaryValue">
-                  {permit.bundle.constraints.reserve_backed ? "Yes" : "No"}
+                  {isCheckPassing(permit.bundle.constraints.reserve_backed) ? "Yes" : "No"}
                 </span>
               </div>
             )}
             {permit.bundle.constraints.liquidity_verified !== undefined && (
               <div className="summaryRow">
-                <span className={checkClass(permit.bundle.constraints.liquidity_verified)}>
-                  {checkSymbol(permit.bundle.constraints.liquidity_verified)}
+                <span className={checkClass(isCheckPassing(permit.bundle.constraints.liquidity_verified))}>
+                  {checkSymbol(isCheckPassing(permit.bundle.constraints.liquidity_verified))}
                 </span>
                 <span className="summaryLabel">Liquidity verified</span>
                 <span className="summaryValue">
-                  {permit.bundle.constraints.liquidity_verified ? "Yes" : "No"}
+                  {isCheckPassing(permit.bundle.constraints.liquidity_verified) ? "Yes" : "No"}
                 </span>
               </div>
             )}
             {permit.bundle.constraints.kyc_verified !== undefined && (
               <div className="summaryRow">
-                <span className={checkClass(permit.bundle.constraints.kyc_verified)}>
-                  {checkSymbol(permit.bundle.constraints.kyc_verified)}
+                <span className={checkClass(isCheckPassing(permit.bundle.constraints.kyc_verified))}>
+                  {checkSymbol(isCheckPassing(permit.bundle.constraints.kyc_verified))}
                 </span>
                 <span className="summaryLabel">KYC verified</span>
                 <span className="summaryValue">
-                  {permit.bundle.constraints.kyc_verified ? "Yes" : "No"}
+                  {isCheckPassing(permit.bundle.constraints.kyc_verified) ? "Yes" : "No"}
                 </span>
               </div>
             )}
             {permit.bundle.constraints.sanctions_check !== undefined && (
               <div className="summaryRow">
-                <span className={checkClass(permit.bundle.constraints.sanctions_check === "passed")}>
-                  {checkSymbol(permit.bundle.constraints.sanctions_check === "passed")}
+                <span className={checkClass(isSanctionsPassing(permit.bundle.constraints.sanctions_check))}>
+                  {checkSymbol(isSanctionsPassing(permit.bundle.constraints.sanctions_check))}
                 </span>
                 <span className="summaryLabel">Sanctions check</span>
-                <span className="summaryValue">{permit.bundle.constraints.sanctions_check}</span>
+                <span className="summaryValue">{sanctionsLabel(permit.bundle.constraints.sanctions_check)}</span>
               </div>
             )}
             {permit.bundle.constraints.jurisdiction && (
