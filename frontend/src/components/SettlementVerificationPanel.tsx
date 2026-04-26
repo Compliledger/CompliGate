@@ -6,12 +6,15 @@ import PanelNumber from "./PanelNumber";
 import ProviderStatusSummary from "./ProviderStatusSummary";
 import { useCopyToClipboard } from "../lib/useCopyToClipboard";
 import {
+  checkClass,
+  checkSymbol,
+  classifySettlement,
   outcomeClass,
   outcomeLabel,
   outcomeSymbol,
   outcomeTextClass,
-  unavailableReasonCodes,
   type ProviderOutcome,
+  type SettlementOutcome,
 } from "../lib/format";
 import type { PermitResponse, SettlementVerifyResponse } from "../types/api";
 
@@ -28,25 +31,12 @@ import type { PermitResponse, SettlementVerifyResponse } from "../types/api";
  *   Rendered as an explicit warning so the UI never silently
  *   conflates "unavailable" with "pass".
  */
-type SettlementOutcome = "pass" | "fail" | "unavailable";
+type SettlementOutcomeLocal = SettlementOutcome;
 
-function classifySettlement(
+function classifySettlementLocal(
   result: SettlementVerifyResponse,
-): SettlementOutcome {
-  if (result.unavailable === true) return "unavailable";
-  const decision = result.decision_result;
-  const upper = typeof decision === "string" ? decision.toUpperCase() : "";
-  const lower = typeof decision === "string" ? decision.toLowerCase() : "";
-  if (upper === "SETTLED_COMPLIANT") return "pass";
-  if (upper === "SETTLEMENT_NON_COMPLIANT") return "fail";
-  if (lower === "unavailable") return "unavailable";
-  if (lower === "permit" || lower === "allow" || lower === "approved") {
-    return "pass";
-  }
-  if (unavailableReasonCodes(result.reason_codes).length > 0 && !result.denied) {
-    return "unavailable";
-  }
-  return "fail";
+): SettlementOutcomeLocal {
+  return classifySettlement(result);
 }
 
 /**
@@ -234,8 +224,8 @@ export default function SettlementVerificationPanel({
     setVerifying(false);
   }, [permit]);
 
-  const settlementOutcome: SettlementOutcome | null = settlementResult
-    ? classifySettlement(settlementResult)
+  const settlementOutcome: SettlementOutcomeLocal | null = settlementResult
+    ? classifySettlementLocal(settlementResult)
     : null;
 
   const canVerifySettlement = Boolean(permit?.bundle_hash && settledTxHash.trim());

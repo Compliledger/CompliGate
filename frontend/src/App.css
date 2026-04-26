@@ -814,6 +814,195 @@ details[open] > .proofArtifactSummary::before {
   margin-right: 6px;
 }
 
+/* ── Permit Summary control sections ────────────────────────────────────── */
+
+.permitMetaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 4px 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.permitMetaItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.controlSections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 720px) {
+  .controlSections { grid-template-columns: 1fr; }
+}
+
+.controlSection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+}
+
+.controlSectionVerified {
+  border-color: rgba(39, 174, 96, 0.35);
+  background: rgba(39, 174, 96, 0.05);
+}
+
+.controlSectionDenied {
+  border-color: rgba(235, 87, 87, 0.45);
+  background: rgba(235, 87, 87, 0.06);
+}
+
+.controlSectionUnavailable {
+  border-color: rgba(242, 201, 76, 0.45);
+  background: rgba(242, 201, 76, 0.05);
+}
+
+.controlSectionNotEvaluated,
+.controlSectionNeutral {
+  border-color: var(--border);
+}
+
+.controlSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.controlSectionTitle {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.controlSectionBadge {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-hover);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.controlSectionBadge.controlSectionVerified {
+  color: var(--good);
+  border-color: rgba(39, 174, 96, 0.5);
+  background: rgba(39, 174, 96, 0.12);
+}
+
+.controlSectionBadge.controlSectionDenied {
+  color: var(--bad);
+  border-color: rgba(235, 87, 87, 0.55);
+  background: rgba(235, 87, 87, 0.12);
+}
+
+.controlSectionBadge.controlSectionUnavailable {
+  color: var(--warn);
+  border-color: rgba(242, 201, 76, 0.55);
+  background: rgba(242, 201, 76, 0.12);
+}
+
+.controlSectionBadge.controlSectionNotEvaluated {
+  color: var(--muted);
+  border-style: dashed;
+}
+
+.controlSectionMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.controlSectionMetaItem {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.controlSectionMetaLabel {
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+}
+
+.controlSectionEvidence {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+  color: var(--text);
+}
+
+.controlSectionRows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.controlSectionRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.controlSectionRowLabel {
+  flex: 1;
+  color: var(--muted);
+  min-width: 0;
+}
+
+.controlSectionRowValue {
+  font-weight: 600;
+  text-align: right;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.controlSectionRowValueInner {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.controlSectionRowAside {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.controlSectionCodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
 .commitMetaBlock {
   padding: 10px 14px 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.05);
