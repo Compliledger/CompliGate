@@ -795,12 +795,19 @@ class _AddressScreenSanctionsProvider(ComplianceProvider):
         provider_factory: Callable[[], Any] | None = None,
     ) -> None:
         # Late-imported to avoid a circular import at module load.
-        from app.services.providers import (  # noqa: WPS433 - intentional
-            build_sanctions_provider_from_config,
+        # The default factory is the vendor-neutral
+        # :func:`get_sanctions_provider` selector in
+        # :mod:`app.services.providers.factory`, which honors
+        # ``SANCTIONS_MODE`` (``mock`` / ``live``) so the permit
+        # evaluation flow always goes through the documented sanctions
+        # provider abstraction. Tests still inject ``provider_factory``
+        # to exercise specific outcomes deterministically.
+        from app.services.providers.factory import (  # noqa: WPS433 - intentional
+            get_sanctions_provider as _factory_get_sanctions_provider,
         )
 
         self._provider_factory = (
-            provider_factory or build_sanctions_provider_from_config
+            provider_factory or _factory_get_sanctions_provider
         )
 
     def evaluate(self, context: dict[str, Any]) -> ProviderResult:
@@ -835,6 +842,12 @@ class _AddressScreenSanctionsProvider(ComplianceProvider):
                 reason="provider_request_failed",
                 details={"error_type": exc.__class__.__name__},
             )
+
+        # Surface the normalized sanctions result on the evaluation
+        # context so the engine — and any caller that later inspects
+        # ``evaluation_context["sanctions"]`` — has direct access to
+        # the raw provider decision and reason codes.
+        self._stash_in_evaluation_context(context, normalized)
 
         provider_id = f"address_screen:{normalized.provider_name}"
 
@@ -888,6 +901,23 @@ class _AddressScreenSanctionsProvider(ComplianceProvider):
             reason=reason,
             details=details,
         )
+
+    @staticmethod
+    def _stash_in_evaluation_context(
+        context: dict[str, Any],
+        normalized_result: Any,
+    ) -> None:
+        """Write the normalized provider result into the evaluation context.
+
+        Mutates ``context`` in place under the key ``"sanctions"`` so the
+        engine and any downstream caller that inspects the evaluation
+        context can see the raw, normalized sanctions screen result
+        (decision, reason codes, evidence reference, provider name,
+        etc.) without having to reach into the engine-level
+        :class:`ProviderResult` details.
+        """
+
+        context["sanctions"] = normalized_result.to_dict()
 
 
 def _read_provider_kind(env_name: str, *, allowed_kinds: frozenset[str] | None = None) -> str:

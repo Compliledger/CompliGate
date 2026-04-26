@@ -305,7 +305,7 @@ def evaluate_compliance(
     """
     providers = providers or _default_providers()
     fail_closed = bool(config.FAIL_CLOSED_COMPLIANCE)
-    context: dict[str, Any] = {
+    evaluation_context: dict[str, Any] = {
         "subject": subject,
         "action": action,
         "amount": amount,
@@ -372,7 +372,7 @@ def evaluate_compliance(
             )
             continue
 
-        result = provider.evaluate(context)
+        result = provider.evaluate(evaluation_context)
         results[check] = result
         evidence.append(result.to_evidence())
 
@@ -394,6 +394,16 @@ def evaluate_compliance(
             screen_code = SANCTIONS_SCREEN_REASON_CODES.get(result.status)
             if screen_code is not None:
                 reason_codes.append(screen_code)
+            # Surface the underlying provider's own reason codes (as
+            # exposed by the sanctions provider abstraction) so the
+            # permit decision carries them verbatim alongside the
+            # engine-derived codes. De-duped to keep the list stable.
+            sanctions_details = (
+                result.details if isinstance(result.details, dict) else {}
+            )
+            for provider_code in sanctions_details.get("reason_codes", []) or ():
+                if isinstance(provider_code, str) and provider_code not in reason_codes:
+                    reason_codes.append(provider_code)
         if check == "kyc":
             normalized = NORMALIZED_KYC_REASON_CODES.get(result.status)
             if normalized is not None and normalized not in reason_codes:
@@ -484,7 +494,7 @@ def evaluate_compliance(
     destination = (counterparty or "").strip() if isinstance(counterparty, str) else ""
     if action == "transfer" and destination:
         kyc_provider = providers.get("kyc")
-        destination_context = dict(context)
+        destination_context = dict(evaluation_context)
         destination_context["subject"] = destination
         destination_context["kyc_subject_role"] = "destination"
         # The trusted-upstream KYC assertion is bound to the request
