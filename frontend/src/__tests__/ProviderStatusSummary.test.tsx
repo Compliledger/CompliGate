@@ -177,4 +177,79 @@ describe("ProviderStatusSummary", () => {
     );
     expect(screen.getByText("Settlement Provider Status")).toBeInTheDocument();
   });
+
+  it("flags the mock_trm sanctions provider with an honest notice on a passing result", () => {
+    const permit = buildPermit();
+    permit.bundle.compliance_evidence = [
+      {
+        check: "sanctions",
+        status: "approved",
+        provider_id: "mock_trm",
+        reference: "mock:rSubject:2023-11-14T22:13:20+00:00",
+        reason: null,
+        checked_at: CHECKED_AT,
+        details: { mode: "mock", note: "TRM integration pending" },
+      },
+    ];
+
+    render(<ProviderStatusSummary permit={permit} />);
+
+    const notice = screen.getByTestId("provider-status-mock-notice");
+    // Honest disclosure of the mock nature.
+    expect(notice).toHaveTextContent("Mock provider (TRM integration pending)");
+    expect(notice).toHaveTextContent(
+      "Simulated screening only — not real compliance.",
+    );
+    // The required Provider / Status / Evidence triplet is present.
+    expect(screen.getByTestId("provider-status-mock-provider")).toHaveTextContent(
+      "mock_trm",
+    );
+    expect(screen.getByTestId("provider-status-mock-decision")).toHaveTextContent(
+      "PASS",
+    );
+    expect(screen.getByTestId("provider-status-mock-evidence")).toHaveTextContent(
+      "mock:rSubject:2023-11-14T22:13:20+00:00",
+    );
+    // A passing mock result is *not* warning-styled.
+    expect(notice.className).not.toMatch(/providerStatusMockNotice--warn/);
+    expect(notice).not.toHaveAttribute("role", "alert");
+  });
+
+  it.each([
+    ["denied", "DENY"],
+    ["unavailable", "UNAVAILABLE"],
+  ] as const)(
+    "applies warning styling and shows %s as %s in the mock notice",
+    (sanctionsStatus, expectedDecisionLabel) => {
+      const permit = buildPermit();
+      permit.summary = { ...permit.summary, sanctions_status: sanctionsStatus };
+      permit.bundle.compliance_evidence = [
+        {
+          check: "sanctions",
+          status: sanctionsStatus,
+          provider_id: "mock_trm",
+          reference: "mock:rSubject:2023-11-14T22:13:20+00:00",
+          reason: null,
+          checked_at: CHECKED_AT,
+          details: { mode: "mock", note: "TRM integration pending" },
+        },
+      ];
+
+      render(<ProviderStatusSummary permit={permit} />);
+
+      const notice = screen.getByTestId("provider-status-mock-notice");
+      expect(notice.className).toMatch(/providerStatusMockNotice--warn/);
+      expect(notice).toHaveAttribute("role", "alert");
+      expect(
+        screen.getByTestId("provider-status-mock-decision"),
+      ).toHaveTextContent(expectedDecisionLabel);
+    },
+  );
+
+  it("does not surface a mock notice for non-mock sanctions providers", () => {
+    render(<ProviderStatusSummary permit={buildPermit()} />);
+    expect(
+      screen.queryByTestId("provider-status-mock-notice"),
+    ).not.toBeInTheDocument();
+  });
 });
