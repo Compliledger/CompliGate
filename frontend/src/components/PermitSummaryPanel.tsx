@@ -6,10 +6,12 @@ import {
   checkSymbol,
   formatSeconds,
   formatStatusLabel,
+  isDeniedDecision,
   outcomeClass,
   outcomeSymbol,
   outcomeTextClass,
   providerOutcome,
+  unavailableReasonCodes,
 } from "../lib/format";
 import type {
   BaseComplianceCheckResult,
@@ -101,6 +103,51 @@ export default function PermitSummaryPanel({ permit, status, remaining, order }:
         </StatusMessage>
       ) : (
         <>
+          {(() => {
+            const decision =
+              permit.decision_result ?? permit.proof_artifact?.decision_result;
+            const reasonCodes =
+              permit.reason_codes ?? permit.proof_artifact?.reason_codes ?? [];
+            const denied =
+              permit.denied || permit.unavailable || isDeniedDecision(decision);
+            if (!denied) return null;
+            const unavailable = unavailableReasonCodes(reasonCodes);
+            const variant = unavailable.length > 0 ? "warning" : "error";
+            const title =
+              unavailable.length > 0
+                ? "Permit denied — required compliance check unavailable"
+                : "Permit denied";
+            return (
+              <StatusMessage variant={variant} title={title}>
+                <div data-testid="permit-summary-denial">
+                  <p style={{ margin: "0 0 8px" }}>
+                    {unavailable.length > 0
+                      ? "The backend failed closed because one or more required provider checks could not return a definitive result. The constraints below reflect the unverified state and must not be treated as a passing compliance outcome."
+                      : "The backend denied this permit. The constraints below reflect the unverified state and must not be treated as a passing compliance outcome."}
+                  </p>
+                  {reasonCodes.length > 0 && (
+                    <div
+                      className="reasonCodesList"
+                      data-testid="permit-summary-denial-codes"
+                    >
+                      {reasonCodes.map((rc) => (
+                        <span
+                          key={rc}
+                          className={`reasonCode ${
+                            unavailable.includes(rc)
+                              ? "reasonCodeWarn"
+                              : "reasonCodeBad"
+                          }`}
+                        >
+                          {rc}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </StatusMessage>
+            );
+          })()}
           <div className="summary">
             <div className="summaryRow">
               <span className={checkClass(permit.summary.issuer_verified)}>

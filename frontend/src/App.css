@@ -656,6 +656,18 @@ pre {
   letter-spacing: 0.2px;
 }
 
+.reasonCodeWarn {
+  background: rgba(242, 201, 76, 0.12);
+  border-color: rgba(242, 201, 76, 0.5);
+  color: #f5d97a;
+}
+
+.reasonCodeBad {
+  background: rgba(235, 87, 87, 0.12);
+  border-color: rgba(235, 87, 87, 0.5);
+  color: #f3a3a3;
+}
+
 /* ── Proof Artifact collapsible block ── */
 
 .proofArtifactBlock {

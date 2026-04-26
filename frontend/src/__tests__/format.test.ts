@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatStatusLabel,
+  isDeniedDecision,
   outcomeClass,
   outcomeLabel,
   outcomeSymbol,
   outcomeTextClass,
   providerOutcome,
+  unavailableReasonCodes,
 } from "../lib/format";
 
 /**
@@ -94,5 +96,69 @@ describe("outcomeClass / outcomeSymbol / outcomeTextClass", () => {
     expect(outcomeTextClass("denied")).toBe("textBad");
     expect(outcomeTextClass("unavailable")).toBe("textWarn");
     expect(outcomeTextClass("not_evaluated")).toBe("textMuted");
+  });
+});
+
+/**
+ * Locks in the fail-closed predicates the UI uses to decide whether a
+ * permit response should be presented as a denial. The frontend must
+ * never treat a denied or provider-unavailable response as a passing
+ * compliance check.
+ */
+describe("isDeniedDecision", () => {
+  it.each(["allow", "permit", "approved", "Allow", "PERMIT"])(
+    "treats %s as not denied",
+    (input) => {
+      expect(isDeniedDecision(input)).toBe(false);
+    },
+  );
+
+  it.each([
+    "deny",
+    "denied",
+    "reject",
+    "rejected",
+    "block",
+    "blocked",
+    "unavailable",
+    "DENY",
+  ])("treats %s as denied", (input) => {
+    expect(isDeniedDecision(input)).toBe(true);
+  });
+
+  it("treats null/undefined/empty as not denied (no decision yet)", () => {
+    expect(isDeniedDecision(null)).toBe(false);
+    expect(isDeniedDecision(undefined)).toBe(false);
+    expect(isDeniedDecision("")).toBe(false);
+  });
+});
+
+describe("unavailableReasonCodes", () => {
+  it("extracts the *_UNAVAILABLE codes a fail-closed denial emits", () => {
+    expect(
+      unavailableReasonCodes([
+        "KYC_UNAVAILABLE",
+        "SANCTIONS_SCREEN_UNAVAILABLE",
+        "RESERVE_EVIDENCE_UNAVAILABLE",
+        "KYC_PROVIDER_UNAVAILABLE",
+        "AMOUNT_WITHIN_LIMIT",
+        "SANCTIONS_HIT",
+      ]),
+    ).toEqual([
+      "KYC_UNAVAILABLE",
+      "SANCTIONS_SCREEN_UNAVAILABLE",
+      "RESERVE_EVIDENCE_UNAVAILABLE",
+      "KYC_PROVIDER_UNAVAILABLE",
+    ]);
+  });
+
+  it("returns an empty list for null/undefined/empty input", () => {
+    expect(unavailableReasonCodes(null)).toEqual([]);
+    expect(unavailableReasonCodes(undefined)).toEqual([]);
+    expect(unavailableReasonCodes([])).toEqual([]);
+  });
+
+  it("does not match codes that merely contain the substring", () => {
+    expect(unavailableReasonCodes(["UNAVAILABLE_NOTE"])).toEqual([]);
   });
 });
