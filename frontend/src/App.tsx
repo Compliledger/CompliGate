@@ -109,7 +109,7 @@ export default function App() {
           <div className="title">
             <span className="titleAccent">Compli</span>Gate
           </div>
-          <div className="subtitle">Compliance authorization infrastructure</div>
+          <div className="subtitle">Compliance authorization and verification layer</div>
         </div>
 
         <div className={`pill ${status.kind}`}>
