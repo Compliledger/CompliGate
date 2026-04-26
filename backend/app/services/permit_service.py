@@ -169,34 +169,12 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
     # the bundle and proof artifact carry the per-dimension reserve and
     # liquidity outcome explicitly. Falls back to ``None`` when no
     # reserve provider was wired up so the bundle never fabricates a
-    # normalized result. The ``reserve_backed`` and
-    # ``liquidity_verified`` constraints below are then derived
-    # independently from the two normalized statuses, instead of being
-    # collapsed onto a single provider-level approval.
-    reserve_evidence_item = next(
-        (item for item in compliance.evidence if item.get("check") == "reserve"),
-        None,
-    )
+    # normalized result.
     reserve_result_payload: dict | None = None
     if reserve_evidence_item is not None:
         details = reserve_evidence_item.get("details") or {}
         if isinstance(details, dict) and isinstance(details.get("reserve_result"), dict):
             reserve_result_payload = details["reserve_result"]
-
-    if reserve_result_payload is not None:
-        reserve_backed_value = (
-            reserve_result_payload.get("reserve_status") == "verified"
-        )
-        liquidity_verified_value = (
-            reserve_result_payload.get("liquidity_status") == "verified"
-        )
-    else:
-        # No normalized ReserveResult was surfaced (e.g. provider not
-        # registered). Fall back to the engine-level provider status so
-        # the constraint never claims a check succeeded when it did
-        # not.
-        reserve_backed_value = reserve_status is ProviderStatus.APPROVED
-        liquidity_verified_value = reserve_status is ProviderStatus.APPROVED
 
     bundle = {
         "bundle_id": str(uuid4()),
@@ -208,10 +186,16 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
             "amount": req.amount,
             "within_limit": within_limit,
             "allowed_counterparty": req.counterparty,
+            # ``reserve_backed`` and ``liquidity_verified`` are derived
+            # from the engine-normalized component statuses produced by
+            # ``derive_reserve_components``. That helper already maps
+            # missing / unavailable / denied evidence to a non-APPROVED
+            # status, so ``_constraint_value_for`` only renders ``True``
+            # when the provider explicitly returned an approved /
+            # verified state — the bundle never claims a reserve or
+            # liquidity check succeeded when it did not.
             "reserve_backed": _constraint_value_for(reserve_component_status),
             "liquidity_verified": _constraint_value_for(liquidity_component_status),
-            "reserve_backed": reserve_backed_value,
-            "liquidity_verified": liquidity_verified_value,
             "kyc_verified": _constraint_value_for(kyc_status),
             "sanctions_check": _sanctions_constraint_value(sanctions_status),
             "jurisdiction": config.JURISDICTION,

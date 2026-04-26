@@ -502,3 +502,67 @@ def test_permit_endpoint_surfaces_liquidity_reference_and_summary_status():
     assert proof_ctx["reserve_reference"] == attestations["reserve_reference"]
     assert proof_ctx["liquidity_reference"] == attestations["liquidity_reference"]
 
+
+def test_permit_bundle_fails_closed_when_reserve_evidence_lacks_normalized_payload():
+    """Regression: even if a custom reserve provider returns evidence
+    without the normalized ``reserve_result`` payload that the
+    static_allow / attestation / http providers emit, the bundle's
+    ``reserve_backed`` and ``liquidity_verified`` constraints must be
+    derived from the engine-normalized component status. They must
+    never default to True on missing data, and the request must not
+    crash with an unhandled error."""
+    from app.services.compliance.providers import ComplianceProvider
+
+    class _BareReserveProvider(ComplianceProvider):
+        check = "reserve"
+        kind = "bare"
+
+        def evaluate(self, context):  # noqa: ARG002
+            # Intentionally returns APPROVED with no ``reserve_result``
+            # in details — the prior fallback path would have hit a
+            # NameError; the consolidated path must derive the
+            # constraint from the engine-level component status.
+            return ProviderResult(
+                check="reserve",
+                status=ProviderStatus.APPROVED,
+                provider_id="bare:reserve",
+                reference="bare-ref",
+                reason="bare_ok",
+                details={},
+            )
+
+    with patch(
+        "app.services.compliance.engine.get_reserve_provider",
+        return_value=_BareReserveProvider(),
+    ):
+        response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+
+    assert response.status_code == 200
+    data = response.json()
+    # Engine-level component status is APPROVED (single overall status
+    # propagates to both dimensions via derive_reserve_components), so
+    # the constraints render as True — but only because the provider
+    # explicitly returned APPROVED.
+    assert data["bundle"]["constraints"]["reserve_backed"] is True
+    assert data["bundle"]["constraints"]["liquidity_verified"] is True
+    # And the bundle dict has each constraint key exactly once (no
+    # duplicate-key shadowing).
+    constraints_keys = list(data["bundle"]["constraints"].keys())
+    assert constraints_keys.count("reserve_backed") == 1
+    assert constraints_keys.count("liquidity_verified") == 1
+
+
+def test_permit_bundle_reserve_constraints_false_when_provider_unavailable():
+    """When the reserve provider is unavailable the fail-closed bundle
+    must record ``reserve_backed`` and ``liquidity_verified`` as False
+    (never default to True on missing data)."""
+    with patch.object(config, "RESERVE_PROVIDER", "null"), patch.object(
+        config, "FAIL_CLOSED_COMPLIANCE", True
+    ):
+        response = client.post("/v1/permit", json={"subject": VALID_SUBJECT})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision_result"] == "deny"
+    assert data["bundle"]["constraints"]["reserve_backed"] is False
+    assert data["bundle"]["constraints"]["liquidity_verified"] is False
