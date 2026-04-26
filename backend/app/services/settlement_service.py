@@ -351,6 +351,7 @@ def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerif
 
     permit_constraints_for_ctx = (permit_bundle or {}).get("constraints", {})
     permit_evidence = (permit_bundle or {}).get("compliance_evidence", [])
+    permit_attestations = (permit_bundle or {}).get("attestations") or {}
     evaluation_context = {
         "bundle_hash": bundle_hash,
         "permit_context_used": True,
@@ -370,6 +371,11 @@ def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerif
         "sanctions_check": permit_constraints_for_ctx.get("sanctions_check", "unavailable"),
         "reserve_backed": permit_constraints_for_ctx.get("reserve_backed", False),
         "liquidity_verified": permit_constraints_for_ctx.get("liquidity_verified", False),
+        "kyc_reference": permit_attestations.get("kyc_reference"),
+        "kyc_destination_reference": permit_attestations.get("kyc_destination_reference"),
+        "sanctions_reference": permit_attestations.get("sanctions_reference"),
+        "reserve_reference": permit_attestations.get("reserve_reference"),
+        "liquidity_reference": permit_attestations.get("liquidity_reference"),
         "policy_conditions": {
             "jurisdiction": permit_constraints_for_ctx.get("jurisdiction", config.JURISDICTION),
             "kyc_verified": permit_constraints_for_ctx.get("kyc_verified", False),
