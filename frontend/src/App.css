@@ -586,6 +586,24 @@ pre {
   color: var(--bad);
 }
 
+.verifyHeader.pass {
+  background: rgba(39, 174, 96, 0.14);
+  border-bottom: 1px solid rgba(39, 174, 96, 0.35);
+  color: var(--good);
+}
+
+.verifyHeader.fail {
+  background: rgba(235, 87, 87, 0.14);
+  border-bottom: 1px solid rgba(235, 87, 87, 0.35);
+  color: var(--bad);
+}
+
+.verifyHeader.warn {
+  background: rgba(242, 201, 76, 0.14);
+  border-bottom: 1px solid rgba(242, 201, 76, 0.4);
+  color: var(--warn);
+}
+
 .verifyIcon {
   display: inline-flex;
   width: 26px;
@@ -606,6 +624,21 @@ pre {
 .verifyIcon.bad {
   background: rgba(235, 87, 87, 0.18);
   border: 1.5px solid rgba(235, 87, 87, 0.55);
+}
+
+.verifyIcon.pass {
+  background: rgba(39, 174, 96, 0.22);
+  border: 1.5px solid rgba(39, 174, 96, 0.55);
+}
+
+.verifyIcon.fail {
+  background: rgba(235, 87, 87, 0.18);
+  border: 1.5px solid rgba(235, 87, 87, 0.55);
+}
+
+.verifyIcon.warn {
+  background: rgba(242, 201, 76, 0.2);
+  border: 1.5px solid rgba(242, 201, 76, 0.55);
 }
 
 .verifyRows {
