@@ -14,6 +14,26 @@ from app.utils.hashing import proof_hash
 logger = get_logger("main")
 
 
+def _build_sanctions_block(
+    sanctions_evidence_item: dict | None,
+) -> dict | None:
+    """Build the sanctions evidence reference block for a proof artifact.
+
+    Sourced exclusively from the real sanctions provider evidence (no
+    fake hashes, no fabricated fields). Returns ``None`` when no
+    sanctions evidence was produced so the artifact never claims a
+    check that did not run.
+    """
+    if not sanctions_evidence_item:
+        return None
+    return {
+        "provider": sanctions_evidence_item.get("provider_id"),
+        "decision": sanctions_evidence_item.get("status"),
+        "evidence_reference": sanctions_evidence_item.get("reference"),
+        "checked_at": sanctions_evidence_item.get("checked_at"),
+    }
+
+
 def enrich_proof_artifact_with_anchor(
     proof_artifact: ProofArtifact,
     anchor_metadata: dict,
@@ -54,14 +74,20 @@ def create_proof_artifact_from_permit_req(req) -> ProofArtifact:
     )
     reserve_components = derive_reserve_components(reserve_evidence_item)
 
-    sanctions_reference = next(
+    sanctions_evidence_item = next(
         (
-            item.get("reference")
+            item
             for item in compliance.evidence
             if item.get("check") == "sanctions"
         ),
         None,
     )
+    sanctions_reference = (
+        sanctions_evidence_item.get("reference")
+        if sanctions_evidence_item is not None
+        else None
+    )
+    sanctions_block = _build_sanctions_block(sanctions_evidence_item)
     kyc_reference = next(
         (
             item.get("reference")
@@ -94,6 +120,7 @@ def create_proof_artifact_from_permit_req(req) -> ProofArtifact:
         "kyc_reference": kyc_reference,
         "kyc_destination_reference": kyc_destination_reference,
         "sanctions_reference": sanctions_reference,
+        "sanctions": sanctions_block,
         "compliance_evidence": compliance.evidence,
     }
 
@@ -141,6 +168,20 @@ def create_permit_proof_artifact(
     compliance_evidence: list[dict] | None = None,
 ) -> ProofArtifact:
     attestations = bundle.get("attestations") or {}
+    evidence_for_artifact = (
+        compliance_evidence
+        if compliance_evidence is not None
+        else bundle.get("compliance_evidence", [])
+    )
+    sanctions_evidence_item = next(
+        (
+            item
+            for item in evidence_for_artifact
+            if item.get("check") == "sanctions"
+        ),
+        None,
+    )
+    sanctions_block = _build_sanctions_block(sanctions_evidence_item)
     return build_proof_artifact(
         module="CompliGate",
         entity_id=bundle["bundle_id"],
@@ -160,6 +201,7 @@ def create_permit_proof_artifact(
             "kyc_reference": attestations.get("kyc_reference"),
             "kyc_destination_reference": attestations.get("kyc_destination_reference"),
             "sanctions_reference": attestations.get("sanctions_reference"),
+            "sanctions": sanctions_block,
             "kyc_verified": bundle["constraints"]["kyc_verified"],
             "sanctions_check": bundle["constraints"]["sanctions_check"],
             "jurisdiction": bundle["constraints"]["jurisdiction"],
@@ -169,9 +211,7 @@ def create_permit_proof_artifact(
             "freeze_possible": bundle["constraints"]["freeze_possible"],
             "clawback_possible": bundle["constraints"]["clawback_possible"],
             "trustline_required": bundle["constraints"]["trustline_required"],
-            "compliance_evidence": compliance_evidence
-            if compliance_evidence is not None
-            else bundle.get("compliance_evidence", []),
+            "compliance_evidence": evidence_for_artifact,
         },
         reason_codes=reason_codes,
         timestamp=timestamp,
