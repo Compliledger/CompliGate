@@ -227,7 +227,6 @@ export default function SettlementVerificationPanel({
   const settlementOutcome: SettlementOutcomeLocal | null = settlementResult
     ? classifySettlementLocal(settlementResult)
     : null;
-  const settlementPassed = settlementOutcome === "pass";
 
   const canVerifySettlement = Boolean(permit?.bundle_hash && settledTxHash.trim());
 
@@ -398,15 +397,34 @@ export default function SettlementVerificationPanel({
               </div>
 
               <div className="verifyRows">
-                <div className="verifyRow">
-                  <span className={checkClass(settlementPassed)}>
-                    {checkSymbol(settlementPassed)}
-                  </span>
-                  <span className="summaryLabel">Decision Result</span>
-                  <span className={`summaryValue${settlementPassed ? " textGood" : " textBad"}`}>
-                    {settlementResult.decision_result}
-                  </span>
-                </div>
+                {(() => {
+                  // Map the settlement outcome onto the shared four-state
+                  // outcome pattern so the Decision Result row icon, value
+                  // class, and label are driven by the same vocabulary as
+                  // the provider-backed compliance rows. An `unavailable`
+                  // settlement must render with the dash glyph and warn
+                  // colour — never with the same ✘ + textBad styling as a
+                  // hard fail.
+                  const decisionOutcome: ProviderOutcome =
+                    settlementOutcome === "pass"
+                      ? "verified"
+                      : settlementOutcome === "unavailable"
+                        ? "unavailable"
+                        : "denied";
+                  return (
+                    <div className="verifyRow">
+                      <span className={outcomeClass(decisionOutcome)}>
+                        {outcomeSymbol(decisionOutcome)}
+                      </span>
+                      <span className="summaryLabel">Decision Result</span>
+                      <span
+                        className={`summaryValue ${outcomeTextClass(decisionOutcome)}`}
+                      >
+                        {settlementResult.decision_result}
+                      </span>
+                    </div>
+                  );
+                })()}
                 {artifact.module && (
                   <div className="verifyRow">
                     <span className="check">✔</span>

@@ -45,20 +45,26 @@ function buildRows(permit: PermitResponse): ProviderRow[] {
 
   const kycResult = permit.bundle.attestations.kyc_result;
   const reserveResult = permit.bundle.attestations.reserve_result;
+  // `summary` is required by the type, but the runtime payload can be
+  // missing when the backend issues a fail-closed denial without a
+  // populated summary. Treat any missing field as `not_evaluated` (via
+  // `providerOutcome`'s null handling) rather than crashing — and never
+  // as a passing outcome.
+  const summary = permit.summary as PermitResponse["summary"] | undefined;
 
   return [
     {
       id: "sanctions",
       label: "Sanctions",
       provider: sanctionsItem?.provider_id ?? null,
-      status: permit.summary.sanctions_status,
+      status: summary?.sanctions_status ?? null,
       checkedAt: sanctionsItem?.checked_at ?? null,
     },
     {
       id: "kyc",
       label: "KYC",
       provider: kycResult?.provider_name ?? kycItem?.provider_id ?? null,
-      status: permit.summary.kyc_status,
+      status: summary?.kyc_status ?? null,
       checkedAt: kycResult?.checked_at ?? kycItem?.checked_at ?? null,
     },
     {
@@ -76,7 +82,7 @@ function buildRows(permit: PermitResponse): ProviderRow[] {
       // liquidity (e.g. exchange venue) without a separate reserve
       // attestation.
       status:
-        permit.summary.reserve_status ?? permit.summary.liquidity_status,
+        summary?.reserve_status ?? summary?.liquidity_status ?? null,
       checkedAt:
         reserveResult?.checked_at ??
         reserveItem?.checked_at ??
