@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 import ApiSettings from "./ApiSettings";
 import EnvWarnings from "./EnvWarnings";
+import AuditTrailPanel from "./components/AuditTrailPanel";
 import PermitSummaryPanel, { type PermitStatus } from "./components/PermitSummaryPanel";
 import PermitVerificationPanel from "./components/PermitVerificationPanel";
 import RequestPermitPanel from "./components/RequestPermitPanel";
@@ -173,6 +174,15 @@ export default function App() {
 
         {/* Panel 9: Technical Proof Artifact */}
         <TechnicalProofPanel permit={permit} order={9} />
+
+        {/* Panel 10: Audit Trail (only renders when the flow is complete) */}
+        <AuditTrailPanel
+          permit={permit}
+          xrplPayment={xrplPaymentResult}
+          settlement={settlementResult}
+          panelNumber={10}
+          order={10}
+        />
       </main>
 
       <footer className="footer">

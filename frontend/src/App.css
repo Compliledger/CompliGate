@@ -885,6 +885,81 @@ details[open] > .proofArtifactSummary::before {
   word-break: break-word;
 }
 
+/* ── Audit Trail panel ── */
+
+.auditTrailSummary {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.auditTrailEvidenceRow {
+  align-items: flex-start;
+}
+
+.auditTrailEvidenceList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.auditTrailEvidenceItem {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-weight: 500;
+}
+
+.auditTrailEvidenceLabel {
+  flex-shrink: 0;
+  min-width: 130px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.auditTrailReasonCodes {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.auditTrailReasonCode {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--border-hover);
+  border-radius: 999px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.auditTrailDetails {
+  margin-top: 14px;
+}
+
+.auditTrailToggle {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.auditTrailToggle:hover {
+  color: var(--text);
+}
+
 /* ── Footer ── */
 
 .footer {
