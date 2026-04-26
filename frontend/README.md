@@ -1,10 +1,10 @@
 # CompliGate Frontend
 
 React + TypeScript + Vite UI for the CompliGate compliance authorization
-backend. The frontend is a thin client over the productionized FastAPI
-backend: it requests time-bound compliance permits, verifies signed permit
-bundles, checks XRPL trustlines, and verifies settled XRPL transactions
-against a permit's bundle hash.
+and verification backend. The frontend is a thin client over the
+productionized FastAPI backend: it requests time-bound compliance permits,
+verifies signed permit bundles, checks XRPL trustlines, and verifies
+settled XRPL transactions against a permit's bundle hash.
 
 ## Requirements
 
