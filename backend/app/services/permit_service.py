@@ -244,8 +244,8 @@ def create_permit(req: PermitRequest, db: Session | None = None) -> PermitRespon
     # ``False`` so the summary never claims an issuer binding that has
     # not been configured.
     configured_issuer = (config.ISSUER_ADDRESS or "").strip()
-    issuer_configured = bool(configured_issuer) and not configured_issuer.startswith(
-        "rEXAMPLE"
+    issuer_configured = bool(configured_issuer) and not configured_issuer.upper().startswith(
+        "REXAMPLE"
     )
 
     summary = {

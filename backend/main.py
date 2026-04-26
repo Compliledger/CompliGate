@@ -646,8 +646,8 @@ def create_permit(req: PermitRequest):
     # experimentation) maps to ``False`` so the summary never claims an
     # issuer binding that has not been configured.
     _configured_issuer = (ISSUER_ADDRESS or "").strip()
-    _issuer_configured = bool(_configured_issuer) and not _configured_issuer.startswith(
-        "rEXAMPLE"
+    _issuer_configured = bool(_configured_issuer) and not _configured_issuer.upper().startswith(
+        "REXAMPLE"
     )
 
     summary = {
