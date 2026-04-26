@@ -2,7 +2,7 @@ CompliGate
 
 Deterministic Compliance Authorization for XRPL
 
-CompliGate is a compliance authorization layer for the XRP Ledger (XRPL) that defines the conditions under which transactions are allowed to execute—and produces verifiable proof that those conditions were met.
+CompliGate is an off-ledger compliance authorization, verification and proof (attestation) layer for the XRP Ledger (XRPL). It defines the conditions under which a transaction is considered compliant and produces verifiable proof that those conditions were met. CompliGate does not itself execute, gate, or enforce transactions on XRPL — XRPL settles transactions according to its own protocol rules.
 
 ⸻
 
@@ -149,7 +149,7 @@ CompliGate currently evaluates:
 	•	policy thresholds
 
 ✔ XRPL Trustlines
-	•	enforced at ledger level
+	•	natively enforced by XRPL; CompliGate verifies trustline state as part of authorization and post-settlement checks (CompliGate itself does not enforce settlement on the ledger)
 
 Every compliance decision is traceable to real provider evidence (or
 explicit denial); the per-check provider id, status and reference are
@@ -164,10 +164,11 @@ CompliGate is:
 	•	NOT a broker
 	•	NOT an intermediary
 	•	NOT executing trades
+	•	NOT enforcing transactions on the XRPL
 
 It is:
 
-An authorization and verification layer
+An off-ledger authorization, verification and proof (attestation) layer. Enforcement of any decision is performed by the integrating institution (or by XRPL's own native controls such as trustlines, freeze and clawback), not by CompliGate.
 
 ⸻
 
