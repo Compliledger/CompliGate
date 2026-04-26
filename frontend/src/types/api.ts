@@ -145,6 +145,8 @@ export type ComplianceEvidenceMap = Record<
   | BaseComplianceCheckResult
   | ComplianceEvidenceReference
 >;
+
+/**
  * Status vocabulary used by the cross-cutting compliance providers
  * (KYC, sanctions, reserve). Mirrors `ProviderStatus` in the backend.
  *
@@ -271,10 +273,6 @@ export type PermitConstraints = {
    * or unavailable). To distinguish denied from unavailable, render
    * `summary.kyc_status` / `summary.reserve_status` etc. instead.
    */
-  reserve_backed?: boolean;
-  liquidity_verified?: boolean;
-  kyc_verified?: boolean;
-  sanctions_check?: SanctionsConstraintValue;
   jurisdiction?: string;
   freeze_possible?: boolean;
   clawback_possible?: boolean;
@@ -355,9 +353,6 @@ export type PermitResponse = {
    * the requested action (separate from `unavailable`).
    */
   denied?: boolean;
-  proof_artifact: ProofArtifact;
-  decision_result: string;
-  reason_codes: string[];
 };
 
 export type VerifyResponse = {

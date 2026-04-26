@@ -1,12 +1,6 @@
 import { useMemo } from "react";
 
 import StatusMessage from "./StatusMessage";
-import { checkClass, checkSymbol, formatSeconds } from "../lib/format";
-import type {
-  BaseComplianceCheckResult,
-  PermitResponse,
-  SanctionsCheckResult,
-} from "../types/api";
 import {
   checkClass,
   checkSymbol,
@@ -17,7 +11,11 @@ import {
   outcomeTextClass,
   providerOutcome,
 } from "../lib/format";
-import type { PermitResponse } from "../types/api";
+import type {
+  BaseComplianceCheckResult,
+  PermitResponse,
+  SanctionsCheckResult,
+} from "../types/api";
 
 export type PermitStatus = {
   label: string;
