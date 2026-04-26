@@ -26,7 +26,46 @@ type ProviderRow = {
   status: string | null | undefined;
   /** Unix seconds timestamp the provider check was last performed. */
   checkedAt: number | null | undefined;
+  /**
+   * Raw evidence reference returned by the provider (e.g.
+   * `mock:rAddr:2024-01-01T00:00:00+00:00` for the mock sanctions
+   * provider). Surfaced verbatim so operators can audit it.
+   */
+  evidenceReference?: string | null;
 };
+
+/**
+ * Map the cross-cutting `ProviderStatus` vocabulary onto the raw
+ * provider-decision label requested by the operator surface
+ * (`PASS` / `DENY` / `UNAVAILABLE`). The mock sanctions provider's
+ * notice block lists the underlying decision verbatim so the UI does
+ * not paper over a non-pass outcome with a friendlier-looking word.
+ */
+function rawDecisionLabel(status: string | null | undefined): string {
+  switch (status) {
+    case "approved":
+    case "verified":
+    case "passed":
+      return "PASS";
+    case "denied":
+    case "not_verified":
+      return "DENY";
+    case "unavailable":
+      return "UNAVAILABLE";
+    default:
+      return "NOT EVALUATED";
+  }
+}
+
+/**
+ * Returns true when the provider id identifies a mock / simulated
+ * provider rather than a real upstream integration. Mock providers
+ * (currently `mock_trm` for sanctions) must be flagged in the UI so
+ * operators never mistake their output for real compliance evidence.
+ */
+function isMockProviderId(providerId: string | null | undefined): boolean {
+  return typeof providerId === "string" && providerId.startsWith("mock_");
+}
 
 /**
  * Build the three provider rows (sanctions, KYC, reserve / liquidity)
@@ -59,6 +98,10 @@ function buildRows(permit: PermitResponse): ProviderRow[] {
       provider: sanctionsItem?.provider_id ?? null,
       status: summary?.sanctions_status ?? null,
       checkedAt: sanctionsItem?.checked_at ?? null,
+      evidenceReference:
+        sanctionsItem?.reference ??
+        permit.bundle.attestations.sanctions_reference ??
+        null,
     },
     {
       id: "kyc",
@@ -124,6 +167,8 @@ export default function ProviderStatusSummary({
         {rows.map((row) => {
           const outcome = providerOutcome(row.status);
           const checkedAtLabel = formatCheckedAt(row.checkedAt);
+          const isMock = row.id === "sanctions" && isMockProviderId(row.provider);
+          const mockIsWarn = isMock && outcome !== "verified";
           return (
             <div
               key={row.id}
@@ -148,6 +193,44 @@ export default function ProviderStatusSummary({
                       Last checked
                     </span>
                     {checkedAtLabel}
+                  </div>
+                )}
+                {isMock && (
+                  <div
+                    className={
+                      mockIsWarn
+                        ? "providerStatusMockNotice providerStatusMockNotice--warn"
+                        : "providerStatusMockNotice"
+                    }
+                    data-testid="provider-status-mock-notice"
+                    role={mockIsWarn ? "alert" : undefined}
+                  >
+                    <div className="providerStatusMockBadge">
+                      Mock provider (TRM integration pending)
+                    </div>
+                    <div className="providerStatusMockMeta">
+                      <span className="providerStatusMetaLabel">Provider</span>
+                      <span data-testid="provider-status-mock-provider">
+                        {row.provider}
+                      </span>
+                    </div>
+                    <div className="providerStatusMockMeta">
+                      <span className="providerStatusMetaLabel">Status</span>
+                      <span data-testid="provider-status-mock-decision">
+                        {rawDecisionLabel(row.status)}
+                      </span>
+                    </div>
+                    <div className="providerStatusMockMeta">
+                      <span className="providerStatusMetaLabel">Evidence</span>
+                      <span data-testid="provider-status-mock-evidence">
+                        {row.evidenceReference ?? (
+                          <span className="textMuted">none</span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="providerStatusMockDisclaimer">
+                      Simulated screening only — not real compliance.
+                    </div>
                   </div>
                 )}
               </div>
