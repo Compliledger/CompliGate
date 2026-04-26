@@ -4,8 +4,6 @@ import { apiPost, describeError } from "../lib/api";
 import StatusMessage from "./StatusMessage";
 import PanelNumber from "./PanelNumber";
 import ProviderStatusSummary from "./ProviderStatusSummary";
-import { checkClass, checkSymbol } from "../lib/format";
-import type { PermitResponse, VerifyResponse } from "../types/api";
 import {
   checkClass,
   checkSymbol,
@@ -16,6 +14,7 @@ import {
   outcomeTextClass,
   providerOutcome,
   unavailableReasonCodes,
+  type ProviderOutcome,
 } from "../lib/format";
 import type {
   PermitResponse,
@@ -268,22 +267,32 @@ export default function PermitVerificationPanel({ permit, panelNumber, order }: 
                     <span className="summaryValue">{String(result.not_expired)}</span>
                   </div>
                   {decisionResult && (() => {
-                    const decisionOk = decisionPositive;
-                    const decisionTextClass = decisionOk
-                      ? "textGood"
+                    // Map the decision string onto the four-state
+                    // outcome so the row's icon, value class, and label
+                    // are all driven by the same shared pattern as the
+                    // provider-backed compliance rows. An `unavailable`
+                    // decision must render with the dash glyph and
+                    // warn colour — never with the same ✘ + textBad
+                    // styling as a hard deny.
+                    const decisionOutcome: ProviderOutcome = decisionPositive
+                      ? "verified"
                       : complianceUnavailable
-                      ? "textWarn"
-                      : "textBad";
+                      ? "unavailable"
+                      : complianceDenied || decisionDenied
+                      ? "denied"
+                      : "not_evaluated";
                     return (
                       <div
                         className="verifyRow"
                         data-testid="permit-verification-decision"
                       >
-                        <span className={checkClass(decisionOk)}>
-                          {checkSymbol(decisionOk)}
+                        <span className={outcomeClass(decisionOutcome)}>
+                          {outcomeSymbol(decisionOutcome)}
                         </span>
                         <span className="summaryLabel">Decision result</span>
-                        <span className={`summaryValue ${decisionTextClass}`}>
+                        <span
+                          className={`summaryValue ${outcomeTextClass(decisionOutcome)}`}
+                        >
                           {decisionResult}
                         </span>
                       </div>
