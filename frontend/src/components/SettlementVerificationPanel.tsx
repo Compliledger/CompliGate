@@ -298,10 +298,49 @@ export default function SettlementVerificationPanel({
                 </div>
               </div>
 
+              {(() => {
+                // Surface the *real* provider-backed evidence references
+                // recorded inside the proof artifact's evaluation_context.
+                // These reference strings are produced by the configured
+                // sanctions / KYC / reserve / liquidity providers and are
+                // `null` when no provider returned one — we never fabricate
+                // a reference. The proof artifact represents authorization
+                // / verification evidence only and does not imply any
+                // on-ledger enforcement action.
+                const ctx = artifact.evaluation_context ?? {};
+                const refs: { label: string; value: string }[] = [];
+                const addRef = (label: string, value: unknown) => {
+                  if (typeof value === "string" && value.trim() !== "") {
+                    refs.push({ label, value });
+                  }
+                };
+                addRef("Sanctions evidence", ctx.sanctions_reference);
+                addRef("KYC evidence", ctx.kyc_reference);
+                addRef("KYC evidence (destination)", ctx.kyc_destination_reference);
+                addRef("Reserve evidence", ctx.reserve_reference);
+                addRef("Liquidity evidence", ctx.liquidity_reference);
+
+                if (refs.length === 0) return null;
+                return (
+                  <div className="verifyRows" data-testid="proof-evidence-references">
+                    <div className="reasonCodesTitle">
+                      Evidence References (authorization / verification only)
+                    </div>
+                    {refs.map((r) => (
+                      <div className="verifyRow" key={r.label}>
+                        <span className="check">✔</span>
+                        <span className="summaryLabel">{r.label}</span>
+                        <span className="summaryValue commitValueMono breakAll">{r.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
               <div className="proofArtifactBlock">
                 <details className="proofArtifactDetails">
                   <summary className="proofArtifactSummary">
-                    Proof Artifact
+                    Proof Artifact (verification evidence)
                     <button
                       className="copyBtn"
                       onClick={(e) => {
