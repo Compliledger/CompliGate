@@ -42,6 +42,9 @@ function EvidenceRow({
   checkedAt,
   evidenceReference,
   reasonCodes,
+  copyKey,
+  copied,
+  onCopy,
 }: {
   title: string;
   status: string | null | undefined;
@@ -50,6 +53,10 @@ function EvidenceRow({
   checkedAt?: number | null;
   evidenceReference?: string | null;
   reasonCodes?: string[];
+  /** Unique key used by the shared copy hook to track which row was copied. */
+  copyKey: string;
+  copied: string | null;
+  onCopy: (text: string, key: string) => void;
 }) {
   const outcome = providerOutcome(status);
   const checkedAtLabel = formatCheckedAt(checkedAt);
@@ -91,7 +98,17 @@ function EvidenceRow({
           <dt>Evidence Reference</dt>
           <dd className="commitValueMono breakAll">
             {evidenceReference ? (
-              evidenceReference
+              <>
+                {evidenceReference}
+                <button
+                  className="copyBtn"
+                  onClick={() => onCopy(evidenceReference, copyKey)}
+                  title="Copy evidence reference"
+                  style={{ marginLeft: 8 }}
+                >
+                  {copied === copyKey ? "✔ Copied" : "Copy"}
+                </button>
+              </>
             ) : (
               <span className="textMuted">Not Provided</span>
             )}
@@ -222,6 +239,9 @@ export default function TechnicalProofPanel({ permit, panelNumber, order }: Prop
                   reasonCodes={
                     sanctionsItem?.reason ? [sanctionsItem.reason] : undefined
                   }
+                  copyKey="evidence_ref_sanctions"
+                  copied={copied}
+                  onCopy={copyToClipboard}
                 />
 
                 <div className="evidenceSubheader">KYC Evidence</div>
@@ -247,6 +267,9 @@ export default function TechnicalProofPanel({ permit, panelNumber, order }: Prop
                     null
                   }
                   reasonCodes={attestations.kyc_result?.reason_codes}
+                  copyKey="evidence_ref_kyc"
+                  copied={copied}
+                  onCopy={copyToClipboard}
                 />
                 {attestations.kyc_destination_result && (
                   <EvidenceRow
@@ -261,6 +284,9 @@ export default function TechnicalProofPanel({ permit, panelNumber, order }: Prop
                       null
                     }
                     reasonCodes={attestations.kyc_destination_result.reason_codes}
+                    copyKey="evidence_ref_kyc_destination"
+                    copied={copied}
+                    onCopy={copyToClipboard}
                   />
                 )}
 
@@ -288,6 +314,9 @@ export default function TechnicalProofPanel({ permit, panelNumber, order }: Prop
                     null
                   }
                   reasonCodes={attestations.reserve_result?.reason_codes}
+                  copyKey="evidence_ref_reserve"
+                  copied={copied}
+                  onCopy={copyToClipboard}
                 />
                 <EvidenceRow
                   title="Liquidity"
@@ -311,6 +340,9 @@ export default function TechnicalProofPanel({ permit, panelNumber, order }: Prop
                     null
                   }
                   reasonCodes={attestations.reserve_result?.reason_codes}
+                  copyKey="evidence_ref_liquidity"
+                  copied={copied}
+                  onCopy={copyToClipboard}
                 />
               </div>
             );
