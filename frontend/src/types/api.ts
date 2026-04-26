@@ -147,10 +147,8 @@ export type ProofArtifact = {
   module: string;
   entity_id: string;
   rule_version_used: string;
-  decision_result: string;
-  evaluation_context: ProofArtifactEvaluationContext;
   decision_result: DecisionResult;
-  evaluation_context: Record<string, unknown>;
+  evaluation_context: ProofArtifactEvaluationContext;
   reason_codes: string[];
   timestamp: number;
   bundle_hash: string;

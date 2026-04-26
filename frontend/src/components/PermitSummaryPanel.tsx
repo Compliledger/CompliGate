@@ -1,22 +1,25 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 
 import StatusMessage from "./StatusMessage";
 import {
-  checkClass,
-  checkSymbol,
+  classifySettlement,
   formatSeconds,
-  formatStatusLabel,
   isDeniedDecision,
   outcomeClass,
+  outcomeLabel,
   outcomeSymbol,
   outcomeTextClass,
   providerOutcome,
   unavailableReasonCodes,
+  type ProviderOutcome,
+  type SettlementOutcome,
 } from "../lib/format";
 import type {
-  BaseComplianceCheckResult,
+  ComplianceEvidenceItem,
+  KycResult,
   PermitResponse,
-  SanctionsCheckResult,
+  ReserveResult,
+  SettlementVerifyResponse,
 } from "../types/api";
 
 export type PermitStatus = {
@@ -30,65 +33,267 @@ type Props = {
   status: PermitStatus;
   /** Seconds remaining before the permit expires (0 when no permit / expired). */
   remaining: number;
+  /**
+   * Optional settlement verification result. When provided the panel renders
+   * the actual settlement outcome in the "Settlement Verification" section
+   * rather than a placeholder.
+   */
+  settlementResult?: SettlementVerifyResponse | null;
   /** Optional CSS flex order, used to position among sibling panels. */
   order?: number;
 };
 
+// ---------------------------------------------------------------------------
+// Section primitive
+// ---------------------------------------------------------------------------
+
 /**
- * Returns true when a normalized compliance check result represents a
- * passing/allowing outcome. Used to coerce the widened
- * `boolean | <CheckResult>` constraint fields into the boolean shape
- * `checkClass`/`checkSymbol` expect, without changing rendered behavior
- * for the legacy primitive form.
+ * Visual variant of a section header. Mirrors the four-state
+ * `ProviderOutcome` plus a neutral state used for sections that do not
+ * map onto a provider outcome (e.g. asset classification, XRPL
+ * preconditions when no signal is present yet).
  */
-function isCheckPassing(
-  value: boolean | BaseComplianceCheckResult | undefined,
-): boolean {
-  if (typeof value === "boolean") return value;
-  if (!value) return false;
-  if (value.decision) return value.decision === "allow";
-  return value.status === "pass";
+type SectionState = ProviderOutcome | "neutral";
+
+function sectionStateFromOutcome(o: ProviderOutcome): SectionState {
+  return o;
+}
+
+function sectionStateClass(state: SectionState): string {
+  switch (state) {
+    case "verified":
+      return "controlSectionVerified";
+    case "denied":
+      return "controlSectionDenied";
+    case "unavailable":
+      return "controlSectionUnavailable";
+    case "not_evaluated":
+      return "controlSectionNotEvaluated";
+    case "neutral":
+      return "controlSectionNeutral";
+  }
+}
+
+function sectionStateLabel(state: SectionState): string {
+  switch (state) {
+    case "verified":
+      return "Verified";
+    case "denied":
+      return "Denied";
+    case "unavailable":
+      return "Unavailable";
+    case "not_evaluated":
+      return "Not Evaluated";
+    case "neutral":
+      return "Configured";
+  }
+}
+
+type ControlSectionProps = {
+  title: string;
+  state: SectionState;
+  /** Human-readable outcome label override (e.g. "PASS" for settlement). */
+  outcomeLabelOverride?: string;
+  /** Provider / source name; rendered in the meta line when present. */
+  provider?: string | null;
+  /** Evidence reference identifier; rendered in the meta line when present. */
+  evidence?: string | null;
+  /** Reason codes displayed below the meta line. Empty array = no codes. */
+  reasonCodes?: readonly string[];
+  /**
+   * Highlighted (warn-styled) reason codes — typically the
+   * `*_UNAVAILABLE` subset.
+   */
+  unavailableCodes?: readonly string[];
+  /** Optional inline rows for additional structured fields. */
+  children?: ReactNode;
+  /** Optional test id for assertions. */
+  testId?: string;
+};
+
+function ControlSection({
+  title,
+  state,
+  outcomeLabelOverride,
+  provider,
+  evidence,
+  reasonCodes,
+  unavailableCodes,
+  children,
+  testId,
+}: ControlSectionProps) {
+  const stateClass = sectionStateClass(state);
+  const label = outcomeLabelOverride ?? sectionStateLabel(state);
+  const codes = reasonCodes ?? [];
+  const unavailable = unavailableCodes ?? [];
+  return (
+    <div
+      className={`controlSection ${stateClass}`}
+      data-testid={testId}
+      data-state={state}
+    >
+      <div className="controlSectionHeader">
+        <span className="controlSectionTitle">{title}</span>
+        <span className={`controlSectionBadge ${stateClass}`}>{label}</span>
+      </div>
+      {(provider || evidence) && (
+        <div className="controlSectionMeta">
+          {provider && (
+            <span className="controlSectionMetaItem">
+              <span className="controlSectionMetaLabel">Source</span>
+              {provider}
+            </span>
+          )}
+          {evidence && (
+            <span className="controlSectionMetaItem">
+              <span className="controlSectionMetaLabel">Evidence</span>
+              <span className="controlSectionEvidence">{evidence}</span>
+            </span>
+          )}
+        </div>
+      )}
+      {children && <div className="controlSectionRows">{children}</div>}
+      {codes.length > 0 && (
+        <div className="controlSectionCodes">
+          {codes.map((rc) => (
+            <span
+              key={rc}
+              className={`reasonCode ${
+                unavailable.includes(rc)
+                  ? "reasonCodeWarn"
+                  : state === "denied"
+                  ? "reasonCodeBad"
+                  : ""
+              }`}
+            >
+              {rc}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ControlRow({
+  label,
+  value,
+  outcome,
+}: {
+  label: string;
+  value: ReactNode;
+  outcome?: ProviderOutcome;
+}) {
+  return (
+    <div className="controlSectionRow">
+      {outcome && (
+        <span className={outcomeClass(outcome)}>{outcomeSymbol(outcome)}</span>
+      )}
+      <span className="controlSectionRowLabel">{label}</span>
+      <span
+        className={`controlSectionRowValue${
+          outcome ? ` ${outcomeTextClass(outcome)}` : ""
+        }`}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function findEvidence(
+  items: ComplianceEvidenceItem[] | undefined,
+  check: string,
+): ComplianceEvidenceItem | undefined {
+  return items?.find((e) => e.check === check);
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value : null;
 }
 
 /**
- * Display string for the legacy `sanctions_check` field, which historically
- * was a plain string (e.g. "passed") but may now arrive as a normalized
- * `SanctionsCheckResult`.
+ * Filter top-level reason codes to those relevant to a particular check
+ * family. Used so each section displays only the codes that actually
+ * apply to it (e.g. SANCTIONS_* under sanctions, KYC_* under KYC).
  */
-function sanctionsLabel(value: string | SanctionsCheckResult | undefined): string {
-  if (!value) return "";
-  if (typeof value === "string") return value;
-  return value.decision ?? value.status;
+function filterReasonCodes(
+  codes: readonly string[] | null | undefined,
+  pattern: RegExp,
+): string[] {
+  if (!codes) return [];
+  return codes.filter((rc) => pattern.test(rc));
 }
 
-function isSanctionsPassing(
-  value: string | SanctionsCheckResult | undefined,
-): boolean {
-  if (!value) return false;
-  if (typeof value === "string") return value === "passed";
-  if (value.decision) return value.decision === "allow";
-  return value.status === "pass";
+function settlementSectionState(outcome: SettlementOutcome): SectionState {
+  switch (outcome) {
+    case "pass":
+      return "verified";
+    case "fail":
+      return "denied";
+    case "unavailable":
+      return "unavailable";
+  }
 }
+
+function settlementOutcomeLabel(outcome: SettlementOutcome): string {
+  switch (outcome) {
+    case "pass":
+      return "PASS";
+    case "fail":
+      return "FAIL";
+    case "unavailable":
+      return "UNAVAILABLE";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// PermitSummaryPanel
+// ---------------------------------------------------------------------------
 
 /**
  * PermitSummaryPanel
  *
- * Renders the "Permit Constraints Snapshot" card: a compact overview of
- * issuer / asset / custody / reserve attestation flags plus the XRPL /
- * RLUSD regulatory controls and an expiry progress bar.
+ * Renders the permit constraints snapshot organized around the **real
+ * regulatory control results** returned by the backend. Each section
+ * surfaces the outcome, the provider / source that produced it, the
+ * underlying evidence reference (when emitted) and any relevant reason
+ * codes — without fabricating synthetic booleans.
  *
- * Pure presentation: receives the permit and derived header status from
- * its parent so the page-level orchestrator can keep the canonical
- * permit state.
+ * Sections:
+ *   1. Asset Classification
+ *   2. Sanctions / AML
+ *   3. KYC / Identity
+ *   4. Reserve / Liquidity
+ *   5. XRPL Preconditions
+ *   6. Settlement Verification
+ *
+ * Pure presentation: receives the permit, derived header status, and
+ * (optionally) the settlement verification result from its parent so
+ * the page-level orchestrator keeps the canonical state.
  */
-export default function PermitSummaryPanel({ permit, status, remaining, order }: Props) {
+export default function PermitSummaryPanel({
+  permit,
+  status,
+  remaining,
+  settlementResult,
+  order,
+}: Props) {
   const expiryPercent = useMemo(() => {
     if (!permit || remaining <= 0 || permit.expires_in_seconds <= 0) return 0;
     return Math.min(100, (remaining / permit.expires_in_seconds) * 100);
   }, [permit, remaining]);
 
   return (
-    <section className="card" style={order !== undefined ? { order } : undefined}>
+    <section
+      className="card"
+      style={order !== undefined ? { order } : undefined}
+      data-testid="permit-summary-panel"
+    >
       <div className="summaryHeader">
         <h2>Permit Constraints Snapshot</h2>
         <span className={`badge ${status.kind}`}>
@@ -99,7 +304,7 @@ export default function PermitSummaryPanel({ permit, status, remaining, order }:
 
       {!permit ? (
         <StatusMessage variant="empty" title="No permit yet">
-          Request a permit to view the constraints.
+          Request a permit to view the control results.
         </StatusMessage>
       ) : (
         <>
@@ -122,8 +327,8 @@ export default function PermitSummaryPanel({ permit, status, remaining, order }:
                 <div data-testid="permit-summary-denial">
                   <p style={{ margin: "0 0 8px" }}>
                     {unavailable.length > 0
-                      ? "The backend failed closed because one or more required provider checks could not return a definitive result. The constraints below reflect the unverified state and must not be treated as a passing compliance outcome."
-                      : "The backend denied this permit. The constraints below reflect the unverified state and must not be treated as a passing compliance outcome."}
+                      ? "The backend failed closed because one or more required provider checks could not return a definitive result. The control results below reflect the unverified state and must not be treated as a passing compliance outcome."
+                      : "The backend denied this permit. The control results below reflect the unverified state and must not be treated as a passing compliance outcome."}
                   </p>
                   {reasonCodes.length > 0 && (
                     <div
@@ -148,297 +353,16 @@ export default function PermitSummaryPanel({ permit, status, remaining, order }:
               </StatusMessage>
             );
           })()}
-          <div className="summary">
-            <div className="summaryRow">
-              <span className={checkClass(permit.summary.issuer_verified)}>
-                {checkSymbol(permit.summary.issuer_verified)}
-              </span>
-              <span className="summaryLabel">Issuer configured</span>
-              <span className="summaryValue">
-                {permit.summary.issuer_verified ? "Yes" : "No"}
-              </span>
-            </div>
-            <div className="summaryRow">
-              <span className="check">✔</span>
-              <span className="summaryLabel">Asset classification</span>
-              <span className="summaryValue">{permit.summary.asset_classification}</span>
-            </div>
-            {permit.bundle.asset.regulatory_treatment && (
-              <div className="summaryRow">
-                <span className="check">✔</span>
-                <span className="summaryLabel">Regulatory treatment</span>
-                <span className="summaryValue">{permit.bundle.asset.regulatory_treatment}</span>
-              </div>
-            )}
-            <div className="summaryRow">
-              <span className="check">✔</span>
-              <span className="summaryLabel">Policy version</span>
-              <span className="summaryValue">{permit.summary.policy_version}</span>
-            </div>
-            <div className="summaryRow">
-              <span
-                className={`check${
-                  remaining <= 0
-                    ? " checkFail"
-                    : remaining < 60
-                    ? " checkWarn"
-                    : ""
-                }`}
-              >
-                {remaining > 0 ? "⏱" : "✘"}
-              </span>
-              <span className="summaryLabel">Expires in</span>
-              <span
-                className={`summaryValue${
-                  remaining <= 0
-                    ? " textBad"
-                    : remaining < 60
-                    ? " textWarn"
-                    : ""
-                }`}
-              >
-                {remaining > 0 ? formatSeconds(remaining) : "Expired"}
-              </span>
-            </div>
-          </div>
 
-          <div className="regulatoryControlsHeader">Provider-Backed Compliance Checks</div>
-          <div className="summary">
-            {(() => {
-              const kycOutcome = providerOutcome(permit.summary.kyc_status);
-              const kycResult = permit.bundle.attestations.kyc_result;
-              const kycReference = permit.bundle.attestations.kyc_reference;
-              return (
-                <div className="summaryRow">
-                  <span className={outcomeClass(kycOutcome)}>
-                    {outcomeSymbol(kycOutcome)}
-                  </span>
-                  <span className="summaryLabel">
-                    KYC
-                    {(kycResult?.provider_name || kycReference) && (
-                      <span className="evidenceMeta">
-                        {kycResult?.provider_name && (
-                          <>
-                            <span className="evidenceMetaLabel">Provider</span>
-                            {kycResult.provider_name}
-                          </>
-                        )}
-                        {kycReference && (
-                          <>
-                            {kycResult?.provider_name ? " · " : ""}
-                            <span className="evidenceMetaLabel">Ref</span>
-                            {kycReference}
-                          </>
-                        )}
-                      </span>
-                    )}
-                  </span>
-                  <span className={`summaryValue ${outcomeTextClass(kycOutcome)}`}>
-                    {formatStatusLabel(permit.summary.kyc_status)}
-                  </span>
-                </div>
-              );
-            })()}
-            {(() => {
-              const sanctionsOutcome = providerOutcome(permit.summary.sanctions_status);
-              const sanctionsReference = permit.bundle.attestations.sanctions_reference;
-              const sanctionsProvider = permit.bundle.compliance_evidence?.find(
-                (e) => e.check === "sanctions",
-              )?.provider_id;
-              return (
-                <div className="summaryRow">
-                  <span className={outcomeClass(sanctionsOutcome)}>
-                    {outcomeSymbol(sanctionsOutcome)}
-                  </span>
-                  <span className="summaryLabel">
-                    Sanctions screening
-                    {(sanctionsProvider || sanctionsReference) && (
-                      <span className="evidenceMeta">
-                        {sanctionsProvider && (
-                          <>
-                            <span className="evidenceMetaLabel">Provider</span>
-                            {sanctionsProvider}
-                          </>
-                        )}
-                        {sanctionsReference && (
-                          <>
-                            {sanctionsProvider ? " · " : ""}
-                            <span className="evidenceMetaLabel">Ref</span>
-                            {sanctionsReference}
-                          </>
-                        )}
-                      </span>
-                    )}
-                  </span>
-                  <span className={`summaryValue ${outcomeTextClass(sanctionsOutcome)}`}>
-                    {formatStatusLabel(permit.summary.sanctions_status)}
-                  </span>
-                </div>
-              );
-            })()}
-            {(() => {
-              const reserveOutcome = providerOutcome(permit.summary.reserve_status);
-              const reserveResult = permit.bundle.attestations.reserve_result;
-              const reserveReference = permit.bundle.attestations.reserve_reference;
-              return (
-                <div className="summaryRow">
-                  <span className={outcomeClass(reserveOutcome)}>
-                    {outcomeSymbol(reserveOutcome)}
-                  </span>
-                  <span className="summaryLabel">
-                    Reserve backing
-                    {(reserveResult?.provider_name || reserveReference) && (
-                      <span className="evidenceMeta">
-                        {reserveResult?.provider_name && (
-                          <>
-                            <span className="evidenceMetaLabel">Attestor</span>
-                            {reserveResult.provider_name}
-                          </>
-                        )}
-                        {reserveReference && (
-                          <>
-                            {reserveResult?.provider_name ? " · " : ""}
-                            <span className="evidenceMetaLabel">Ref</span>
-                            {reserveReference}
-                          </>
-                        )}
-                      </span>
-                    )}
-                  </span>
-                  <span className={`summaryValue ${outcomeTextClass(reserveOutcome)}`}>
-                    {formatStatusLabel(permit.summary.reserve_status)}
-                  </span>
-                </div>
-              );
-            })()}
-            {(() => {
-              const liquidityOutcome = providerOutcome(permit.summary.liquidity_status);
-              const reserveResult = permit.bundle.attestations.reserve_result;
-              const liquidityReference = permit.bundle.attestations.liquidity_reference;
-              return (
-                <div className="summaryRow">
-                  <span className={outcomeClass(liquidityOutcome)}>
-                    {outcomeSymbol(liquidityOutcome)}
-                  </span>
-                  <span className="summaryLabel">
-                    Liquidity
-                    {(reserveResult?.provider_name || liquidityReference) && (
-                      <span className="evidenceMeta">
-                        {reserveResult?.provider_name && (
-                          <>
-                            <span className="evidenceMetaLabel">Attestor</span>
-                            {reserveResult.provider_name}
-                          </>
-                        )}
-                        {liquidityReference && (
-                          <>
-                            {reserveResult?.provider_name ? " · " : ""}
-                            <span className="evidenceMetaLabel">Ref</span>
-                            {liquidityReference}
-                          </>
-                        )}
-                      </span>
-                    )}
-                  </span>
-                  <span className={`summaryValue ${outcomeTextClass(liquidityOutcome)}`}>
-                    {formatStatusLabel(permit.summary.liquidity_status)}
-                  </span>
-                </div>
-              );
-            })()}
-          </div>
+          <PermitMetaRow permit={permit} remaining={remaining} />
 
-          <div className="regulatoryControlsHeader">XRPL / RLUSD Issuer Controls</div>
-          <div className="summary">
-            {permit.bundle.constraints.reserve_backed !== undefined && (
-              <div className="summaryRow">
-                <span className={checkClass(isCheckPassing(permit.bundle.constraints.reserve_backed))}>
-                  {checkSymbol(isCheckPassing(permit.bundle.constraints.reserve_backed))}
-                </span>
-                <span className="summaryLabel">Reserve backed</span>
-                <span className="summaryValue">
-                  {isCheckPassing(permit.bundle.constraints.reserve_backed) ? "Yes" : "No"}
-                </span>
-              </div>
-            )}
-            {permit.bundle.constraints.liquidity_verified !== undefined && (
-              <div className="summaryRow">
-                <span className={checkClass(isCheckPassing(permit.bundle.constraints.liquidity_verified))}>
-                  {checkSymbol(isCheckPassing(permit.bundle.constraints.liquidity_verified))}
-                </span>
-                <span className="summaryLabel">Liquidity verified</span>
-                <span className="summaryValue">
-                  {isCheckPassing(permit.bundle.constraints.liquidity_verified) ? "Yes" : "No"}
-                </span>
-              </div>
-            )}
-            {permit.bundle.constraints.kyc_verified !== undefined && (
-              <div className="summaryRow">
-                <span className={checkClass(isCheckPassing(permit.bundle.constraints.kyc_verified))}>
-                  {checkSymbol(isCheckPassing(permit.bundle.constraints.kyc_verified))}
-                </span>
-                <span className="summaryLabel">KYC verified</span>
-                <span className="summaryValue">
-                  {isCheckPassing(permit.bundle.constraints.kyc_verified) ? "Yes" : "No"}
-                </span>
-              </div>
-            )}
-            {permit.bundle.constraints.sanctions_check !== undefined && (
-              <div className="summaryRow">
-                <span className={checkClass(isSanctionsPassing(permit.bundle.constraints.sanctions_check))}>
-                  {checkSymbol(isSanctionsPassing(permit.bundle.constraints.sanctions_check))}
-                </span>
-                <span className="summaryLabel">Sanctions check</span>
-                <span className="summaryValue">{sanctionsLabel(permit.bundle.constraints.sanctions_check)}</span>
-              </div>
-            )}
-            {permit.bundle.constraints.jurisdiction && (
-              <div className="summaryRow">
-                <span className="check">✔</span>
-                <span className="summaryLabel">Jurisdiction</span>
-                <span className="summaryValue">{permit.bundle.constraints.jurisdiction}</span>
-              </div>
-            )}
-            {permit.bundle.constraints.max_amount !== undefined && (
-              <div className="summaryRow">
-                <span className="check">✔</span>
-                <span className="summaryLabel">Max amount</span>
-                <span className="summaryValue">{permit.bundle.constraints.max_amount}</span>
-              </div>
-            )}
-            {permit.bundle.constraints.freeze_possible !== undefined && (
-              <div className="summaryRow">
-                <span className={checkClass(permit.bundle.constraints.freeze_possible)}>
-                  {checkSymbol(permit.bundle.constraints.freeze_possible)}
-                </span>
-                <span className="summaryLabel">Freeze possible</span>
-                <span className="summaryValue">
-                  {permit.bundle.constraints.freeze_possible ? "Yes" : "No"}
-                </span>
-              </div>
-            )}
-            {permit.bundle.constraints.clawback_possible !== undefined && (
-              <div className="summaryRow">
-                <span className={checkClass(permit.bundle.constraints.clawback_possible)}>
-                  {checkSymbol(permit.bundle.constraints.clawback_possible)}
-                </span>
-                <span className="summaryLabel">Clawback possible</span>
-                <span className="summaryValue">
-                  {permit.bundle.constraints.clawback_possible ? "Yes" : "No"}
-                </span>
-              </div>
-            )}
-            {permit.bundle.constraints.trustline_required !== undefined && (
-              <div className="summaryRow">
-                <span className={checkClass(permit.bundle.constraints.trustline_required)}>
-                  {checkSymbol(permit.bundle.constraints.trustline_required)}
-                </span>
-                <span className="summaryLabel">Trustline required</span>
-                <span className="summaryValue">
-                  {permit.bundle.constraints.trustline_required ? "Yes" : "No"}
-                </span>
-              </div>
-            )}
+          <div className="controlSections">
+            <AssetClassificationSection permit={permit} />
+            <SanctionsSection permit={permit} />
+            <KycSection permit={permit} />
+            <ReserveLiquiditySection permit={permit} />
+            <XrplPreconditionsSection permit={permit} />
+            <SettlementSection settlementResult={settlementResult ?? null} />
           </div>
 
           <div className="expiryBarWrap">
@@ -456,5 +380,391 @@ export default function PermitSummaryPanel({ permit, status, remaining, order }:
         </>
       )}
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Compact meta row (policy version + expiry)
+// ---------------------------------------------------------------------------
+
+function PermitMetaRow({
+  permit,
+  remaining,
+}: {
+  permit: PermitResponse;
+  remaining: number;
+}) {
+  return (
+    <div className="permitMetaRow">
+      <span className="permitMetaItem">
+        <span className="controlSectionMetaLabel">Policy</span>
+        {permit.summary.policy_version}
+      </span>
+      <span
+        className={`permitMetaItem${
+          remaining <= 0
+            ? " textBad"
+            : remaining < 60
+            ? " textWarn"
+            : ""
+        }`}
+      >
+        <span className="controlSectionMetaLabel">Expires in</span>
+        {remaining > 0 ? formatSeconds(remaining) : "Expired"}
+      </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section: Asset Classification
+// ---------------------------------------------------------------------------
+
+function AssetClassificationSection({ permit }: { permit: PermitResponse }) {
+  const { issuer_verified, asset_classification } = permit.summary;
+  const { classification, regulatory_treatment, policy_id, currency, issuer } =
+    permit.bundle.asset;
+  // Asset classification is configuration, not a provider check. We use
+  // the four-state outcome only so the badge styling stays consistent
+  // with the other sections: verified when an issuer is configured and
+  // a classification has been assigned, not_evaluated otherwise.
+  const state: SectionState =
+    issuer_verified && asset_classification
+      ? "verified"
+      : issuer_verified
+      ? "neutral"
+      : "not_evaluated";
+  const outcomeLabelOverride = state === "verified" ? "Classified" : undefined;
+  return (
+    <ControlSection
+      title="Asset Classification"
+      state={state}
+      outcomeLabelOverride={outcomeLabelOverride}
+      provider="Issuer configuration"
+      evidence={nonEmptyString(policy_id)}
+      testId="control-section-asset-classification"
+    >
+      <ControlRow
+        label="Classification"
+        value={asset_classification || classification || "—"}
+      />
+      {regulatory_treatment && (
+        <ControlRow label="Regulatory treatment" value={regulatory_treatment} />
+      )}
+      {currency && <ControlRow label="Currency" value={currency} />}
+      {issuer && (
+        <ControlRow
+          label="Issuer"
+          value={<span className="breakAll">{issuer}</span>}
+        />
+      )}
+    </ControlSection>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section: Sanctions / AML
+// ---------------------------------------------------------------------------
+
+function SanctionsSection({ permit }: { permit: PermitResponse }) {
+  const status = permit.summary.sanctions_status;
+  const outcome = providerOutcome(status);
+  const evidenceItem = findEvidence(permit.bundle.compliance_evidence, "sanctions");
+  const provider = evidenceItem?.provider_id ?? null;
+  const reference =
+    nonEmptyString(permit.bundle.attestations.sanctions_reference) ??
+    nonEmptyString(evidenceItem?.reference);
+  const topLevelCodes =
+    permit.reason_codes ?? permit.proof_artifact?.reason_codes ?? [];
+  const filtered = filterReasonCodes(topLevelCodes, /SANCTIONS|AML/i);
+  const itemReason = nonEmptyString(evidenceItem?.reason ?? null);
+  const codes = itemReason && !filtered.includes(itemReason)
+    ? [...filtered, itemReason]
+    : filtered;
+  const unavailable = unavailableReasonCodes(codes);
+  return (
+    <ControlSection
+      title="Sanctions / AML"
+      state={sectionStateFromOutcome(outcome)}
+      provider={provider}
+      evidence={reference}
+      reasonCodes={codes}
+      unavailableCodes={unavailable}
+      testId="control-section-sanctions"
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section: KYC / Identity
+// ---------------------------------------------------------------------------
+
+function kycLine(label: string, result: KycResult | null, reference: string | null) {
+  if (!result && !reference) return null;
+  const outcome = result
+    ? providerOutcome(result.kyc_status)
+    : reference
+    ? "verified"
+    : "not_evaluated";
+  return (
+    <ControlRow
+      label={label}
+      outcome={outcome}
+      value={
+        <span className="controlSectionRowValueInner">
+          <span>{outcomeLabel(outcome)}</span>
+          {result?.jurisdiction && (
+            <span className="controlSectionRowAside">
+              {result.jurisdiction}
+            </span>
+          )}
+        </span>
+      }
+    />
+  );
+}
+
+function KycSection({ permit }: { permit: PermitResponse }) {
+  const subjectStatus = permit.summary.kyc_status;
+  const outcome = providerOutcome(subjectStatus);
+  const subject = permit.bundle.attestations.kyc_result;
+  const destination = permit.bundle.attestations.kyc_destination_result;
+  const subjectRef = nonEmptyString(permit.bundle.attestations.kyc_reference);
+  const destinationRef = nonEmptyString(
+    permit.bundle.attestations.kyc_destination_reference,
+  );
+  const evidenceItem = findEvidence(permit.bundle.compliance_evidence, "kyc");
+  const provider =
+    subject?.provider_name ?? evidenceItem?.provider_id ?? null;
+  const topLevelCodes =
+    permit.reason_codes ?? permit.proof_artifact?.reason_codes ?? [];
+  const filtered = filterReasonCodes(topLevelCodes, /KYC|IDENTITY/i);
+  const merged = new Set<string>(filtered);
+  for (const rc of subject?.reason_codes ?? []) merged.add(rc);
+  for (const rc of destination?.reason_codes ?? []) merged.add(rc);
+  const codes = Array.from(merged);
+  const unavailable = unavailableReasonCodes(codes);
+  return (
+    <ControlSection
+      title="KYC / Identity"
+      state={sectionStateFromOutcome(outcome)}
+      provider={provider}
+      evidence={subjectRef}
+      reasonCodes={codes}
+      unavailableCodes={unavailable}
+      testId="control-section-kyc"
+    >
+      {kycLine("Subject", subject, subjectRef)}
+      {kycLine("Destination", destination, destinationRef)}
+    </ControlSection>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section: Reserve / Liquidity
+// ---------------------------------------------------------------------------
+
+function ReserveLiquiditySection({ permit }: { permit: PermitResponse }) {
+  const reserveStatus = permit.summary.reserve_status;
+  const liquidityStatus = permit.summary.liquidity_status;
+  const reserveOutcome = providerOutcome(reserveStatus);
+  const liquidityOutcome = providerOutcome(liquidityStatus);
+  // The section header reflects the *worse* of the two outcomes so the
+  // operator immediately sees the riskier signal — a denied reserve is
+  // not masked by a verified liquidity attestation, and vice versa.
+  const overall = combineOutcomes(reserveOutcome, liquidityOutcome);
+  const result: ReserveResult | null = permit.bundle.attestations.reserve_result;
+  const provider = result?.provider_name ?? result?.attestor_name ?? null;
+  const reserveRef = nonEmptyString(permit.bundle.attestations.reserve_reference);
+  const liquidityRef = nonEmptyString(
+    permit.bundle.attestations.liquidity_reference,
+  );
+  const evidenceRef = reserveRef ?? liquidityRef;
+  const topLevelCodes =
+    permit.reason_codes ?? permit.proof_artifact?.reason_codes ?? [];
+  const filtered = filterReasonCodes(topLevelCodes, /RESERVE|LIQUIDITY/i);
+  const merged = new Set<string>(filtered);
+  for (const rc of result?.reason_codes ?? []) merged.add(rc);
+  const codes = Array.from(merged);
+  const unavailable = unavailableReasonCodes(codes);
+  return (
+    <ControlSection
+      title="Reserve / Liquidity"
+      state={sectionStateFromOutcome(overall)}
+      provider={provider}
+      evidence={evidenceRef}
+      reasonCodes={codes}
+      unavailableCodes={unavailable}
+      testId="control-section-reserve-liquidity"
+    >
+      <ControlRow
+        label="Reserve backing"
+        outcome={reserveOutcome}
+        value={outcomeLabel(reserveOutcome)}
+      />
+      <ControlRow
+        label="Liquidity"
+        outcome={liquidityOutcome}
+        value={outcomeLabel(liquidityOutcome)}
+      />
+      {reserveRef && liquidityRef && reserveRef !== liquidityRef && (
+        <ControlRow
+          label="Liquidity evidence"
+          value={<span className="breakAll">{liquidityRef}</span>}
+        />
+      )}
+    </ControlSection>
+  );
+}
+
+/**
+ * Combine two provider outcomes into a single "worst-of" outcome. The
+ * ordering is denied > unavailable > not_evaluated > verified so the
+ * section badge always reflects the riskier of the two signals.
+ */
+function combineOutcomes(a: ProviderOutcome, b: ProviderOutcome): ProviderOutcome {
+  const rank: Record<ProviderOutcome, number> = {
+    denied: 3,
+    unavailable: 2,
+    not_evaluated: 1,
+    verified: 0,
+  };
+  return rank[a] >= rank[b] ? a : b;
+}
+
+// ---------------------------------------------------------------------------
+// Section: XRPL Preconditions
+// ---------------------------------------------------------------------------
+
+function XrplPreconditionsSection({ permit }: { permit: PermitResponse }) {
+  const c = permit.bundle.constraints;
+  const rows: Array<{ label: string; value: ReactNode }> = [];
+  if (c.jurisdiction) {
+    rows.push({ label: "Jurisdiction", value: c.jurisdiction });
+  }
+  if (typeof c.max_amount === "number") {
+    rows.push({ label: "Max amount", value: c.max_amount });
+  }
+  if (typeof c.amount === "number") {
+    const within = c.within_limit !== false;
+    rows.push({
+      label: "Requested amount",
+      value: (
+        <span className={within ? "textGood" : "textBad"}>
+          {c.amount}
+          {!within && " (over limit)"}
+        </span>
+      ),
+    });
+  }
+  if (typeof c.trustline_required === "boolean") {
+    rows.push({
+      label: "Trustline required",
+      value: c.trustline_required ? "Yes" : "No",
+    });
+  }
+  if (typeof c.freeze_possible === "boolean") {
+    rows.push({
+      label: "Freeze possible",
+      value: c.freeze_possible ? "Yes" : "No",
+    });
+  }
+  if (typeof c.clawback_possible === "boolean") {
+    rows.push({
+      label: "Clawback possible",
+      value: c.clawback_possible ? "Yes" : "No",
+    });
+  }
+  if (c.allowed_counterparty) {
+    rows.push({
+      label: "Allowed counterparty",
+      value: <span className="breakAll">{c.allowed_counterparty}</span>,
+    });
+  }
+  // XRPL preconditions are policy-engine-derived constraints rather
+  // than provider checks. We render them in the neutral "Configured"
+  // state when at least one constraint is set, otherwise "Not Evaluated".
+  const state: SectionState = rows.length > 0 ? "neutral" : "not_evaluated";
+  return (
+    <ControlSection
+      title="XRPL Preconditions"
+      state={state}
+      testId="control-section-xrpl-preconditions"
+    >
+      {rows.map((r) => (
+        <ControlRow key={r.label} label={r.label} value={r.value} />
+      ))}
+    </ControlSection>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section: Settlement Verification
+// ---------------------------------------------------------------------------
+
+function SettlementSection({
+  settlementResult,
+}: {
+  settlementResult: SettlementVerifyResponse | null;
+}) {
+  if (!settlementResult) {
+    return (
+      <ControlSection
+        title="Settlement Verification"
+        state="not_evaluated"
+        outcomeLabelOverride="Not verified yet"
+        testId="control-section-settlement"
+      >
+        <ControlRow
+          label="Status"
+          value={
+            <span className="textMuted">
+              Submit and verify a settled XRPL transaction to populate this
+              section.
+            </span>
+          }
+        />
+      </ControlSection>
+    );
+  }
+  const outcome = classifySettlement(settlementResult);
+  const state = settlementSectionState(outcome);
+  const artifact = settlementResult.proof_artifact;
+  const txHash =
+    nonEmptyString(settlementResult.tx_hash) ??
+    nonEmptyString(artifact?.anchor_metadata?.tx_hash as string | undefined);
+  const codes = settlementResult.reason_codes ?? [];
+  const unavailable = unavailableReasonCodes(codes);
+  return (
+    <ControlSection
+      title="Settlement Verification"
+      state={state}
+      outcomeLabelOverride={settlementOutcomeLabel(outcome)}
+      provider={artifact?.module ?? "Settlement engine"}
+      evidence={txHash}
+      reasonCodes={codes}
+      unavailableCodes={unavailable}
+      testId="control-section-settlement"
+    >
+      <ControlRow
+        label="Decision"
+        value={
+          <span
+            className={
+              state === "verified"
+                ? "textGood"
+                : state === "unavailable"
+                ? "textWarn"
+                : "textBad"
+            }
+          >
+            {settlementResult.decision_result}
+          </span>
+        }
+      />
+      {artifact?.rule_version_used && (
+        <ControlRow label="Rule version" value={artifact.rule_version_used} />
+      )}
+    </ControlSection>
   );
 }

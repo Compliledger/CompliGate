@@ -175,7 +175,13 @@ export default function App() {
         <PermitVerificationPanel permit={permit} panelNumber={6} order={6} />
 
         {/* Panel 7: Permit Constraints Snapshot */}
-        <PermitSummaryPanel permit={permit} status={status} remaining={remaining} order={7} />
+        <PermitSummaryPanel
+          permit={permit}
+          status={status}
+          remaining={remaining}
+          settlementResult={settlementResult}
+          order={7}
+        />
 
         {/* Panel 8: Transaction Lookup (supplemental) */}
         <TransactionLookupPanel onUseHash={setSettledTxHash} order={8} />
