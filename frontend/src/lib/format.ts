@@ -204,3 +204,40 @@ export function unavailableReasonCodes(
   if (!reasonCodes) return [];
   return reasonCodes.filter((rc) => /UNAVAILABLE$/.test(rc));
 }
+
+/**
+ * Outcome of a settled XRPL transaction's compliance verification.
+ *
+ * Mirrors the `SettlementVerifyResponse` decision vocabulary but
+ * collapsed into the three operationally distinct states the UI
+ * cares about.
+ */
+export type SettlementOutcome = "pass" | "fail" | "unavailable";
+
+/**
+ * Classify a settlement verification response into a `SettlementOutcome`.
+ *
+ * Keeps the unavailable branch explicit so the UI never silently
+ * conflates "could not verify" with "verified compliant".
+ */
+export function classifySettlement(result: {
+  decision_result?: string | null;
+  reason_codes?: readonly string[] | null;
+  unavailable?: boolean;
+  denied?: boolean;
+}): SettlementOutcome {
+  if (result.unavailable === true) return "unavailable";
+  const decision = result.decision_result;
+  const upper = typeof decision === "string" ? decision.toUpperCase() : "";
+  const lower = typeof decision === "string" ? decision.toLowerCase() : "";
+  if (upper === "SETTLED_COMPLIANT") return "pass";
+  if (upper === "SETTLEMENT_NON_COMPLIANT") return "fail";
+  if (lower === "unavailable") return "unavailable";
+  if (lower === "permit" || lower === "allow" || lower === "approved") {
+    return "pass";
+  }
+  if (unavailableReasonCodes(result.reason_codes ?? null).length > 0 && !result.denied) {
+    return "unavailable";
+  }
+  return "fail";
+}

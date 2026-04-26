@@ -4,8 +4,6 @@ import { apiPost, describeError } from "../lib/api";
 import StatusMessage from "./StatusMessage";
 import PanelNumber from "./PanelNumber";
 import ProviderStatusSummary from "./ProviderStatusSummary";
-import { checkClass, checkSymbol } from "../lib/format";
-import type { PermitResponse, VerifyResponse } from "../types/api";
 import {
   checkClass,
   checkSymbol,
