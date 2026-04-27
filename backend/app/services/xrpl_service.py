@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import requests as http_requests
 from fastapi import HTTPException
 
@@ -11,8 +13,9 @@ from app.services.xrpl_signer_service import is_signing_configured, sign_payment
 try:
     from xrpl.clients import JsonRpcClient
     from xrpl.models.amounts import IssuedCurrencyAmount
-    from xrpl.models.requests import AccountInfo, AccountLines, Tx
-    from xrpl.models.transactions import Memo
+    from xrpl.models.requests import AccountInfo, AccountLines, ServerInfo, Tx
+    from xrpl.models.transactions import Memo, Payment
+    from xrpl.transaction import submit_and_wait
     from xrpl.wallet import Wallet
 
     _XRPL_SDK_AVAILABLE = True
@@ -20,6 +23,9 @@ except ImportError:
     _XRPL_SDK_AVAILABLE = False
     IssuedCurrencyAmount = None
     Memo = None
+    Payment = None
+    ServerInfo = None
+    submit_and_wait = None
     Wallet = None  # type: ignore[assignment]
     Wallet = None
 
@@ -461,6 +467,272 @@ def normalize_xrpl_amount(amount_obj: str | dict) -> dict:
 
 def normalize_amount(value: str | dict) -> dict:
     return normalize_xrpl_amount(value)
+
+
+# ---------------------------------------------------------------------------
+# Real XRPL testnet client surface
+#
+# The functions below provide a minimal, explicit interface around the XRPL
+# JSON-RPC endpoint configured via ``XRPL_RPC_URL``. They intentionally:
+#
+#   * never fabricate a transaction hash,
+#   * never return mock / placeholder responses, and
+#   * always perform a real JSON-RPC call against the configured node.
+#
+# When the RPC endpoint is not reachable, the SDK is missing, or the node
+# returns an error, these functions return a structured error dict of the
+# shape ``{"error": <code>, "reason": <human readable>}`` instead of raising,
+# so callers can surface the failure without leaking exceptions.
+# ---------------------------------------------------------------------------
+
+
+def _xrpl_error(code: str, reason: str) -> dict:
+    return {"error": code, "reason": reason}
+
+
+def get_client() -> "JsonRpcClient | None":
+    """Return a real ``JsonRpcClient`` bound to ``XRPL_RPC_URL``.
+
+    Returns ``None`` when the xrpl-py SDK is unavailable or the RPC URL is
+    not configured. Callers should treat ``None`` as "RPC unavailable" and
+    surface a structured error to the user.
+    """
+    if not _XRPL_SDK_AVAILABLE:
+        logger.warning("xrpl-py SDK is not installed – XRPL client unavailable")
+        return None
+    if not config.XRPL_RPC_URL:
+        logger.warning("XRPL_RPC_URL is not configured – XRPL client unavailable")
+        return None
+    return JsonRpcClient(config.XRPL_RPC_URL)
+
+
+def get_network_status() -> dict:
+    """Query the XRPL node's ``server_info`` and return a structured snapshot.
+
+    Performs a real JSON-RPC call. Returns a structured error dict if the
+    RPC endpoint is unavailable or the request fails.
+    """
+    client = get_client()
+    if client is None:
+        return _xrpl_error(
+            "xrpl_not_configured",
+            "XRPL client is not available (SDK missing or XRPL_RPC_URL unset)",
+        )
+    if ServerInfo is None:  # pragma: no cover - guarded by SDK availability
+        return _xrpl_error("xrpl_sdk_unavailable", "xrpl-py SDK is not installed")
+
+    try:
+        response = client.request(ServerInfo())
+    except Exception as exc:
+        logger.error("get_network_status failed: %s", exc)
+        return _xrpl_error("xrpl_rpc_failed", str(exc))
+
+    if not response.is_successful():
+        return _xrpl_error(
+            "xrpl_rpc_error",
+            str(response.result.get("error_message") or response.result.get("error") or "unknown"),
+        )
+
+    info = response.result.get("info", {}) or {}
+    validated_ledger = info.get("validated_ledger", {}) or {}
+    return {
+        "network": config.XRPL_NETWORK,
+        "rpc_url": config.XRPL_RPC_URL,
+        "server_state": info.get("server_state"),
+        "build_version": info.get("build_version"),
+        "complete_ledgers": info.get("complete_ledgers"),
+        "validated_ledger_index": validated_ledger.get("seq"),
+        "validated_ledger_hash": validated_ledger.get("hash"),
+        "peers": info.get("peers"),
+        "uptime": info.get("uptime"),
+    }
+
+
+def submit_payment(
+    destination: str,
+    amount: "str | dict | IssuedCurrencyAmount",
+    *,
+    wallet: "Wallet | None" = None,
+    memo_bundle_hash: str | None = None,
+    destination_tag: int | None = None,
+) -> dict:
+    """Sign and submit a real XRPL Payment transaction.
+
+    ``amount`` may be a drop string (XRP), a dict matching the XRPL issued
+    currency amount shape, or an :class:`IssuedCurrencyAmount` instance.
+
+    Returns a dict containing the real ``tx_hash`` returned by the XRPL node
+    along with the engine result and validated flag. On failure a structured
+    error dict is returned – never a fabricated hash.
+    """
+    if not _XRPL_SDK_AVAILABLE or Payment is None or submit_and_wait is None:
+        return _xrpl_error("xrpl_sdk_unavailable", "xrpl-py SDK is not installed")
+
+    client = get_client()
+    if client is None:
+        return _xrpl_error(
+            "xrpl_not_configured",
+            "XRPL client is not available (SDK missing or XRPL_RPC_URL unset)",
+        )
+
+    if wallet is None:
+        signer = resolve_signer()
+        if signer.wallet is None:
+            return signer.error or _xrpl_error(
+                "signing_wallet_not_configured",
+                "XRPL signer wallet is not configured",
+            )
+        wallet = signer.wallet
+
+    # Normalize ``amount`` into the form xrpl-py expects: either a string of
+    # drops for XRP or an IssuedCurrencyAmount for issued currencies.
+    payment_amount: "str | IssuedCurrencyAmount"
+    if isinstance(amount, dict):
+        if IssuedCurrencyAmount is None:  # pragma: no cover - guarded above
+            return _xrpl_error("xrpl_sdk_unavailable", "xrpl-py SDK is not installed")
+        try:
+            payment_amount = IssuedCurrencyAmount(
+                currency=amount["currency"],
+                issuer=amount["issuer"],
+                value=str(amount["value"]),
+            )
+        except KeyError as exc:
+            return _xrpl_error(
+                "invalid_amount",
+                f"missing required amount field: {exc.args[0]}",
+            )
+    else:
+        payment_amount = amount  # str (drops) or IssuedCurrencyAmount
+
+    memos = None
+    if memo_bundle_hash and Memo is not None:
+        memos = [
+            Memo(
+                memo_data=memo_bundle_hash.encode("utf-8").hex(),
+                memo_type="text/plain".encode("utf-8").hex(),
+            )
+        ]
+
+    try:
+        payment = Payment(
+            account=wallet.address,
+            destination=destination,
+            amount=payment_amount,
+            destination_tag=destination_tag,
+            memos=memos,
+        )
+    except Exception as exc:
+        logger.error("submit_payment build failed: %s", exc)
+        return _xrpl_error("invalid_payment", str(exc))
+
+    try:
+        response = submit_and_wait(payment, client, wallet)
+    except Exception as exc:
+        logger.error("submit_payment submit failed: %s", exc)
+        return _xrpl_error("xrpl_submit_failed", str(exc))
+
+    result = response.result or {}
+    tx_hash = result.get("hash") or ""
+    if not tx_hash:
+        return _xrpl_error(
+            "xrpl_submit_no_hash",
+            "XRPL node did not return a transaction hash",
+        )
+
+    meta = result.get("meta", {})
+    engine_result = meta.get("TransactionResult", "unknown") if isinstance(meta, dict) else "unknown"
+
+    logger.info(
+        "submit_payment tx_hash=%s destination=%s engine_result=%s",
+        tx_hash,
+        destination,
+        engine_result,
+    )
+
+    return {
+        "submitted": True,
+        "tx_hash": tx_hash,
+        "engine_result": engine_result,
+        "validated": bool(result.get("validated", False)),
+        "network": config.XRPL_NETWORK,
+        "destination": destination,
+    }
+
+
+def fetch_transaction(tx_hash: str) -> dict:
+    """Fetch a transaction from the XRPL node using a real ``tx`` JSON-RPC call.
+
+    Returns the raw ``result`` dict from the node on success, or a
+    structured error dict on failure. Never returns mock data.
+    """
+    if not tx_hash:
+        return _xrpl_error("invalid_tx_hash", "tx_hash must be a non-empty string")
+
+    client = get_client()
+    if client is None:
+        return _xrpl_error(
+            "xrpl_not_configured",
+            "XRPL client is not available (SDK missing or XRPL_RPC_URL unset)",
+        )
+
+    try:
+        response = client.request(Tx(transaction=tx_hash))
+    except Exception as exc:
+        logger.error("fetch_transaction failed for %s: %s", tx_hash, exc)
+        return _xrpl_error("xrpl_rpc_failed", str(exc))
+
+    result = response.result or {}
+    if not response.is_successful():
+        return _xrpl_error(
+            "xrpl_rpc_error",
+            str(result.get("error_message") or result.get("error") or "unknown"),
+        )
+    return result
+
+
+def wait_for_validated_tx(tx_hash: str, timeout_seconds: int = 20) -> dict:
+    """Poll the XRPL node until ``tx_hash`` is validated or ``timeout_seconds``
+    elapses.
+
+    Returns the validated transaction ``result`` dict on success. On
+    timeout or RPC failure a structured error dict is returned.
+    """
+    if not tx_hash:
+        return _xrpl_error("invalid_tx_hash", "tx_hash must be a non-empty string")
+    if timeout_seconds <= 0:
+        return _xrpl_error(
+            "invalid_timeout",
+            "timeout_seconds must be a positive integer",
+        )
+
+    deadline = time.monotonic() + timeout_seconds
+    poll_interval = 1.0
+    last_result: dict | None = None
+
+    while True:
+        result = fetch_transaction(tx_hash)
+        last_result = result
+
+        # Distinguish "not found yet" (transient) from terminal RPC errors.
+        if "error" in result:
+            err = result["error"]
+            transient = err in {"xrpl_rpc_failed"} or (
+                err == "xrpl_rpc_error"
+                and "txnNotFound" in (result.get("reason") or "")
+            )
+            if not transient:
+                return result
+        elif result.get("validated"):
+            return result
+
+        if time.monotonic() >= deadline:
+            return _xrpl_error(
+                "xrpl_tx_not_validated",
+                f"Transaction {tx_hash} was not validated within {timeout_seconds}s",
+            )
+
+        time.sleep(min(poll_interval, max(0.1, deadline - time.monotonic())))
+        poll_interval = min(poll_interval * 1.5, 4.0)
 
 
 def is_rlusd_payment(tx_json: dict) -> bool:
