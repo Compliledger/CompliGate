@@ -411,11 +411,13 @@ def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerif
 
     amount_info = normalize_xrpl_amount(tx_payload.get("Amount", {}))
     memo = _parse_first_memo(tx_payload)
+    memo_bundle_hash = memo
 
     # -- bundle_hash / memo binding --
     # The XRPL transaction is expected to carry the permit ``bundle_hash``
     # as the first memo's ``MemoData``. Emit explicit reason codes so the
     # proof artifact records whether that binding was present and matched.
+    decision_result = "SETTLED_COMPLIANT"
     if memo is None:
         memo_match = False
         reason_codes.append("BUNDLE_HASH_MEMO_MISSING")
@@ -522,26 +524,35 @@ def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerif
     decision_result = "SETTLED_COMPLIANT" if compliant else "SETTLEMENT_NON_COMPLIANT"
     now = int(time.time())
 
+    ledger_index = tx_data.get("ledger_index") or tx_data.get("inLedger")
+    if ledger_index is None:
+        ledger_index = tx_payload.get("ledger_index") or tx_payload.get("inLedger")
+
     permit_evidence = permit_bundle.get("compliance_evidence", [])
     permit_attestations = permit_bundle.get("attestations") or {}
     evaluation_context = {
         "bundle_hash": bundle_hash,
         "permit_context_used": True,
+        "xrpl_network": config.XRPL_NETWORK,
         "tx_hash": tx_hash,
+        "ledger_index": ledger_index,
+        "validated": tx_validated,
         "tx_found": tx_found,
         "source_account": tx_account,
         "source": tx_account,
         "destination_account": tx_payload.get("Destination", ""),
+        "destination": tx_payload.get("Destination", ""),
         "currency": amount_info["currency"],
         "amount": amount_info["value"],
         "issuer": amount_info["issuer"],
         "memo": memo,
+        "memo_bundle_hash": memo_bundle_hash,
+        "memo_match": memo_match,
         "expected_sender": expected_sender,
         "permit_action": permit_action,
         "tx_type": tx_type,
         "asset_classification": ASSET_CLASSIFICATION_REGULATED_STABLECOIN,
         "asset": amount_info["currency"],
-        "destination": tx_payload.get("Destination", ""),
         "jurisdiction": permit_constraints.get("jurisdiction", config.JURISDICTION),
         "kyc_verified": permit_constraints.get("kyc_verified", False),
         "sanctions_check": permit_constraints.get("sanctions_check", "unavailable"),
@@ -567,13 +578,10 @@ def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerif
     evaluation_context["permit_proof_artifact"] = permit_context["proof_artifact"]
 
     anchor_metadata: dict = {
-        "network": config.XRPL_NETWORK,
+        "network": "xrpl-testnet",
         "tx_hash": tx_hash,
         "verified_at": now,
     }
-    ledger_index = tx_data.get("ledger_index") or tx_data.get("inLedger")
-    if ledger_index is None:
-        ledger_index = tx_payload.get("ledger_index") or tx_payload.get("inLedger")
     if ledger_index is not None:
         anchor_metadata["ledger_index"] = ledger_index
 
