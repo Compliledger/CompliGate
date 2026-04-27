@@ -2,6 +2,7 @@ import { useState, type KeyboardEvent } from "react";
 
 import { apiPost, describeError } from "../lib/api";
 import { useCopyToClipboard } from "../lib/useCopyToClipboard";
+import { getXrplExplorerUrl } from "../lib/xrplExplorer";
 import PanelNumber from "./PanelNumber";
 import StatusMessage from "./StatusMessage";
 import type { PermitResponse, XRPLPaymentResponse } from "../types/api";
@@ -181,6 +182,7 @@ export default function XRPLPaymentPanel({ permit, panelNumber, order, result, o
         const ok = result.submitted;
         const checkCls = ok ? "check" : "check checkFail";
         const checkSym = ok ? "✔" : "✘";
+        const explorerUrl = getXrplExplorerUrl(result.tx_hash, result.network);
         return (
         <div className="verifyResult">
           <div className={`verifyHeader ${ok ? "good" : "bad"}`}>
@@ -210,6 +212,17 @@ export default function XRPLPaymentPanel({ permit, panelNumber, order, result, o
               >
                 {copied === "pay_tx_hash" ? "✔ Copied" : "Copy"}
               </button>
+              {explorerUrl && (
+                <a
+                  className="copyBtn"
+                  href={explorerUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`View tx_hash on explorer (${result.network})`}
+                >
+                  View on Explorer ↗
+                </a>
+              )}
             </div>
 
             <div className="verifyRow">

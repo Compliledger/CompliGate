@@ -45,3 +45,20 @@ export const API_KEY_HEADER: string =
 
 /** Default timeout (in milliseconds) applied to API requests. */
 export const DEFAULT_TIMEOUT_MS = 15_000;
+
+/**
+ * Optional base URL of an XRPL transaction explorer.
+ *
+ * Sourced from `VITE_XRPL_EXPLORER_BASE_URL`. When set, the frontend
+ * deep-links the `tx_hash` returned by the backend to
+ * `${XRPL_EXPLORER_BASE_URL}/${tx_hash}`. When blank, the UI shows the
+ * raw `tx_hash` as plain text instead of a link.
+ *
+ * Intentionally has no default: a public mainnet explorer is NOT
+ * hardcoded here, since transactions submitted from a testnet/devnet
+ * deployment would otherwise resolve to the wrong network.
+ */
+export const XRPL_EXPLORER_BASE_URL: string =
+  ((import.meta.env.VITE_XRPL_EXPLORER_BASE_URL as string | undefined) ?? "")
+    .trim()
+    .replace(/\/+$/, "");
