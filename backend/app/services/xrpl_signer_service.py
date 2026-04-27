@@ -96,6 +96,132 @@ def get_signing_status() -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# XRPL_SIGNER_SEED-based signing (new public surface).
+#
+# These helpers implement the documented contract: load the seed strictly
+# from ``XRPL_SIGNER_SEED``, build an xrpl-py ``Wallet`` from it, and
+# expose a minimal, seed-free health snapshot for diagnostics. The seed
+# is never logged, returned, or echoed in error payloads.
+# ---------------------------------------------------------------------------
+
+
+def _signer_signing_mode() -> str:
+    """Return the configured high-level signing mode (``seed``/``disabled``/...).
+
+    This wraps ``config.XRPL_SIGNING_MODE`` so tests / callers don't need
+    to know the default. It is distinct from the legacy
+    ``get_signing_mode()`` above which describes which seed source the
+    legacy helpers picked.
+    """
+    return (config.XRPL_SIGNING_MODE or "seed").lower()
+
+
+def _signing_enabled() -> bool:
+    """Whether seed-based signing is currently enabled.
+
+    Signing is considered enabled only when:
+    * the xrpl-py SDK is importable,
+    * the operator has not turned signing off via ``XRPL_SIGNING_ENABLED=false``,
+    * the configured ``XRPL_SIGNING_MODE`` is ``seed`` (the only mode this
+      service can actually perform).
+    """
+    if not _XRPL_SDK_AVAILABLE:
+        return False
+    if not config.XRPL_SIGNING_ENABLED:
+        return False
+    return _signer_signing_mode() == "seed"
+
+
+def _seed_missing_error(mode: str) -> dict:
+    """Structured error payload for the "signing enabled but seed missing" case.
+
+    Intentionally contains no seed material and no other configuration
+    secrets – only the diagnostic ``signing_mode`` so callers can render
+    a useful HTTP error.
+    """
+    return {
+        "error": "xrpl_signer_seed_not_configured",
+        "reason": "XRPL_SIGNER_SEED is not configured",
+        "signing_mode": mode,
+    }
+
+
+def get_wallet() -> "Wallet | None":
+    """Return an xrpl-py ``Wallet`` built from ``XRPL_SIGNER_SEED``.
+
+    Returns ``None`` when signing is disabled, the SDK is unavailable,
+    the seed is not configured, or the seed cannot be parsed. The seed
+    itself is never logged or included in the return value; only the
+    derived wallet (which exposes the public address) is returned.
+    """
+    if not _signing_enabled():
+        return None
+
+    seed = config.XRPL_SIGNER_SEED
+    if not seed:
+        return None
+
+    try:
+        return Wallet.from_seed(seed)
+    except Exception:
+        # Deliberately log a static message – never the seed value.
+        logger.error("invalid_xrpl_signer_seed")
+        return None
+
+
+def get_signer_health() -> dict:
+    """Return a seed-free health snapshot for the XRPL signer.
+
+    The returned dict always contains exactly these keys:
+
+    * ``signing_enabled``  – whether seed-based signing is currently active
+    * ``signing_mode``     – configured signing mode (``seed``/``disabled``/...)
+    * ``signer_configured``– whether ``XRPL_SIGNER_SEED`` is set *and* parses
+    * ``signer_address``   – the seed-derived classic address, or the
+      configured ``XRPL_SIGNER_ADDRESS`` fallback, or ``None``
+
+    The seed itself is never read into, logged from, or returned by this
+    function.
+    """
+    mode = _signer_signing_mode()
+    enabled = _signing_enabled()
+
+    signer_address: str | None = config.XRPL_SIGNER_ADDRESS or None
+    signer_configured = False
+
+    if _XRPL_SDK_AVAILABLE and config.XRPL_SIGNER_SEED:
+        try:
+            wallet = Wallet.from_seed(config.XRPL_SIGNER_SEED)
+        except Exception:
+            logger.error("invalid_xrpl_signer_seed")
+        else:
+            signer_configured = True
+            signer_address = wallet.address
+
+    return {
+        "signing_enabled": enabled,
+        "signing_mode": mode,
+        "signer_configured": signer_configured,
+        "signer_address": signer_address,
+    }
+
+
+def get_signer_error() -> dict | None:
+    """Return a structured error if signing is enabled but unusable.
+
+    Returns ``None`` when signing is disabled (no error to report) or
+    when a usable signer wallet is configured. Returns the same payload
+    shape as :func:`_seed_missing_error` when signing is enabled but no
+    valid ``XRPL_SIGNER_SEED`` is available.
+    """
+    if not _signing_enabled():
+        return None
+    if get_wallet() is not None:
+        return None
+    return _seed_missing_error(_signer_signing_mode())
+
+
 def sign_payment_transaction(
     *,
     client: Any,
