@@ -115,9 +115,28 @@ def _evaluate_settlement_constraints(
     constraints_verified: dict[str, bool] = {}
     compliant = True
 
+    # -- XRPL transaction presence --
+    # ``fetch_xrpl_transaction`` returns the parsed JSON-RPC ``result`` dict.
+    # When the node could not locate the transaction, the result carries an
+    # ``error`` (e.g. ``txnNotFound``) and no transaction fields. Surface this
+    # explicitly via the ``XRPL_TX_FOUND`` / ``XRPL_TX_NOT_FOUND`` codes.
+    tx_error = tx_data.get("error") if isinstance(tx_data, dict) else None
+    tx_found = bool(tx_data) and not tx_error and bool(tx_data.get("TransactionType"))
+    constraints_verified["tx_found"] = tx_found
+    if tx_found:
+        reason_codes.append("XRPL_TX_FOUND")
+    else:
+        reason_codes.append("XRPL_TX_NOT_FOUND")
+        compliant = False
+
     tx_validated = tx_data.get("validated", False)
     constraints_verified["tx_validated"] = tx_validated
-    if not tx_validated:
+    if tx_validated:
+        reason_codes.append("XRPL_TX_VALIDATED")
+    else:
+        reason_codes.append("XRPL_TX_NOT_VALIDATED")
+        # Preserve the legacy ``TX_NOT_VALIDATED`` code for backwards
+        # compatibility with existing consumers.
         reason_codes.append("TX_NOT_VALIDATED")
         compliant = False
 
@@ -332,6 +351,7 @@ def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerif
             detail={
                 "error": "permit_not_found",
                 "reason": "No persisted permit context found for bundle_hash",
+                "reason_code": "PERMIT_CONTEXT_NOT_FOUND",
                 "bundle_hash": bundle_hash,
             },
         )
@@ -345,8 +365,37 @@ def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerif
         permit_bundle=permit_bundle,
     )
 
+    # Permit context was successfully loaded above; record that explicitly
+    # at the head of the reason-code list so the artifact reflects every
+    # gate that was evaluated, not just the failing ones.
+    reason_codes.insert(0, "PERMIT_CONTEXT_FOUND")
+
     amount_info = normalize_xrpl_amount(tx_payload.get("Amount", {}))
     memo = _parse_first_memo(tx_payload)
+
+    # -- bundle_hash / memo binding --
+    # The XRPL transaction is expected to carry the permit ``bundle_hash``
+    # as the first memo's ``MemoData``. Emit explicit reason codes so the
+    # proof artifact records whether that binding was present and matched.
+    if memo is None:
+        memo_match = False
+        reason_codes.append("BUNDLE_HASH_MEMO_MISSING")
+    elif memo == bundle_hash:
+        memo_match = True
+        reason_codes.append("BUNDLE_HASH_MEMO_MATCHED")
+    else:
+        memo_match = False
+        reason_codes.append("BUNDLE_HASH_MEMO_MISMATCH")
+    constraints_verified["bundle_hash_memo_match"] = memo_match
+    if not memo_match:
+        decision_result = "SETTLEMENT_NON_COMPLIANT"
+
+    # -- final settlement decision summary --
+    if decision_result == "SETTLED_COMPLIANT":
+        reason_codes.append("SETTLEMENT_VERIFIED")
+    else:
+        reason_codes.append("SETTLEMENT_VERIFICATION_FAILED")
+
     now = int(time.time())
 
     permit_constraints_for_ctx = (permit_bundle or {}).get("constraints", {})
