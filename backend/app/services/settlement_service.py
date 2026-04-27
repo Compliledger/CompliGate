@@ -107,6 +107,207 @@ def verify_settlement_against_permit(
     }
 
 
+def _evaluate_settlement_constraints(
+    tx_data: dict,
+    permit_bundle: dict | None = None,
+) -> tuple[str, list[str], dict]:
+    reason_codes: list[str] = []
+    constraints_verified: dict[str, bool] = {}
+    compliant = True
+
+    # -- XRPL transaction presence --
+    # ``fetch_xrpl_transaction`` returns the parsed JSON-RPC ``result`` dict.
+    # When the node could not locate the transaction, the result carries an
+    # ``error`` (e.g. ``txnNotFound``) and no transaction fields. Surface this
+    # explicitly via the ``XRPL_TX_FOUND`` / ``XRPL_TX_NOT_FOUND`` codes.
+    tx_error = tx_data.get("error") if isinstance(tx_data, dict) else None
+    tx_found = bool(tx_data) and not tx_error and bool(tx_data.get("TransactionType"))
+    constraints_verified["tx_found"] = tx_found
+    if tx_found:
+        reason_codes.append("XRPL_TX_FOUND")
+    else:
+        reason_codes.append("XRPL_TX_NOT_FOUND")
+        compliant = False
+
+    tx_validated = tx_data.get("validated", False)
+    constraints_verified["tx_validated"] = tx_validated
+    if tx_validated:
+        reason_codes.append("XRPL_TX_VALIDATED")
+    else:
+        reason_codes.append("XRPL_TX_NOT_VALIDATED")
+        # Preserve the legacy ``TX_NOT_VALIDATED`` code for backwards
+        # compatibility with existing consumers.
+        reason_codes.append("TX_NOT_VALIDATED")
+        compliant = False
+
+    tx_type = tx_data.get("TransactionType", "")
+    action_map = {"transfer": "Payment", "trustset": "TrustSet"}
+    permit_action = (permit_bundle or {}).get("action")
+    if permit_bundle and not permit_action:
+        constraints_verified["permit_action_present"] = False
+        reason_codes.append("PERMIT_CONTEXT_ACTION_MISSING")
+        compliant = False
+    expected_tx_type = action_map.get(permit_action or "transfer", "Payment")
+    tx_type_matches_permit = tx_type == expected_tx_type
+    constraints_verified["tx_type_matches_permit"] = tx_type_matches_permit
+    if tx_type_matches_permit:
+        reason_codes.append("TX_TYPE_MATCHES_PERMIT")
+    else:
+        reason_codes.append("TX_TYPE_MISMATCH_PERMIT" if permit_bundle else "TX_TYPE_NOT_PAYMENT")
+        compliant = False
+    constraints_verified["tx_type_payment"] = tx_type == "Payment"
+
+    permit_subject = (permit_bundle or {}).get("subject")
+    if permit_subject:
+        subject_match = tx_data.get("Account", "") == permit_subject
+        constraints_verified["subject_match"] = subject_match
+        if subject_match:
+            reason_codes.append("SUBJECT_MATCH")
+        else:
+            reason_codes.append("SUBJECT_MISMATCH")
+            compliant = False
+
+    amount_raw = tx_data.get("Amount", {})
+    amount_info = normalize_xrpl_amount(amount_raw)
+    tx_currency = amount_info["currency"]
+    tx_issuer = amount_info["issuer"]
+    tx_value_str = amount_info["value"]
+    try:
+        tx_value = float(tx_value_str)
+    except (ValueError, TypeError):
+        tx_value = 0.0
+
+    tx_destination = tx_data.get("Destination", "")
+
+    if permit_bundle:
+        permit_asset = permit_bundle.get("asset", {})
+        expected_currency = permit_asset.get("currency", "")
+        expected_issuer = permit_asset.get("issuer", "")
+        if not expected_currency:
+            constraints_verified["permit_currency_present"] = False
+            reason_codes.append("PERMIT_CONTEXT_CURRENCY_MISSING")
+            compliant = False
+            expected_currency = config.RLUSD_CURRENCY
+        if not expected_issuer:
+            constraints_verified["permit_issuer_present"] = False
+            reason_codes.append("PERMIT_CONTEXT_ISSUER_MISSING")
+            compliant = False
+    else:
+        expected_currency = config.RLUSD_CURRENCY
+        expected_issuer = config.RLUSD_ISSUER
+
+    currency_match = tx_currency == expected_currency
+    constraints_verified["currency_match"] = currency_match
+    if currency_match:
+        reason_codes.append("CURRENCY_MATCH")
+    else:
+        reason_codes.append("CURRENCY_MISMATCH")
+        compliant = False
+
+    if expected_issuer:
+        issuer_ok = tx_issuer == expected_issuer
+        constraints_verified["issuer_match"] = issuer_ok
+        if issuer_ok:
+            reason_codes.append("ISSUER_MATCH")
+        else:
+            reason_codes.append("ISSUER_MISMATCH")
+            compliant = False
+    else:
+        constraints_verified["issuer_match"] = True
+        reason_codes.append("ISSUER_MATCH")
+
+    asset_is_rlusd = currency_match and constraints_verified["issuer_match"]
+    constraints_verified["asset_classification_regulated_stablecoin"] = asset_is_rlusd
+    if asset_is_rlusd:
+        reason_codes.append("ASSET_CLASSIFIED_REGULATED_STABLECOIN")
+    else:
+        reason_codes.append("ASSET_NOT_RLUSD")
+        compliant = False
+
+    permit_constraints = (permit_bundle or {}).get("constraints", {})
+
+    constraints_verified["reserve_backed"] = bool(permit_constraints.get("reserve_backed")) if permit_bundle else False
+    if constraints_verified["reserve_backed"]:
+        reason_codes.append("RESERVE_BACKED")
+    else:
+        reason_codes.append("RESERVE_NOT_VERIFIED")
+        compliant = False
+
+    constraints_verified["liquidity_verified"] = bool(permit_constraints.get("liquidity_verified")) if permit_bundle else False
+    if constraints_verified["liquidity_verified"]:
+        reason_codes.append("LIQUIDITY_VERIFIED")
+    else:
+        reason_codes.append("LIQUIDITY_NOT_VERIFIED")
+        compliant = False
+
+    constraints_verified["kyc_verified"] = bool(permit_constraints.get("kyc_verified")) if permit_bundle else False
+    if constraints_verified["kyc_verified"]:
+        reason_codes.append("KYC_VERIFIED")
+    else:
+        reason_codes.append("KYC_NOT_VERIFIED")
+        compliant = False
+
+    sanctions_value = permit_constraints.get("sanctions_check") if permit_bundle else None
+    sanctions_passed = sanctions_value == "passed"
+    constraints_verified["sanctions_check_passed"] = sanctions_passed
+    if sanctions_passed:
+        reason_codes.append("SANCTIONS_PASSED")
+    else:
+        reason_codes.append("SANCTIONS_NOT_VERIFIED")
+        compliant = False
+
+    permit_jurisdiction = (permit_bundle or {}).get("policy", {}).get("jurisdiction") or permit_constraints.get("jurisdiction")
+    jurisdiction_match = permit_jurisdiction == config.JURISDICTION
+    constraints_verified["jurisdiction_match"] = jurisdiction_match
+    if jurisdiction_match:
+        reason_codes.append("JURISDICTION_MATCH")
+    else:
+        reason_codes.append("JURISDICTION_MISMATCH")
+        compliant = False
+
+    if permit_bundle:
+        max_amount = permit_constraints.get("max_amount")
+        if max_amount is None:
+            constraints_verified["permit_max_amount_present"] = False
+            reason_codes.append("PERMIT_CONTEXT_MAX_AMOUNT_MISSING")
+            amount_ok = False
+        else:
+            amount_ok = tx_value <= max_amount
+    else:
+        amount_ok = tx_value <= MAX_AMOUNT
+    constraints_verified["amount_within_limit"] = amount_ok
+    if amount_ok:
+        reason_codes.append("AMOUNT_WITHIN_LIMIT")
+    else:
+        reason_codes.append("AMOUNT_EXCEEDS_LIMIT")
+        compliant = False
+
+    allowed_counterparty = permit_constraints.get("allowed_counterparty")
+    if allowed_counterparty:
+        counterparty_match = tx_destination == allowed_counterparty
+        constraints_verified["counterparty_match"] = counterparty_match
+        if counterparty_match:
+            reason_codes.append("COUNTERPARTY_MATCH")
+        else:
+            reason_codes.append("COUNTERPARTY_MISMATCH")
+            compliant = False
+
+    if config.XRPL_REQUIRE_TRUSTLINE:
+        trustline_satisfied = tx_validated and tx_type_matches_permit
+        constraints_verified["trustline_required"] = trustline_satisfied
+        if trustline_satisfied:
+            reason_codes.append("TRUSTLINE_REQUIRED")
+        else:
+            reason_codes.append("TRUSTLINE_NOT_SATISFIED")
+            compliant = False
+    else:
+        constraints_verified["trustline_required"] = True
+        reason_codes.append("TRUSTLINE_NOT_REQUIRED")
+
+    decision = "SETTLED_COMPLIANT" if compliant else "SETTLEMENT_NON_COMPLIANT"
+    return decision, reason_codes, constraints_verified
+
+
 def _extract_tx_payload(tx_data: dict) -> dict:
     nested_tx = tx_data.get("tx")
     if isinstance(nested_tx, dict):
@@ -189,6 +390,7 @@ def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerif
             detail={
                 "error": "permit_not_found",
                 "reason": "No persisted permit context found for bundle_hash",
+                "reason_code": "PERMIT_CONTEXT_NOT_FOUND",
                 "bundle_hash": bundle_hash,
             },
         )
@@ -201,6 +403,37 @@ def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerif
     reason_codes: list[str] = []
     constraints_verified: dict[str, bool] = {}
     compliant = True
+
+    # Permit context was successfully loaded above; record that explicitly
+    # at the head of the reason-code list so the artifact reflects every
+    # gate that was evaluated, not just the failing ones.
+    reason_codes.insert(0, "PERMIT_CONTEXT_FOUND")
+
+    amount_info = normalize_xrpl_amount(tx_payload.get("Amount", {}))
+    memo = _parse_first_memo(tx_payload)
+
+    # -- bundle_hash / memo binding --
+    # The XRPL transaction is expected to carry the permit ``bundle_hash``
+    # as the first memo's ``MemoData``. Emit explicit reason codes so the
+    # proof artifact records whether that binding was present and matched.
+    if memo is None:
+        memo_match = False
+        reason_codes.append("BUNDLE_HASH_MEMO_MISSING")
+    elif memo == bundle_hash:
+        memo_match = True
+        reason_codes.append("BUNDLE_HASH_MEMO_MATCHED")
+    else:
+        memo_match = False
+        reason_codes.append("BUNDLE_HASH_MEMO_MISMATCH")
+    constraints_verified["bundle_hash_memo_match"] = memo_match
+    if not memo_match:
+        decision_result = "SETTLEMENT_NON_COMPLIANT"
+
+    # -- final settlement decision summary --
+    if decision_result == "SETTLED_COMPLIANT":
+        reason_codes.append("SETTLEMENT_VERIFIED")
+    else:
+        reason_codes.append("SETTLEMENT_VERIFICATION_FAILED")
 
     # 1. Transaction exists on XRPL.
     tx_found = not _tx_lookup_failed(tx_data)

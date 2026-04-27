@@ -294,6 +294,7 @@ def test_settlement_verify_by_hash_not_found():
         "detail": {
             "error": "permit_not_found",
             "reason": "No persisted permit context found for bundle_hash",
+            "reason_code": "PERMIT_CONTEXT_NOT_FOUND",
             "bundle_hash": "missing-bundle-hash",
         }
     }
