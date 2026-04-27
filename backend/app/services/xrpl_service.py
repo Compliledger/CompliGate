@@ -716,7 +716,7 @@ def wait_for_validated_tx(tx_hash: str, timeout_seconds: int = 20) -> dict:
         # Distinguish "not found yet" (transient) from terminal RPC errors.
         if "error" in result:
             err = result["error"]
-            transient = err in {"xrpl_rpc_failed"} or (
+            transient = err == "xrpl_rpc_failed" or (
                 err == "xrpl_rpc_error"
                 and "txnNotFound" in (result.get("reason") or "")
             )
