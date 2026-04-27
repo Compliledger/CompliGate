@@ -376,6 +376,44 @@ pytest tests/
 
 ---
 
+## XRPL Testnet Roundtrip
+
+`backend/scripts/xrpl_testnet_roundtrip.py` runs a single end-to-end
+roundtrip against the **real XRPL testnet** — no mocked XRPL responses.
+It exercises CompliGate's existing XRPL integration code paths to
+prove that a permit `bundle_hash` can be linked to a real on-ledger
+transaction via a Memo.
+
+The script:
+
+1. Submits a real XRPL testnet `Payment` carrying a CompliGate
+   `bundle_hash` in a `Memo`.
+2. Captures the real `tx_hash` returned by the network.
+3. Fetches the same transaction back from XRPL testnet.
+4. Runs CompliGate's settlement verification against the fetched
+   transaction.
+5. Decodes the on-ledger Memo and proves it equals the `bundle_hash`.
+
+Run it from `backend/`:
+
+```bash
+python3 scripts/xrpl_testnet_roundtrip.py
+```
+
+Relevant environment variables (all optional):
+
+| Variable | Description |
+|----------|-------------|
+| `XRPL_RPC_URL` | XRPL testnet JSON-RPC endpoint (default: testnet). |
+| `XRPL_NETWORK` | Network identifier embedded in metadata (default: `xrpl_testnet`). |
+| `XRPL_SIGNER_SEED` / `XRPL_SIGNING_SEED` | If set, derives the sender wallet from this seed (must already hold testnet XRP). Otherwise a fresh sender wallet is funded via the testnet faucet. |
+| `COMPLIGATE_TESTNET_DESTINATION` | Optional XRPL classic address to send the test payment to. When unset, a fresh receiver wallet is funded via the testnet faucet. |
+
+The script requires outbound internet access to the XRPL testnet
+faucet and JSON-RPC endpoint.
+
+---
+
 ## Docker
 
 ```bash
