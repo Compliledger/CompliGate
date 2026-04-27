@@ -33,5 +33,4 @@ def xrpl_trustline_check(req: TrustlineCheckRequest):
 
 @router.post("/v1/xrpl/payment", response_model=XRPLPaymentResponse, dependencies=[Depends(require_request_auth)])
 def xrpl_payment(req: XRPLPaymentRequest):
-    enforce_destination_trustline(req.destination, config.RLUSD_ISSUER, config.RLUSD_CURRENCY, fetch_account_lines)
     return submit_xrpl_payment(req)

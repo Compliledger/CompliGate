@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from decimal import Decimal, InvalidOperation
 
 import requests as http_requests
 from fastapi import HTTPException
@@ -15,7 +16,8 @@ try:
     from xrpl.models.amounts import IssuedCurrencyAmount
     from xrpl.models.requests import AccountInfo, AccountLines, ServerInfo, Tx
     from xrpl.models.transactions import Memo, Payment
-    from xrpl.transaction import submit_and_wait
+    from xrpl.transaction import autofill_and_sign, submit_and_wait
+    from xrpl.utils import xrp_to_drops
     from xrpl.wallet import Wallet
 
     _XRPL_SDK_AVAILABLE = True
@@ -25,7 +27,9 @@ except ImportError:
     Memo = None
     Payment = None
     ServerInfo = None
+    autofill_and_sign = None
     submit_and_wait = None
+    xrp_to_drops = None
     Wallet = None  # type: ignore[assignment]
     Wallet = None
 
@@ -363,7 +367,7 @@ def lookup_xrpl_transaction(tx_hash: str) -> dict:
 
 
 def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
-    if IssuedCurrencyAmount is None or Memo is None:
+    if Payment is None or Memo is None or xrp_to_drops is None or submit_and_wait is None:
         raise HTTPException(
             status_code=400,
             detail={"error": "xrpl_sdk_unavailable", "reason": "xrpl-py SDK is not installed"},
@@ -387,53 +391,79 @@ def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
         raise HTTPException(status_code=status_code, detail=error_detail)
     wallet = signer.wallet
 
-    amount_value = str(req.amount)
+    # ``amount`` is an XRP amount (e.g. "1" = 1 XRP). Convert via the SDK
+    # helper to the drops integer string the XRPL Payment requires.
+    try:
+        xrp_amount = Decimal(str(req.amount))
+    except (InvalidOperation, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_amount", "reason": f"Invalid XRP amount: {req.amount!r}"},
+        ) from exc
 
-    currency_code = config.RLUSD_CURRENCY
-    if len(currency_code) > 3:
-        currency_code = currency_code.encode("ascii").hex().upper().ljust(40, "0")
+    try:
+        drops = xrp_to_drops(xrp_amount)
+    except Exception as exc:  # XRPRangeException etc.
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_amount", "reason": str(exc)},
+        ) from exc
 
-    payment_amount = IssuedCurrencyAmount(
-        currency=currency_code,
-        issuer=config.RLUSD_ISSUER,
-        value=amount_value,
-    )
-
-    memos = []
+    memos = None
     if req.memo_bundle_hash:
-        memos.append(
+        memos = [
             Memo(
                 memo_data=req.memo_bundle_hash.encode("utf-8").hex(),
                 memo_type="text/plain".encode("utf-8").hex(),
             )
-        )
+        ]
 
-    response = sign_payment_transaction(
-        client=client,
+    payment = Payment(
+        account=wallet.address,
         destination=req.destination,
-        amount=payment_amount,
+        amount=drops,
         memos=memos,
-        wallet=wallet,
     )
 
-    engine_result = response.result.get("meta", {}).get("TransactionResult", "unknown")
-    tx_hash = response.result.get("hash", "")
+    try:
+        response = submit_and_wait(payment, client, wallet)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"error": "xrpl_submit_failed", "reason": str(exc)},
+        ) from exc
+
+    result_payload = response.result if hasattr(response, "result") else {}
+    meta = result_payload.get("meta") if isinstance(result_payload, dict) else {}
+    if not isinstance(meta, dict):
+        meta = {}
+    engine_result = meta.get("TransactionResult", "unknown")
+    tx_hash = result_payload.get("hash", "") if isinstance(result_payload, dict) else ""
+    validated = bool(result_payload.get("validated", False)) if isinstance(result_payload, dict) else False
+    ledger_index = result_payload.get("ledger_index") if isinstance(result_payload, dict) else None
+    if not isinstance(ledger_index, int):
+        ledger_index = None
+
+    amount_value = str(req.amount)
 
     logger.info(
-        "xrpl_payment_submitted tx_hash=%s destination=%s amount=%s engine_result=%s",
+        "xrpl_payment_submitted tx_hash=%s destination=%s amount_xrp=%s drops=%s engine_result=%s validated=%s",
         tx_hash,
         req.destination,
         amount_value,
+        drops,
         engine_result,
+        validated,
     )
 
-    result = {
+    result: dict = {
         "submitted": True,
         "tx_hash": tx_hash,
         "engine_result": engine_result,
-        "network": config.XRPL_NETWORK,
-        "currency": config.RLUSD_CURRENCY,
-        "issuer": config.RLUSD_ISSUER,
+        "validated": validated,
+        "ledger_index": ledger_index,
+        "network": "testnet",
+        "asset": "XRP",
         "amount": amount_value,
         "destination": req.destination,
     }

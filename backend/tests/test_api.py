@@ -221,15 +221,16 @@ def test_xrpl_payment_without_live_network():
         "submitted": True,
         "tx_hash": "MOCK_TX_HASH",
         "engine_result": "tesSUCCESS",
-        "network": "xrpl_testnet",
-        "currency": "RLUSD",
-        "issuer": "rIssuer",
+        "validated": True,
+        "ledger_index": 12345,
+        "network": "testnet",
+        "asset": "XRP",
         "amount": "10",
         "destination": VALID_SUBJECT,
         "proof_link": {"bundle_hash": "bundle-hash-1", "tx_hash": "MOCK_TX_HASH"},
     }
 
-    with patch.object(xrpl_routes, "enforce_destination_trustline") as mock_enforce, patch.object(
+    with patch.object(
         xrpl_routes,
         "submit_xrpl_payment",
         return_value=expected,
@@ -245,7 +246,6 @@ def test_xrpl_payment_without_live_network():
 
     assert response.status_code == 200
     assert response.json() == expected
-    mock_enforce.assert_called_once()
     mock_submit.assert_called_once()
 
 
@@ -366,6 +366,8 @@ def test_xrpl_payment_signing_mode_seed_succeeds_when_configured():
         result={
             "meta": {"TransactionResult": "tesSUCCESS"},
             "hash": "MOCK_TX_HASH",
+            "validated": True,
+            "ledger_index": 12345,
         }
     )
 
@@ -378,8 +380,8 @@ def test_xrpl_payment_signing_mode_seed_succeeds_when_configured():
     ), patch.object(config, "XRPL_SIGNING_SEED", ""), patch.object(
         config, "XRPL_DEMO_WALLET_SEED", ""
     ), patch.object(
-        xrpl_service, "sign_payment_transaction", return_value=fake_response
-    ) as mock_sign:
+        xrpl_service, "submit_and_wait", return_value=fake_response
+    ) as mock_submit:
         response = client.post("/v1/xrpl/payment", json=_payment_payload())
 
     assert response.status_code == 200, response.text
@@ -387,15 +389,25 @@ def test_xrpl_payment_signing_mode_seed_succeeds_when_configured():
     assert body["submitted"] is True
     assert body["tx_hash"] == "MOCK_TX_HASH"
     assert body["engine_result"] == "tesSUCCESS"
+    assert body["validated"] is True
+    assert body["ledger_index"] == 12345
+    assert body["network"] == "testnet"
+    assert body["asset"] == "XRP"
     assert body["destination"] == VALID_SUBJECT
     assert body["amount"] == "10"
     assert body["proof_link"] == {"bundle_hash": "bundle-hash-1", "tx_hash": "MOCK_TX_HASH"}
 
-    # The signer was invoked with the wallet derived from the configured seed.
-    mock_sign.assert_called_once()
-    call_kwargs = mock_sign.call_args.kwargs
-    assert call_kwargs["client"] is fake_client
-    assert call_kwargs["destination"] == VALID_SUBJECT
+    # submit_and_wait was invoked with a Payment built from the configured wallet,
+    # the request destination, and the XRP amount converted to drops.
+    mock_submit.assert_called_once()
+    call_args = mock_submit.call_args.args
+    payment_arg, client_arg, wallet_arg = call_args
+    assert client_arg is fake_client
+    assert wallet_arg.address == TEST_SIGNER_ADDRESS
+    assert payment_arg.destination == VALID_SUBJECT
+    # 10 XRP == 10_000_000 drops, supplied as a string.
+    assert payment_arg.amount == "10000000"
+    assert payment_arg.account == TEST_SIGNER_ADDRESS
 
 
 def test_xrpl_payment_incomplete_signer_config_returns_structured_error():
