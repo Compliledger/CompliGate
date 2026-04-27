@@ -9,7 +9,7 @@ from app.models.xrpl import SettlementVerifyByHashResponse
 from app.services.policy_service import ASSET_CLASSIFICATION_REGULATED_STABLECOIN, MAX_AMOUNT
 from app.services.storage_service import get_permit_context
 from app.services.xrpl_service import fetch_xrpl_transaction as _fetch_xrpl_transaction
-from app.services.xrpl_service import normalize_xrpl_amount
+from app.services.xrpl_service import decode_memo_hex, normalize_xrpl_amount
 
 
 def fetch_xrpl_transaction(tx_hash: str) -> dict:
@@ -318,10 +318,10 @@ def _parse_first_memo(tx_payload: dict) -> str | None:
     memo_data_hex = memo_obj.get("MemoData", "")
     if not memo_data_hex:
         return None
-    try:
-        return bytes.fromhex(memo_data_hex).decode("utf-8")
-    except (ValueError, UnicodeDecodeError):
-        return memo_data_hex
+    # ``decode_memo_hex`` returns the decoded UTF-8 text or, on invalid hex /
+    # invalid UTF-8, the original hex string – matching the prior behaviour
+    # of this helper which fell back to ``memo_data_hex`` on exception.
+    return decode_memo_hex(memo_data_hex)
 
 
 def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerifyByHashResponse:
