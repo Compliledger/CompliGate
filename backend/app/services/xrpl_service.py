@@ -36,6 +36,56 @@ except ImportError:
 logger = get_logger("main")
 
 
+def encode_memo_text(text: str) -> str:
+    """Encode UTF-8 text into the hex string XRPL memos require.
+
+    XRPL ``MemoData``/``MemoType``/``MemoFormat`` fields must be hex-encoded
+    strings. This helper centralises the encoding so callers do not repeat
+    ``text.encode("utf-8").hex()`` everywhere.
+    """
+    if text is None:
+        raise TypeError("encode_memo_text requires a string, got None")
+    return text.encode("utf-8").hex()
+
+
+def decode_memo_hex(hex_str: str | None) -> str:
+    """Decode an XRPL memo hex string back into UTF-8 text.
+
+    Returns an empty string when ``hex_str`` is missing/empty so callers can
+    treat absent memos uniformly. Falls back to returning the original hex
+    string when the value is not valid hex or is not valid UTF-8.
+    """
+    if not hex_str:
+        return ""
+    try:
+        return bytes.fromhex(hex_str).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return hex_str
+
+
+def extract_bundle_hash_from_tx(tx_payload: dict) -> str | None:
+    """Return the decoded ``bundle_hash`` from the first memo of ``tx_payload``.
+
+    Returns ``None`` when the transaction has no memos, the first memo has no
+    ``MemoData`` field, or the payload is not a dict – callers receive a
+    consistent ``None`` for the "no memo" case.
+    """
+    if not isinstance(tx_payload, dict):
+        return None
+    memos_raw = tx_payload.get("Memos")
+    if not memos_raw or not isinstance(memos_raw, list):
+        return None
+    first_memo = memos_raw[0]
+    memo_obj = first_memo.get("Memo", first_memo) if isinstance(first_memo, dict) else {}
+    if not isinstance(memo_obj, dict):
+        return None
+    memo_data_hex = memo_obj.get("MemoData")
+    if not memo_data_hex:
+        return None
+    decoded = decode_memo_hex(memo_data_hex)
+    return decoded or None
+
+
 def get_xrpl_client() -> "JsonRpcClient | None":
     if not _XRPL_SDK_AVAILABLE:
         logger.warning("xrpl-py SDK is not installed – XRPL client unavailable")
@@ -351,6 +401,8 @@ def lookup_xrpl_transaction(tx_hash: str) -> dict:
     meta = tx_data.get("meta", {})
     engine_result = meta.get("TransactionResult", "") if isinstance(meta, dict) else ""
 
+    bundle_hash = extract_bundle_hash_from_tx(tx_data)
+
     logger.info("xrpl_tx_lookup tx_hash=%s validated=%s type=%s", tx_hash, validated, tx_type)
 
     return {
@@ -362,6 +414,7 @@ def lookup_xrpl_transaction(tx_hash: str) -> dict:
         "amount": amount_info,
         "engine_result": engine_result,
         "network": config.XRPL_NETWORK,
+        "bundle_hash": bundle_hash,
         "raw": tx_data,
     }
 
@@ -413,8 +466,8 @@ def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
     if req.memo_bundle_hash:
         memos = [
             Memo(
-                memo_data=req.memo_bundle_hash.encode("utf-8").hex(),
-                memo_type="text/plain".encode("utf-8").hex(),
+                memo_data=encode_memo_text(req.memo_bundle_hash),
+                memo_type=encode_memo_text("text/plain"),
             )
         ]
 
@@ -638,8 +691,8 @@ def submit_payment(
     if memo_bundle_hash and Memo is not None:
         memos = [
             Memo(
-                memo_data=memo_bundle_hash.encode("utf-8").hex(),
-                memo_type="text/plain".encode("utf-8").hex(),
+                memo_data=encode_memo_text(memo_bundle_hash),
+                memo_type=encode_memo_text("text/plain"),
             )
         ]
 
