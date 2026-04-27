@@ -1,237 +1,162 @@
-CompliGate
+# CompliGate (XRPL)
 
-Deterministic Compliance Authorization for XRPL
+**CompliGate is a compliance authorization layer for XRPL that defines the conditions under which a transaction is allowed to execute—aligned with emerging U.S. regulatory frameworks.**
 
-CompliGate is an off-ledger compliance authorization, verification and proof (attestation) layer for the XRP Ledger (XRPL). It defines the conditions under which a transaction is considered compliant and produces verifiable proof that those conditions were met. CompliGate does not itself execute, gate, or enforce transactions on XRPL — XRPL settles transactions according to its own protocol rules.
+---
 
-⸻
+## ⚖️ Why This Matters (XRPL + Regulation)
 
-⚖️ Core Principle
+Regulation is no longer optional for tokenized assets.
 
-CompliGate does not execute transactions.
-It defines the conditions under which transactions are valid.
+Across:
+- **SEC/CFTC tokenization guidance**
+- **GENIUS Act (stablecoins, 1:1 backing, disclosures)**
+- **CLARITY Act (market structure, asset classification)**
 
-⸻
+there is a clear shift toward:
 
-🚨 Why This Matters
+> Transactions must be **classified, constrained, and provably compliant**—not just logged after the fact.
 
-Regulatory frameworks including:
-	•	SEC/CFTC Tokenization Framework (Release 33-11412)
-	•	GENIUS Act (stablecoin requirements)
-	•	CLARITY Act (jurisdiction + AML/KYC)
+---
 
-require:
-	•	transaction-level compliance
-	•	real-time enforcement
-	•	audit-ready evidence
-
-⸻
-
-❌ The Problem
+## 🚨 The Problem (XRPL Today)
 
 XRPL provides:
-	•	trust lines
-	•	issuer controls
-	•	freeze / clawback
+- fast execution  
+- native tokenization  
+- reliable settlement  
 
-But lacks:
-	•	deterministic compliance logic
-	•	policy-based activation
-	•	verifiable compliance outputs
+But there is **no standardized way to:**
 
-⸻
+- determine if a transaction is **allowed before execution**
+- enforce **jurisdictional constraints** (KYC/sanctions/geography)
+- verify **stablecoin backing (1:1 reserves/liquidity)**
+- consistently handle **asset classification** (security vs commodity vs payment token)
+- produce **verifiable compliance evidence tied to a transaction**
 
-✅ The Solution
+Today, most teams:
+- handle compliance **off-chain**
+- apply checks **manually or inconsistently**
+- cannot produce **deterministic proof of compliance**
 
-CompliGate introduces:
-	•	Deterministic policy evaluation
-	•	Transaction constraints
-	•	Cryptographic proof artifacts
-	•	XRPL-native integration
+---
 
-⸻
+## 🧠 The Solution (CompliGate)
 
-🧩 Architecture
-User → CompliGate → XRPL → CompliGate → Proof Artifact
-Flow
-	1.	Request Permit
-	2.	Evaluate Compliance
-	3.	Generate Constraints
-	4.	Execute Transaction (XRPL)
-	5.	Verify Settlement
-	6.	Produce Proof
+CompliGate introduces a **deterministic authorization layer** for XRPL:
 
-⸻
+> It does not execute transactions.  
+> It defines the **conditions under which a transaction is allowed to execute.**
 
-🔗 XRPL Integration (LIVE)
+---
 
-CompliGate is integrated with XRPL Testnet:
+## 🔗 XRPL-Native Flow
+Authorization → XRPL Transaction → Settlement Verification → Proof
+1. **Authorization (Pre-Transaction)**
+   - asset classification
+   - sanctions / KYC checks (provider-backed; mock in MVP)
+   - jurisdiction constraints
+   - transaction limits
 
-Features
-	•	✅ Real XRPL transaction submission
-	•	✅ RLUSD issued asset support
-	•	✅ Trustline validation
-	•	✅ Transaction memo linking (bundle_hash → tx_hash)
-	•	✅ Settlement verification using live XRPL data
+2. **XRPL Execution**
+   - transaction submitted externally
+   - `bundle_hash` attached via memo
 
-⸻
+3. **Settlement Verification**
+   - verify transaction via `tx_hash`
+   - link execution to authorization
 
-Example Flow
+4. **Proof Artifact**
+   - cryptographic record of:
+     - decision
+     - constraints
+     - compliance evidence
+     - transaction linkage
 
-1. Request Permit
-{
-  "subject": "r...",
-  "action": "transfer",
-  "amount": "100"
-}
-2. CompliGate Evaluates
+---
 
-Checks:
-	•	Asset classification
-	•	Jurisdiction (KYC / sanctions via configured providers)
-	•	Transaction limits
-	•	Reserve attestation via configured provider
-	•	Trustline requirement
+## 🧾 Example: Stablecoin (RLUSD)
 
-⸻
+For a stablecoin transfer:
 
-3. Constraint Output
-This transaction is valid only if:
-- trustline exists
-- amount < threshold
-- asset = compliant
-- issuer = approved
-4. XRPL Transaction
-	•	Payment submitted to XRPL Testnet
-	•	RLUSD issued currency
-	•	bundle_hash embedded as memo
+CompliGate evaluates:
+- issuer classification  
+- **1:1 backing requirement (GENIUS alignment)**  
+- jurisdiction (KYC/sanctions)  
+- transaction constraints  
 
-⸻
+Then outputs:
+“This transaction is valid only if:
+	•	asset = compliant stablecoin
+	•	reserves = verified
+	•	jurisdiction = allowed
+	•	amount < threshold
+	•	time window = valid”
+XRPL executes.  
+CompliGate verifies.  
+Proof is generated.
 
-5. Settlement Verification
+---
 
-CompliGate validates:
-	•	transaction details
-	•	asset + issuer
-	•	compliance conditions
+## 🎯 Why XRPL Needs This
 
-⸻
+To support:
+- stablecoins (e.g., RLUSD)
+- tokenized assets
+- institutional participation
 
-6. Proof Artifact
-{
-  "module": "CompliGate",
-  "entity_id": "<tx_hash>",
-  "rule_version_used": "v1",
-  "decision_result": "SETTLED_COMPLIANT",
-  "reason_codes": [],
-  "timestamp": 1234567890,
-  "bundle_hash": "...",
-  "anchor_metadata": {
-    "network": "xrpl-testnet",
-    "tx_hash": "...",
-    "ledger_index": 123456
-  }
-}
-🔐 Compliance Coverage (MVP)
+XRPL needs:
 
-CompliGate currently evaluates:
+> **Pre-transaction compliance + post-settlement proof**
 
-✔ Asset Classification
-	•	stablecoin / RWA (policy-defined)
+Not:
+- manual checks
+- disconnected systems
+- unverifiable claims
 
-✔ 1:1 Backing (Provider-Backed)
-	•	reserve attestation via configured RESERVE_PROVIDER (fail-closed when unavailable)
+---
 
-✔ Jurisdiction Controls
-	•	KYC and sanctions screening via configured KYC_PROVIDER and SANCTIONS_PROVIDER (fail-closed when unavailable)
-
-✔ Transaction Limits
-	•	policy thresholds
-
-✔ XRPL Trustlines
-	•	natively enforced by XRPL; CompliGate verifies trustline state as part of authorization and post-settlement checks (CompliGate itself does not enforce settlement on the ledger)
-
-Every compliance decision is traceable to real provider evidence (or
-explicit denial); the per-check provider id, status and reference are
-persisted in the bundle and proof artifact under
-``compliance_evidence``.
-
-⸻
-
-⚠️ Important Note
+## 🔐 Positioning
 
 CompliGate is:
-	•	NOT a broker
-	•	NOT an intermediary
-	•	NOT executing trades
-	•	NOT enforcing transactions on the XRPL
 
-It is:
+- an **authorization layer**
+- a **verification layer**
+- a **compliance signal system**
 
-An off-ledger authorization, verification and proof (attestation) layer. Enforcement of any decision is performed by the integrating institution (or by XRPL's own native controls such as trustlines, freeze and clawback), not by CompliGate.
+It is NOT:
+- a broker-dealer
+- a transaction executor
+- a custody provider
 
-⸻
+---
 
-🏗️ Deployment Models
+## 🚧 Current State
 
-🟢 Hosted (Attestation)
-	•	CompliGate evaluates + proves
-	•	no execution control
+- XRPL transaction + verification → ✅ real
+- authorization engine → ✅ real
+- sanctions provider → 🟡 mock (TRM integration pending)
+- KYC / reserve checks → 🟡 interface defined, providers pending
 
-🟡 Self-Hosted (Institutional)
-	•	deployed inside broker-dealer
-	•	institution enforces
+---
 
-🔵 Hybrid
-	•	CompliGate signals
-	•	institution executes
+## 🚀 Vision
 
-⸻
+> CompliGate aims to become:
 
-🚀 Local Development
+A standardized authorization and verification layer for compliant blockchain transactions
 
-Backend
-cd backend
-pip install -r requirements.txt
-cp .env.example .env
-uvicorn main:app --reload
-Frontend
-cd frontend
-npm install
-npm run dev
-⚙️ Environment Variables
-XRPL_RPC_URL=
-XRPL_NETWORK=testnet
-XRPL_DEMO_WALLET_SEED=
-RLUSD_ISSUER=
-RLUSD_CURRENCY=RLUSD
-XRPL_REQUIRE_TRUSTLINE=true
-🧪 Key Endpoints
-Endpoint
-Description
-/v1/permit
-Generate compliance authorization
-/v1/verify
-Verify signature + expiration
-/v1/xrpl/health
-XRPL connectivity
-/v1/xrpl/trustline/check
-Validate trustline
-/v1/xrpl/payment
-Submit XRPL transaction
-/v1/settlement/verify
-Verify settlement compliance
-🧠 Strategic Positioning
+Bridging:
+	•	on-chain execution
+	•	off-chain compliance requirementsA standardized compliance layer for XRPL and tokenized markets:
+	
+---
 
-XRPL provides:
-	•	execution
-	•	settlement
+## 🛠️ Roadmap
 
-CompliGate provides:
-	•	authorization
-	•	compliance
-
-⸻
-
-Final Model
-Authorization → Execution → Verification → Proof
+	•	TRM Labs integration (sanctions)
+	•	KYC provider integration
+	•	Reserve / liquidity verification (stablecoins)
+	•	expanded asset classification logic
+	•	optional enforcement integrations
+	•	multi-chain support
