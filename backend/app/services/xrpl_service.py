@@ -742,35 +742,139 @@ def submit_payment(
     }
 
 
+def _decode_memos(memos_raw: object) -> list[dict]:
+    """Return a list of decoded XRPL memo dicts.
+
+    Each entry has ``type``, ``format`` and ``data`` keys with their
+    hex-encoded values decoded back to UTF-8 (falling back to the original
+    hex string when the value is not valid UTF-8 hex). Returns an empty
+    list when ``memos_raw`` is missing or malformed so callers can iterate
+    unconditionally.
+    """
+    if not isinstance(memos_raw, list):
+        return []
+    decoded: list[dict] = []
+    for entry in memos_raw:
+        memo_obj = entry.get("Memo", entry) if isinstance(entry, dict) else {}
+        if not isinstance(memo_obj, dict):
+            continue
+        decoded.append(
+            {
+                "type": decode_memo_hex(memo_obj.get("MemoType")),
+                "format": decode_memo_hex(memo_obj.get("MemoFormat")),
+                "data": decode_memo_hex(memo_obj.get("MemoData")),
+            }
+        )
+    return decoded
+
+
+def _tx_not_found_error(tx_hash: str, result: dict) -> dict:
+    reason = (
+        result.get("error_message")
+        or result.get("error")
+        or f"Transaction {tx_hash} was not found on the XRPL node"
+    )
+    return {
+        "found": False,
+        "tx_hash": tx_hash,
+        "error": "tx_not_found",
+        "reason": str(reason),
+    }
+
+
 def fetch_transaction(tx_hash: str) -> dict:
     """Fetch a transaction from the XRPL node using a real ``tx`` JSON-RPC call.
 
-    Returns the raw ``result`` dict from the node on success, or a
-    structured error dict on failure. Never returns mock data.
+    Performs a real ``Tx`` request via the configured ``xrpl-py`` JSON-RPC
+    client (no mocks). On success returns a structured dict with the
+    fields most callers need:
+
+    * ``found``        -- ``True`` when the node returned a transaction
+    * ``tx_hash``      -- the hash that was requested
+    * ``validated``    -- whether the tx is in a validated ledger
+    * ``ledger_index`` -- the ledger sequence the tx was included in
+    * ``account``/``source`` -- the originating account (``source`` is an
+      alias for ``account`` for callers that prefer that wording)
+    * ``destination``  -- the ``Destination`` field, when present
+    * ``amount``       -- normalized via :func:`normalize_xrpl_amount`
+    * ``memos``        -- list of ``{type, format, data}`` decoded from hex
+    * ``raw``          -- the raw, JSON-safe ``result`` dict from the node
+
+    When the transaction is not found, a structured error of the shape
+    ``{"found": False, "tx_hash": ..., "error": "tx_not_found",
+    "reason": ...}`` is returned. RPC / configuration failures return
+    ``{"found": False, "error": <code>, "reason": ...}``.
     """
     if not tx_hash:
-        return _xrpl_error("invalid_tx_hash", "tx_hash must be a non-empty string")
+        return {
+            "found": False,
+            "tx_hash": tx_hash or "",
+            "error": "invalid_tx_hash",
+            "reason": "tx_hash must be a non-empty string",
+        }
 
     client = get_client()
     if client is None:
-        return _xrpl_error(
-            "xrpl_not_configured",
-            "XRPL client is not available (SDK missing or XRPL_RPC_URL unset)",
-        )
+        return {
+            "found": False,
+            "tx_hash": tx_hash,
+            "error": "xrpl_not_configured",
+            "reason": "XRPL client is not available (SDK missing or XRPL_RPC_URL unset)",
+        }
 
     try:
         response = client.request(Tx(transaction=tx_hash))
     except Exception as exc:
         logger.error("fetch_transaction failed for %s: %s", tx_hash, exc)
-        return _xrpl_error("xrpl_rpc_failed", str(exc))
+        return {
+            "found": False,
+            "tx_hash": tx_hash,
+            "error": "xrpl_rpc_failed",
+            "reason": str(exc),
+        }
 
     result = response.result or {}
+
     if not response.is_successful():
-        return _xrpl_error(
-            "xrpl_rpc_error",
-            str(result.get("error_message") or result.get("error") or "unknown"),
-        )
-    return result
+        # ``txnNotFound`` is the canonical "tx does not exist (yet)" code
+        # from rippled. Surface it as a structured not-found result so
+        # callers (and pollers) can distinguish it from real RPC errors.
+        err_code = str(result.get("error") or "")
+        if err_code == "txnNotFound":
+            return _tx_not_found_error(tx_hash, result)
+        return {
+            "found": False,
+            "tx_hash": tx_hash,
+            "error": "xrpl_rpc_error",
+            "reason": str(
+                result.get("error_message") or result.get("error") or "unknown"
+            ),
+        }
+
+    # xrpl-py exposes the transaction fields either at the top level of
+    # ``result`` (legacy API shape) or under a nested ``tx_json`` (newer
+    # rippled / clio responses). Prefer ``tx_json`` when present and fall
+    # back to the top-level dict so this works against both shapes.
+    tx_json = result.get("tx_json")
+    tx_payload = tx_json if isinstance(tx_json, dict) else result
+
+    account = tx_payload.get("Account", "")
+    destination = tx_payload.get("Destination", "")
+    amount_raw = tx_payload.get("Amount")
+
+    return {
+        "found": True,
+        "tx_hash": result.get("hash") or tx_payload.get("hash") or tx_hash,
+        "validated": bool(result.get("validated", False)),
+        "ledger_index": result.get("ledger_index")
+        or tx_payload.get("ledger_index"),
+        "account": account,
+        "source": account,
+        "destination": destination,
+        "amount": normalize_xrpl_amount(amount_raw) if amount_raw is not None else None,
+        "memos": _decode_memos(tx_payload.get("Memos")),
+        "raw": result,
+    }
 
 
 def wait_for_validated_tx(tx_hash: str, timeout_seconds: int = 20) -> dict:
@@ -799,10 +903,7 @@ def wait_for_validated_tx(tx_hash: str, timeout_seconds: int = 20) -> dict:
         # Distinguish "not found yet" (transient) from terminal RPC errors.
         if "error" in result:
             err = result["error"]
-            transient = err == "xrpl_rpc_failed" or (
-                err == "xrpl_rpc_error"
-                and "txnNotFound" in (result.get("reason") or "")
-            )
+            transient = err in ("xrpl_rpc_failed", "tx_not_found")
             if not transient:
                 return result
         elif result.get("validated"):
