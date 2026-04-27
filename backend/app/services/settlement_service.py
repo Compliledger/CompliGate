@@ -6,10 +6,10 @@ from fastapi import HTTPException
 from app.core import config
 from app.models.proof import build_proof_artifact
 from app.models.xrpl import SettlementVerifyByHashResponse
-from app.services.policy_service import ASSET_CLASSIFICATION_REGULATED_STABLECOIN, MAX_AMOUNT
+from app.services.policy_service import ASSET_CLASSIFICATION_REGULATED_STABLECOIN
 from app.services.storage_service import get_permit_context
 from app.services.xrpl_service import fetch_xrpl_transaction as _fetch_xrpl_transaction
-from app.services.xrpl_service import decode_memo_hex, normalize_xrpl_amount
+from app.services.xrpl_service import decode_memo_hex, extract_bundle_hash_from_tx, normalize_xrpl_amount
 
 
 def fetch_xrpl_transaction(tx_hash: str) -> dict:
@@ -343,7 +343,46 @@ def _parse_first_memo(tx_payload: dict) -> str | None:
     return decode_memo_hex(memo_data_hex)
 
 
+def _tx_lookup_failed(tx_data: dict) -> bool:
+    """Return ``True`` when the XRPL ``tx`` lookup did not return a transaction.
+
+    The XRPL ``tx`` JSON-RPC method returns an ``error`` field (e.g.
+    ``"txnNotFound"``) and ``status == "error"`` when the requested
+    transaction could not be located on the ledger. Treat any of those
+    signals – or a payload that lacks the basic ``TransactionType`` /
+    ``hash`` markers of a real transaction – as "tx not found".
+    """
+    if not isinstance(tx_data, dict):
+        return True
+    if tx_data.get("error"):
+        return True
+    if str(tx_data.get("status", "")).lower() == "error":
+        return True
+    payload = _extract_tx_payload(tx_data)
+    if not payload.get("TransactionType") and not payload.get("hash"):
+        return True
+    return False
+
+
 def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerifyByHashResponse:
+    """Verify an XRPL settlement against a previously-issued permit bundle.
+
+    The endpoint backing this service is ``POST /v1/settlement/verify``. The
+    decision is ``SETTLED_COMPLIANT`` only when *all* of the following hold:
+
+    * the transaction is found on the configured XRPL network,
+    * the transaction is validated,
+    * the transaction's first memo decodes to the supplied ``bundle_hash``,
+    * a permit record exists in the database for ``bundle_hash``,
+    * the transaction's ``Account`` matches the permit ``subject`` (or the
+      optional ``constraints.expected_sender`` override when present),
+    * the transaction amount is ``<=`` the permit's ``constraints.max_amount``,
+    * the permit ``action`` is ``transfer`` (i.e. the on-ledger transaction is
+      a ``Payment``).
+
+    Otherwise ``SETTLEMENT_NON_COMPLIANT`` is returned together with reason
+    codes describing each failed check.
+    """
     permit_context = get_permit_context(bundle_hash)
     if permit_context is None:
         raise HTTPException(
@@ -355,15 +394,15 @@ def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerif
                 "bundle_hash": bundle_hash,
             },
         )
-    permit_bundle = permit_context.get("bundle")
+    permit_bundle = permit_context.get("bundle") or {}
+    permit_constraints = permit_bundle.get("constraints") or {}
 
     tx_data = fetch_xrpl_transaction(tx_hash)
     tx_payload = _extract_tx_payload(tx_data)
 
-    decision_result, reason_codes, constraints_verified = _evaluate_settlement_constraints(
-        tx_payload,
-        permit_bundle=permit_bundle,
-    )
+    reason_codes: list[str] = []
+    constraints_verified: dict[str, bool] = {}
+    compliant = True
 
     # Permit context was successfully loaded above; record that explicitly
     # at the head of the reason-code list so the artifact reflects every
@@ -396,41 +435,129 @@ def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerif
     else:
         reason_codes.append("SETTLEMENT_VERIFICATION_FAILED")
 
+    # 1. Transaction exists on XRPL.
+    tx_found = not _tx_lookup_failed(tx_data)
+    constraints_verified["tx_found"] = tx_found
+    if tx_found:
+        reason_codes.append("TX_FOUND")
+    else:
+        reason_codes.append("TX_NOT_FOUND")
+        compliant = False
+
+    # 2. Transaction is validated.
+    tx_validated = bool(tx_data.get("validated") or tx_payload.get("validated"))
+    constraints_verified["tx_validated"] = tx_validated
+    if tx_validated:
+        reason_codes.append("TX_VALIDATED")
+    else:
+        reason_codes.append("TX_NOT_VALIDATED")
+        compliant = False
+
+    # 3. Decoded memo contains the provided bundle_hash.
+    memo = extract_bundle_hash_from_tx(tx_payload)
+    if memo is None:
+        bundle_hash_memo_match = False
+        constraints_verified["bundle_hash_memo_match"] = False
+        reason_codes.append("BUNDLE_HASH_MEMO_MISSING")
+        compliant = False
+    else:
+        bundle_hash_memo_match = bundle_hash in memo
+        constraints_verified["bundle_hash_memo_match"] = bundle_hash_memo_match
+        if bundle_hash_memo_match:
+            reason_codes.append("BUNDLE_HASH_MEMO_MATCH")
+        else:
+            reason_codes.append("BUNDLE_HASH_MEMO_MISMATCH")
+            compliant = False
+
+    # 4. Subject (or expected_sender override) matches the tx Account.
+    expected_sender = permit_constraints.get("expected_sender") or permit_bundle.get("subject")
+    tx_account = tx_payload.get("Account", "")
+    if expected_sender:
+        subject_match = tx_account == expected_sender
+        constraints_verified["subject_match"] = subject_match
+        if subject_match:
+            reason_codes.append("SUBJECT_MATCH")
+        else:
+            reason_codes.append("SUBJECT_MISMATCH")
+            compliant = False
+    else:
+        constraints_verified["subject_match"] = False
+        reason_codes.append("PERMIT_SUBJECT_MISSING")
+        compliant = False
+
+    # 5. Amount within permit max_amount.
+    amount_info = normalize_xrpl_amount(tx_payload.get("Amount", {}))
+    try:
+        tx_value = float(amount_info["value"])
+    except (TypeError, ValueError):
+        tx_value = 0.0
+    max_amount = permit_constraints.get("max_amount")
+    if max_amount is None:
+        constraints_verified["amount_within_limit"] = False
+        reason_codes.append("PERMIT_MAX_AMOUNT_MISSING")
+        compliant = False
+    else:
+        try:
+            amount_ok = tx_value <= float(max_amount)
+        except (TypeError, ValueError):
+            amount_ok = False
+        constraints_verified["amount_within_limit"] = amount_ok
+        if amount_ok:
+            reason_codes.append("AMOUNT_WITHIN_LIMIT")
+        else:
+            reason_codes.append("AMOUNT_EXCEEDS_LIMIT")
+            compliant = False
+
+    # 6. Action is "transfer" (XRPL Payment).
+    permit_action = permit_bundle.get("action")
+    tx_type = tx_payload.get("TransactionType", "")
+    action_match = permit_action == "transfer" and tx_type == "Payment"
+    constraints_verified["action_match"] = action_match
+    if action_match:
+        reason_codes.append("ACTION_MATCH")
+    else:
+        reason_codes.append("ACTION_MISMATCH")
+        compliant = False
+
+    decision_result = "SETTLED_COMPLIANT" if compliant else "SETTLEMENT_NON_COMPLIANT"
     now = int(time.time())
 
-    permit_constraints_for_ctx = (permit_bundle or {}).get("constraints", {})
-    permit_evidence = (permit_bundle or {}).get("compliance_evidence", [])
-    permit_attestations = (permit_bundle or {}).get("attestations") or {}
+    permit_evidence = permit_bundle.get("compliance_evidence", [])
+    permit_attestations = permit_bundle.get("attestations") or {}
     evaluation_context = {
         "bundle_hash": bundle_hash,
         "permit_context_used": True,
         "tx_hash": tx_hash,
-        "source_account": tx_payload.get("Account", ""),
-        "source": tx_payload.get("Account", ""),
+        "tx_found": tx_found,
+        "source_account": tx_account,
+        "source": tx_account,
         "destination_account": tx_payload.get("Destination", ""),
         "currency": amount_info["currency"],
         "amount": amount_info["value"],
         "issuer": amount_info["issuer"],
         "memo": memo,
+        "expected_sender": expected_sender,
+        "permit_action": permit_action,
+        "tx_type": tx_type,
         "asset_classification": ASSET_CLASSIFICATION_REGULATED_STABLECOIN,
         "asset": amount_info["currency"],
         "destination": tx_payload.get("Destination", ""),
-        "jurisdiction": permit_constraints_for_ctx.get("jurisdiction", config.JURISDICTION),
-        "kyc_verified": permit_constraints_for_ctx.get("kyc_verified", False),
-        "sanctions_check": permit_constraints_for_ctx.get("sanctions_check", "unavailable"),
-        "reserve_backed": permit_constraints_for_ctx.get("reserve_backed", False),
-        "liquidity_verified": permit_constraints_for_ctx.get("liquidity_verified", False),
+        "jurisdiction": permit_constraints.get("jurisdiction", config.JURISDICTION),
+        "kyc_verified": permit_constraints.get("kyc_verified", False),
+        "sanctions_check": permit_constraints.get("sanctions_check", "unavailable"),
+        "reserve_backed": permit_constraints.get("reserve_backed", False),
+        "liquidity_verified": permit_constraints.get("liquidity_verified", False),
         "kyc_reference": permit_attestations.get("kyc_reference"),
         "kyc_destination_reference": permit_attestations.get("kyc_destination_reference"),
         "sanctions_reference": permit_attestations.get("sanctions_reference"),
         "reserve_reference": permit_attestations.get("reserve_reference"),
         "liquidity_reference": permit_attestations.get("liquidity_reference"),
         "policy_conditions": {
-            "jurisdiction": permit_constraints_for_ctx.get("jurisdiction", config.JURISDICTION),
-            "kyc_verified": permit_constraints_for_ctx.get("kyc_verified", False),
-            "sanctions": permit_constraints_for_ctx.get("sanctions_check", "unavailable"),
-            "reserve_backed": permit_constraints_for_ctx.get("reserve_backed", False),
-            "liquidity_verified": permit_constraints_for_ctx.get("liquidity_verified", False),
+            "jurisdiction": permit_constraints.get("jurisdiction", config.JURISDICTION),
+            "kyc_verified": permit_constraints.get("kyc_verified", False),
+            "sanctions": permit_constraints.get("sanctions_check", "unavailable"),
+            "reserve_backed": permit_constraints.get("reserve_backed", False),
+            "liquidity_verified": permit_constraints.get("liquidity_verified", False),
         },
         "compliance_evidence": permit_evidence,
         "constraints_verified": constraints_verified,
