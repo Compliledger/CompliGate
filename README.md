@@ -436,24 +436,27 @@ npm run build
 
 ## Roadmap
 
-**Now (MVP — this repository)**
-- Authorization, Proof Bundle issuance, and post-settlement verification on XRPL testnet
-- Pluggable, fail-closed provider abstractions for KYC / sanctions / reserves
-- Mock sanctions provider (`mock_trm`) for local development and demos
+### MVP / Current
+- Real XRPL testnet roundtrip
+- Permit generation
+- Memo-linked bundle_hash
+- Settlement verification
+- Proof artifact generation
+- mock_trm provider abstraction
 
-**Next**
-- Real **TRM Labs** sanctions provider (replacing `mock_trm` with a true HTTP integration)
-- Real KYC vendor integration behind the existing `KYC_PROVIDER=http` interface
-- Real proof-of-reserves / liquidity vendor behind `RESERVE_PROVIDER=http`
-- Expanded asset-classification logic (security / commodity / payment token signals)
-- Hardened key management: `XRPL_SIGNING_MODE=external` (HSM / custody) implementation
-- Production XRPL mainnet support, including stricter trustline and issuer enforcement
-- Independent security review and audit of the authorization engine and Proof Bundle format
+### Next
+- Live TRM Labs sanctions integration
+- KYC provider integration
+- Reserve / liquidity evidence providers
+- Replay protection and single-use permits
+- Self-contained verification package
+- Production signer integration
 
-**Later**
-- Multi-chain authorization (same Proof Bundle shape, additional settlement verifiers)
-- Optional on-ledger anchoring of `bundle_hash` for long-term tamper-evidence
-- Standardization of the Proof Bundle as a portable compliance artifact
+### Future
+- Institution-hosted deployment model
+- XRPL issuer workflow integration
+- Policy pack versioning for GENIUS / CLARITY / tokenization rules
+- Multi-chain support
 
 ---
 
