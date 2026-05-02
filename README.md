@@ -109,55 +109,34 @@ Steps 3 and 4 use the **real XRPL testnet** via `XRPL_RPC_URL`. The sanctions ch
 
 ## Architecture
 
+```mermaid
+flowchart TB
+    UI[React Frontend] --> API[FastAPI Backend]
+
+    API --> Permit[Permit Service]
+    API --> XRPL[XRPL Service]
+    API --> Settlement[Settlement Verification Service]
+    API --> Proof[Proof Artifact Service]
+
+    Permit --> Policy[Policy Evaluation]
+    Policy --> Provider[Compliance Provider Layer]
+    Provider --> MockTRM[mock_trm Provider]
+    Provider -. future .-> TRM[TRM Labs API]
+
+    Permit --> DB[(PostgreSQL)]
+    Proof --> DB
+    Settlement --> DB
+
+    XRPL --> Ledger[XRPL Testnet]
+    Settlement --> Ledger
+
+    Ledger --> Tx[tx_hash + memo bundle_hash]
+    Settlement --> Artifact[Settlement Proof Artifact]
 ```
-                         ┌────────────────────────────────────────┐
-                         │              CompliGate                │
-                         │                                        │
-   ┌──────────────┐      │  ┌──────────────┐   ┌──────────────┐   │
-   │   Frontend   │ ───► │  │   FastAPI    │   │   Policy     │   │
-   │  (Vite/React)│      │  │   routes     │──►│   Engine     │   │
-   └──────────────┘      │  │  /v1/permit  │   │ (constraints,│   │
-                         │  │  /v1/verify  │   │  jurisdiction│   │
-   ┌──────────────┐      │  │  /v1/settle/ │   │  TTL, limits)│   │
-   │   API client │ ───► │  │   verify     │   └──────┬───────┘   │
-   │ (curl, SDK)  │      │  │  /v1/xrpl/*  │          │           │
-   └──────────────┘      │  └──────┬───────┘          │           │
-                         │         │                  ▼           │
-                         │         │           ┌──────────────┐   │
-                         │         │           │  Compliance  │   │
-                         │         │           │  Providers   │   │
-                         │         │           │  (fail-      │   │
-                         │         │           │   closed)    │   │
-                         │         │           │              │   │
-                         │         │           │  KYC ──────► http / upstream_assertion
-                         │         │           │  Sanctions ► http / address_screen / mock_trm
-                         │         │           │  Reserve ──► http / attestation
-                         │         │           └──────┬───────┘   │
-                         │         │                  │           │
-                         │         ▼                  ▼           │
-                         │  ┌────────────────────────────────┐    │
-                         │  │   Proof Bundle Builder         │    │
-                         │  │   • canonical JSON             │    │
-                         │  │   • Ed25519 signature          │    │
-                         │  │   • SHA-256 bundle_hash        │    │
-                         │  │   • iat / exp (TTL, default 5m)│    │
-                         │  └──────┬─────────────────────────┘    │
-                         │         │                              │
-                         │         ▼                              │
-                         │  ┌────────────────────┐  ┌──────────┐  │
-                         │  │ PostgreSQL store   │  │ XRPL     │  │
-                         │  │ (permits, proofs)  │  │ client   │  │
-                         │  │  via SQLAlchemy +  │  │ (testnet │  │
-                         │  │  Alembic           │  │ JSON-RPC)│  │
-                         │  └────────────────────┘  └────┬─────┘  │
-                         └───────────────────────────────┼────────┘
-                                                         │
-                                                         ▼
-                                            ┌─────────────────────┐
-                                            │   XRP Ledger        │
-                                            │   (Testnet today)   │
-                                            └─────────────────────┘
-```
+
+- XRPL execution is real testnet
+- compliance provider is `mock_trm` in MVP
+- TRM integration is pending API access
 
 Key properties:
 
