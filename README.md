@@ -1,8 +1,12 @@
 # CompliGate
 
-**A pre-transaction authorization and post-settlement verification layer for the XRP Ledger.**
+### Deterministic Compliance Authorization for XRPL Transactions
 
-CompliGate defines the conditions under which an XRPL transaction is *allowed* to execute, and produces a cryptographic proof linking those conditions to the on-ledger transaction once it settles.
+CompliGate is an XRPL-focused authorization and verification layer that defines the conditions under which a transaction is allowed to execute, links that authorization to a real XRPL testnet transaction, and produces a proof artifact for auditability.
+
+> CompliGate does not execute transactions as an intermediary. It generates authorization constraints and verifies settlement outcomes.
+
+> Current status: working XRPL testnet prototype with real transaction roundtrip, memo-linked bundle hashes, settlement verification, and proof artifacts. Compliance provider is currently mock_trm pending live provider access.
 
 <img src="https://img.shields.io/badge/status-XRPL%20Testnet%20MVP-blue" alt="Status: XRPL Testnet MVP">
 <img src="https://img.shields.io/badge/network-XRPL%20Testnet-green" alt="Network: XRPL Testnet">
