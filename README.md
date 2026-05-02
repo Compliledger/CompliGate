@@ -188,15 +188,20 @@ Key properties:
 
 ## Current Capabilities
 
-- ✅ Pre-transaction **authorization API** (`/v1/permit`) producing a canonical-JSON, Ed25519-signed Proof Bundle with explicit constraints (action, currency, issuer, amount ceiling) and a hard validity window (`iat` → `exp`, default 5 minutes).
-- ✅ **Bundle verification API** (`/v1/verify`) — signature + expiry checks usable by any third party with the public key from `/public-key`.
-- ✅ **Post-settlement verification API** (`/v1/settle/verify`) against a real XRPL transaction hash — confirms the settled tx matches the bundle's constraints and that the bundle's `bundle_hash` is present in the XRPL memo.
-- ✅ Real **XRPL testnet integration** for transaction lookup and (optional, gated) signing/submission via `XRPL_SIGNING_MODE=seed`. End-to-end testnet roundtrip script included (`backend/scripts/xrpl_testnet_roundtrip.py`).
-- ✅ **Pluggable, fail-closed compliance providers** for KYC, sanctions, and reserve / 1:1 backing, with normalized `ProviderResult` evidence persisted in the proof artifact.
-- ✅ **HMAC-signed upstream assertions** for KYC and reserve / liquidity attestations, with explicit trusted-issuer / trusted-attestor allowlists.
-- ✅ **API key authentication** on all `/v1/*` endpoints (`X-API-Key` or `Authorization: Bearer`), with rotatable, comma-separated key lists.
-- ✅ **PostgreSQL persistence** of permits and proof artifacts via SQLAlchemy + Alembic migrations.
-- ✅ **Frontend demo** (Vite + React + TypeScript) wiring a permit → settle → verify flow against the running backend.
+- [x] Modular FastAPI backend
+- [x] React + TypeScript frontend
+- [x] PostgreSQL persistence for permits and proof artifacts
+- [x] API key protection for sensitive endpoints
+- [x] Real XRPL testnet transaction roundtrip
+- [x] XRPL memo linkage using bundle_hash
+- [x] Settlement verification using tx_hash
+- [x] Proof artifact generation
+- [x] Compliance provider abstraction
+- [x] mock_trm sanctions provider for development/demo
+- [ ] Live TRM Labs integration
+- [ ] Production signing / HSM / custody signer
+- [ ] Independent third-party verification package
+- [ ] Full replay/single-use hardening
 
 ---
 
