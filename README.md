@@ -179,22 +179,28 @@ Key properties:
 
 ---
 
-## Current Status & Limitations
+## Current Status and Limitations
 
-CompliGate is at **MVP stage**. It is **not production-ready**, and the README is intentionally honest about which pieces are real and which are stubs.
+CompliGate is at **MVP stage**. This section is intentionally honest and technical about which pieces are real and which are stubs.
 
-| Area                              | Status                                                                                                                                  |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| XRPL integration (testnet)        | ✅ Real. Uses live testnet JSON-RPC for transaction lookup and post-settlement verification. Roundtrip test exercises the real network. |
-| XRPL mainnet                      | 🚫 Not supported. Configuration is testnet-oriented; signing modes are explicitly dev/staging.                                          |
-| Authorization / policy engine     | ✅ Real. Constraints, jurisdiction, TTL, and fail-closed semantics are implemented and tested.                                          |
-| Proof Bundle (sign + verify)      | ✅ Real. Ed25519 signing, canonical JSON, SHA-256 `bundle_hash`, public-key verification endpoint.                                       |
-| Sanctions screening               | 🟡 **Mock provider only** (`mock_trm`). **No real TRM Labs integration exists yet.** An HTTP provider interface is defined and ready for a real vendor; configure `SANCTIONS_PROVIDER=http` with a real URL + API key to use one. |
-| KYC                               | 🟡 Interface implemented (`http`, `upstream_assertion`). No bundled real-vendor integration; `null` (fail-closed) is the default.       |
-| Reserve / 1:1 backing             | 🟡 Interface implemented (`http`, `attestation`). No bundled real proof-of-reserves vendor; `null` (fail-closed) is the default.        |
-| Asset classification              | 🟡 Encoded today via `POLICY_VERSION` + `CURRENCY` + `ISSUER_ADDRESS` configuration. No dynamic on-chain classification logic yet.      |
-| HSM / custody signing             | 🚫 Not implemented. `XRPL_SIGNING_MODE=external` is a reserved placeholder.                                                              |
-| Audit, formal review, pen-test    | 🚫 None performed. Treat as pre-audit MVP code.                                                                                         |
+**Current MVP includes:**
+
+- Real XRPL testnet execution
+- Memo-linked authorization context
+- Settlement verification
+- PostgreSQL persistence
+- Proof artifacts
+
+**Current limitations:**
+
+- Compliance provider is `mock_trm`, not live TRM
+- KYC and reserve/liquidity providers are not fully wired
+- Settlement verification still depends on persisted backend permit context
+- Replay/single-use enforcement is not fully hardened
+- Signer model is testnet/demo-oriented
+- Not production-ready for regulated environments
+
+> **This repo should be evaluated as an XRPL-integrated compliance authorization prototype, not production financial infrastructure.**
 
 What CompliGate is explicitly **not**:
 
