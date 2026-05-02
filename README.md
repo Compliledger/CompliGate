@@ -32,16 +32,23 @@ CompliGate **does not custody assets, broker transactions, or submit settlement 
 
 ## Why XRPL Needs This
 
-XRPL provides fast, deterministic settlement and native tokenization. What it does **not** provide is a standardized way to answer, *before* settlement:
+XRPL is purpose-built for value movement. It provides **fast, deterministic settlement** and a mature **issued-asset infrastructure** — native trust lines, IOUs, and a built-in DEX — that make it a natural home for stablecoins and tokenized real-world assets. It also exposes **issuer-side controls and transaction capabilities** (e.g. issuer accounts, trust line authorization, freeze, `RequireAuth`, `DisallowXRP`, transfer fees, payment paths) that let an issuer shape *who* can hold an asset and *how* it can move.
+
+What XRPL does **not** provide — and is not trying to provide — is the off-ledger compliance reasoning that regulated issuers and venues are now expected to perform on every transaction:
 
 - Is this counterparty subject to sanctions or KYC restrictions?
-- Does the asset (e.g. a stablecoin like RLUSD) meet jurisdiction-specific requirements such as 1:1 reserve backing?
-- Is this transaction within the limits, currency, and issuer the institution authorized?
-- After the fact, can we produce **verifiable, tamper-evident proof** that those checks were performed and what they decided?
+- Is this asset properly **classified** (security, payment stablecoin, commodity-like token) for the jurisdictions involved?
+- For a payment stablecoin (e.g. RLUSD), is the **1:1 reserve backing** currently attested?
+- Is the transaction within the **jurisdiction**, currency, issuer, and amount limits the institution authorized?
+- Can the institution later produce **verifiable, tamper-evident proof** that those checks were performed, and what they decided, for audit?
 
-Emerging U.S. regulatory direction (SEC/CFTC tokenization guidance, the GENIUS Act for stablecoins, the CLARITY Act for market structure) is converging on a clear expectation: tokenized-asset transactions should be **classified, constrained, and provably compliant** — not reconstructed from logs after the fact.
+Regulated stablecoins and tokenized assets need **deterministic compliance logic** — the same inputs must always produce the same authorization decision, and that decision must be reconstructable after the fact. Emerging U.S. regulatory direction (SEC/CFTC tokenization guidance, the GENIUS Act for payment stablecoins, the CLARITY Act for market structure) is converging on the same expectations across jurisdictions: **asset classification, 1:1 backing attestation, jurisdiction controls, and end-to-end auditability** of every regulated transfer.
 
-CompliGate is a small, focused layer that fills that gap on XRPL without changing how XRPL itself works.
+CompliGate **complements XRPL** by providing the **authorization and proof layer around XRPL execution**. It decides whether a proposed transaction is allowed under configured policy and compliance evidence *before* the user submits it, and after settlement it verifies the on-ledger transaction against that decision.
+
+CompliGate does **not** change the XRPL protocol, does **not** require any amendment, and does **not** enforce policy on-ledger — XRPL still settles transactions exactly as it does today.
+
+The enforcement boundary is the institution's submission path: only transactions accompanied by a valid, unexpired Proof Bundle are submitted, and the resulting on-ledger transaction is independently verifiable against the bundle via the embedded `bundle_hash` memo.
 
 ---
 
