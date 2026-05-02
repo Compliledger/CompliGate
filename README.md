@@ -51,14 +51,13 @@ CompliGate is a small, focused layer that fills that gap on XRPL without changin
 
 ## Problem → Solution
 
-| Problem on XRPL today                                                  | CompliGate's contribution                                                                                                              |
-| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| No standard way to decide if a transaction is *allowed* before submit  | Pre-transaction **authorization** producing a signed Proof Bundle with explicit `ALLOW` / `DENY`                                       |
-| Compliance checks happen ad-hoc, off-chain, and inconsistently         | Pluggable, fail-closed compliance providers (KYC, sanctions, reserves) with normalized evidence captured in the bundle                 |
-| Stablecoin 1:1 backing is asserted, not verified, at transaction time  | Reserve provider interface (HTTP or HMAC-signed attestation) consulted at authorization                                                |
-| No deterministic linkage between "we checked" and "the tx that settled" | `bundle_hash` embedded in an XRPL memo; **post-settlement verification** matches the on-ledger tx against bundle constraints           |
-| No tamper-evident artifact a regulator or counterparty can verify      | Canonical-JSON Proof Bundle, Ed25519-signed, SHA-256-hashed, with a public `/public-key` endpoint for independent verification         |
-| Risk of silently approving when a provider is misconfigured            | **Fail-closed by default**: missing or unavailable providers produce an explicit `*_PROVIDER_UNAVAILABLE` denial                       |
+| Problem                                                            | Solution                                                                       |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| Compliance checks are handled off-chain and inconsistently         | CompliGate generates deterministic authorization constraints                   |
+| XRPL transactions do not automatically carry compliance context    | CompliGate links `bundle_hash` to XRPL transaction memo                        |
+| Settlement verification is difficult to audit                      | CompliGate fetches the XRPL `tx_hash` and produces a proof artifact            |
+| Sanctions/KYC/reserve providers may vary by institution            | CompliGate uses a provider abstraction layer; current MVP uses `mock_trm`      |
+| Institutions need repeatable audit evidence                        | CompliGate stores permits, evidence context, and proof artifacts               |
 
 ---
 
