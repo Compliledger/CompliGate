@@ -4,12 +4,14 @@
 
 CompliGate defines the conditions under which an XRPL transaction is *allowed* to execute, and produces a cryptographic proof linking those conditions to the on-ledger transaction once it settles.
 
-[![Status: MVP](https://img.shields.io/badge/status-MVP-orange.svg)](#current-status--limitations)
-[![XRPL: Testnet](https://img.shields.io/badge/XRPL-testnet-blue.svg)](https://xrpl.org/)
-[![Backend: FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
-[![Frontend: Vite + React](https://img.shields.io/badge/frontend-Vite%20%2B%20React-646cff.svg)](https://vitejs.dev/)
-[![Signing: Ed25519](https://img.shields.io/badge/signing-Ed25519-2ea44f.svg)](https://ed25519.cr.yp.to/)
-[![License: TBD](https://img.shields.io/badge/license-TBD-lightgrey.svg)](#contact)
+<img src="https://img.shields.io/badge/status-XRPL%20Testnet%20MVP-blue" alt="Status: XRPL Testnet MVP">
+<img src="https://img.shields.io/badge/network-XRPL%20Testnet-green" alt="Network: XRPL Testnet">
+<img src="https://img.shields.io/badge/compliance-mock__trm-yellow" alt="Compliance: Mock Provider (mock_trm)">
+<img src="https://img.shields.io/badge/backend-FastAPI-009688?logo=fastapi&logoColor=white" alt="Backend: FastAPI">
+<img src="https://img.shields.io/badge/frontend-React-61dafb?logo=react&logoColor=black" alt="Frontend: React">
+<img src="https://img.shields.io/badge/language-TypeScript-3178c6?logo=typescript&logoColor=white" alt="Language: TypeScript">
+<img src="https://img.shields.io/badge/database-PostgreSQL-4169e1?logo=postgresql&logoColor=white" alt="Database: PostgreSQL">
+<img src="https://img.shields.io/badge/signing-Ed25519-2ea44f" alt="Signing: Ed25519">
 
 ---
 
