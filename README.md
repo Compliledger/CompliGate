@@ -1,5 +1,13 @@
 # CompliGate (XRPL)
 
+[![Status: XRPL Testnet MVP](https://img.shields.io/badge/Status-XRPL%20Testnet%20MVP-blue)](#)
+[![Network: XRPL Testnet](https://img.shields.io/badge/Network-XRPL%20Testnet-26A17B)](https://xrpl.org/xrp-testnet-faucet.html)
+[![Compliance: Mock Provider](https://img.shields.io/badge/Compliance-Mock%20Provider%20(mock__trm)-orange)](#)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+
 **CompliGate is a compliance authorization layer for XRPL that defines the conditions under which a transaction is allowed to execute—aligned with emerging U.S. regulatory frameworks.**
 
 ---
