@@ -434,6 +434,21 @@ npm run build
 
 ---
 
+## For Reviewers
+
+If you are reviewing CompliGate for XRPL ecosystem alignment, the key things to verify are:
+
+1. Does the backend submit a real XRPL testnet transaction?
+2. Does the transaction memo include the CompliGate bundle_hash?
+3. Can the backend fetch the transaction by tx_hash?
+4. Does settlement verification confirm the memo match?
+5. Does the proof artifact reference the real tx_hash and ledger_index?
+6. Are mock compliance providers clearly labeled?
+
+This project is intentionally honest about MVP boundaries.
+
+---
+
 ## Roadmap
 
 ### MVP / Current
