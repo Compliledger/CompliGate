@@ -219,32 +219,38 @@ What CompliGate is explicitly **not**:
 
 Prerequisites: Python 3.11+, Node 20+, and a reachable PostgreSQL instance.
 
-```bash
-# 1. Backend
-cd backend
-cp .env.example .env
-# At minimum set in .env:
-#   DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/compligate
-#   API_KEYS=local-dev-key                 # or API_KEY_ENABLED=false
-#   XRPL_RPC_URL=https://s.altnet.rippletest.net:51234
-#   XRPL_NETWORK=testnet
-#   SANCTIONS_PROVIDER=mock_trm            # MVP only — see limitations
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-python3 -m alembic upgrade head
-uvicorn app.main:app --reload --port 8000
-```
+> PostgreSQL must be running and `DATABASE_URL` must be configured.
+
+### Backend
 
 ```bash
-# 2. Frontend (in a second shell)
-cd frontend
+cd backend
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 cp .env.example .env
+uvicorn app.main:app --reload
+```
+
+### Frontend
+
+```bash
+cd frontend
 npm install
+cp .env.example .env
 npm run dev
 ```
 
+### Database
+
 ```bash
-# 3. End-to-end XRPL testnet roundtrip (real network)
+cd backend
+alembic upgrade head
+```
+
+### End-to-end XRPL testnet roundtrip (optional)
+
+```bash
 cd backend
 python3 scripts/xrpl_testnet_roundtrip.py
 ```
