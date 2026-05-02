@@ -289,49 +289,25 @@ curl -X POST http://localhost:8000/v1/settle/verify \
 
 ## Environment Variables
 
-The variables below are the most important for getting CompliGate running. The full list — including every compliance-provider knob, signing mode, and persistence option — is documented in [`backend/.env.example`](backend/.env.example) and [`backend/README.md`](backend/README.md).
+The table below covers the variables most commonly needed to run CompliGate. The full list — including every compliance-provider knob, signing mode, and persistence option — is documented in [`backend/.env.example`](backend/.env.example), [`frontend/.env.example`](frontend/.env.example), and [`backend/README.md`](backend/README.md).
 
-### Core / policy
-
-| Variable                       | Description                                                                                              |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| `POLICY_VERSION`               | Policy identifier embedded in every Proof Bundle (e.g. `RLUSD_US_v1`).                                   |
-| `JURISDICTION`                 | Jurisdiction code embedded in the bundle (e.g. `US`).                                                    |
-| `CURRENCY`, `ISSUER_ADDRESS`   | Currency and issuer bound to the permit (e.g. `RLUSD` + the RLUSD issuer).                               |
-| `PERMIT_TTL_SECONDS`           | Permit time-to-live (default `300`).                                                                     |
-| `COMPLIGATE_PRIVATE_KEY_B64`   | Base64-encoded Ed25519 seed used to sign Proof Bundles. Required for stable keys; ephemeral in dev.      |
-| `CORS_ORIGINS`                 | Comma-separated allowed CORS origins.                                                                    |
-
-### Persistence & auth
-
-| Variable                                      | Description                                                                              |
-| --------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                | PostgreSQL URL (`postgresql+psycopg://…`). Required outside of narrow local experiments. |
-| `API_KEY_ENABLED`, `API_KEYS`, `API_KEY_HEADER_NAME` | API key auth toggle, comma-separated keys, and configurable header name.            |
-
-### XRPL
-
-| Variable                | Description                                                                                                |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `XRPL_RPC_URL`          | XRPL JSON-RPC URL (default: testnet).                                                                      |
-| `XRPL_NETWORK`          | Network identifier embedded in verification metadata (`testnet`, `mainnet`, `devnet`).                     |
-| `XRPL_SIGNING_MODE`     | `seed` (dev/staging only), `disabled`, or `external` (HSM placeholder, not implemented).                   |
-| `XRPL_SIGNING_ENABLED`  | Master kill switch for signing.                                                                            |
-| `XRPL_SIGNER_SEED`      | Seed used by `seed` signing mode. **Testnet only.** Never set to a mainnet seed.                            |
-| `XRPL_SIGNER_ADDRESS`   | Optional. If set, the seed must derive to this XRPL address or signing is refused.                         |
-| `RLUSD_ISSUER`, `RLUSD_CURRENCY`, `XRPL_REQUIRE_TRUSTLINE`, `XRPL_ENFORCE_RLUSD_ONLY` | RLUSD-specific configuration. |
-
-### Compliance providers (fail-closed by default)
-
-| Variable                       | Description                                                                                              |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| `FAIL_CLOSED_COMPLIANCE`       | When `true` (default), `denied` or `unavailable` provider responses produce a `DENY`. Keep `true` outside of narrow local dev. |
-| `KYC_PROVIDER`                 | `null` (default), `static_allow` (dev only), `http`, or `upstream_assertion`.                            |
-| `SANCTIONS_PROVIDER`           | `null` (default), `static_allow` (dev only), `http`, `address_screen`, or `mock_trm` (MVP simulation, **not** a real TRM integration). |
-| `RESERVE_PROVIDER`             | `null` (default), `static_allow` (dev only), `http`, or `attestation`.                                   |
-| `*_PROVIDER_URL`, `*_API_KEY`  | HTTPS endpoint and bearer key for `http`-mode providers.                                                 |
-| `KYC_UPSTREAM_ASSERTION_SECRET`, `KYC_UPSTREAM_ASSERTION_TRUSTED_ISSUERS` | HMAC secret and allowlist for trusted-upstream KYC assertions. |
-| `RESERVE_ATTESTATION_SECRET`, `RESERVE_ATTESTATION_TRUSTED_ATTESTORS`     | HMAC secret and allowlist for trusted reserve / liquidity attestors. |
+| Variable | Purpose | Example |
+| --- | --- | --- |
+| `DATABASE_URL` | PostgreSQL connection string used for permit / proof persistence. Required outside of narrow local experiments. | `postgresql+psycopg://compligate:password@localhost:5432/compligate` |
+| `API_KEY_ENABLED` | Toggles API key authentication on the backend. Set to `false` only for local development. | `true` |
+| `API_KEYS` | Comma-separated list of valid API keys accepted by the backend (secret — never commit this). | `never commit this` |
+| `XRPL_RPC_URL` | XRPL JSON-RPC endpoint the backend talks to. | `https://s.altnet.rippletest.net:51234` |
+| `XRPL_NETWORK` | Network identifier embedded in verification metadata. | `testnet` |
+| `XRPL_SIGNING_ENABLED` | Master kill switch for XRPL signing. When `false`, the payment endpoint returns a structured error regardless of `XRPL_SIGNING_MODE`. | `true` |
+| `XRPL_SIGNING_MODE` | Signing mode used by `/v1/xrpl/payment`: `seed` (dev/staging), `disabled`, or `external` (HSM placeholder, not implemented). | `seed` |
+| `XRPL_SIGNER_SEED` | Seed used by the `seed` signing mode. **Testnet only** — never set to a mainnet seed (secret — never commit this). | `never commit this` |
+| `XRPL_REQUIRE_TRUSTLINE` | Require an RLUSD trustline before settlement. Recommended `false` on testnet, `true` on mainnet. | `false` |
+| `SANCTIONS_MODE` | Selects the sanctions provider implementation: `mock` (default, MVP simulation) or `live`. | `mock` |
+| `FAIL_CLOSED_COMPLIANCE` | When `true` (default), `denied` or `unavailable` provider responses produce a `DENY`. Keep `true` outside of narrow local dev. | `true` |
+| `TRM_SANCTIONS_API_KEY` | API key for the TRM sanctions provider used in `live` sanctions mode (secret — never commit this). | `never commit this` |
+| `VITE_API_BASE` | Base URL of the CompliGate backend API used by the frontend. | `http://localhost:8000` |
+| `VITE_API_KEY` | Build-time default API key sent by the frontend to the backend. Can be overridden at runtime in the UI (secret — never commit this). | `never commit this` |
+| `VITE_XRPL_EXPLORER_BASE_URL` | Base URL of an XRPL transaction explorer used to deep-link `tx_hash` values. Leave blank to render `tx_hash` as plain text. | `https://testnet.xrpl.org/transactions` |
 
 ---
 
