@@ -128,19 +128,14 @@ Steps 3 and 4 use the **real XRPL testnet** via `XRPL_RPC_URL`. The sanctions ch
 
 ## Visual Demo
 
-### 1. Treasury Decision / Permit Request
-<img>
+Screenshots of the end-to-end flow will be added here before external review:
 
-### 2. XRPL Testnet Transaction
-<img>
+1. **Treasury Decision / Permit Request** — frontend permit form and signed Proof Bundle response.
+2. **XRPL Testnet Transaction** — payment submission with `bundle_hash` memo.
+3. **Settlement Verification** — `POST /v1/settlement/verify` result against the on-ledger transaction.
+4. **Proof Artifact** — generated artifact referencing `tx_hash` and `ledger_index`.
 
-### 3. Settlement Verification
-<img>
-
-### 4. Proof Artifact
-<img>
-
-> Replace placeholders with live demo screenshots before external review.
+<!-- TODO: replace this placeholder list with live screenshots before external review. -->
 
 ---
 
@@ -336,12 +331,13 @@ The table below covers the variables most commonly needed to run CompliGate. The
 
 ---
 
-## Test Plan
+## Testing
 
-Automated:
+### Backend unit + integration tests
+
+PostgreSQL is not required — the suite uses test fixtures.
 
 ```bash
-# Backend unit + integration tests (PostgreSQL not required — uses test fixtures)
 cd backend
 source .venv/bin/activate
 pytest tests/
@@ -355,7 +351,23 @@ The suite under `backend/tests/` covers:
 - Settlement verification reason codes and edge cases (`test_settlement_reason_codes.py`, `test_settlement_service.py`)
 - XRPL integration paths (`test_xrpl_integration_real.py`)
 
-End-to-end against the **real XRPL testnet** (requires outbound network access to the XRPL testnet faucet + JSON-RPC endpoint):
+### Real XRPL testnet integration tests
+
+Real XRPL integration tests are **opt-in** and skipped by default. To run them, set `RUN_XRPL_INTEGRATION_TESTS`:
+
+```bash
+RUN_XRPL_INTEGRATION_TESTS=true pytest backend/tests/test_xrpl_integration_real.py
+```
+
+These tests submit and verify real transactions on the **XRPL testnet**. They require:
+
+- A funded XRPL **testnet signer seed** (e.g. `XRPL_SIGNER_SEED`)
+- `XRPL_RPC_URL` pointing at a reachable XRPL JSON-RPC endpoint
+- A configured database (`DATABASE_URL` must be set and reachable)
+
+> ⚠️ **WARNING:** Never set `XRPL_SIGNER_SEED` to a mainnet seed. These tests submit real transactions and are intended for the XRPL testnet only.
+
+### End-to-end roundtrip script
 
 ```bash
 cd backend
@@ -364,54 +376,27 @@ python3 scripts/xrpl_testnet_roundtrip.py
 
 This script submits a real testnet `Payment` carrying a CompliGate `bundle_hash` in a memo, fetches the transaction back, and runs CompliGate's settlement verification against it.
 
-Frontend:
+### Frontend tests and build
 
 ```bash
 cd frontend
 npm test          # vitest
+npm run build
 ```
 
-Manual smoke test (after `uvicorn` is running):
+### Manual smoke test
+
+After `uvicorn` is running:
 
 1. `curl http://localhost:8000/health` → `{"status": "ok"}`
 2. `curl http://localhost:8000/public-key` → returns Ed25519 public key.
 3. `POST /v1/permit` → receive Proof Bundle.
 4. `POST /v1/verify` → confirm signature + expiry.
 5. Submit XRPL testnet payment with `bundle_hash` in memo.
-6. `POST /v1/settle/verify` with the resulting `tx_hash` → verification result.
+6. `POST /v1/settlement/verify` with the resulting `tx_hash` → verification result.
 
 ---
 
-## Testing
-
-### Backend tests
-
-```bash
-cd backend
-pytest
-```
-
-### Real XRPL integration test
-
-Real XRPL integration tests are **opt-in** and skipped by default. To run them, set the
-`RUN_XRPL_INTEGRATION_TESTS` environment variable:
-
-```bash
-RUN_XRPL_INTEGRATION_TESTS=true pytest backend/tests/test_xrpl_integration_real.py
-```
-
-These tests submit and verify real transactions on the XRPL testnet. They require:
-
-- A funded XRPL **testnet signer seed** (e.g. `XRPL_SIGNER_SEED`)
-- `XRPL_RPC_URL` pointing at a reachable XRPL JSON-RPC endpoint
-- A configured database (the backend's `DATABASE_URL` must be set and reachable)
-
-### Frontend build
-
-```bash
-cd frontend
-npm run build
-```
 ## Proof Artifact Example
 
 ```json
