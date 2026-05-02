@@ -126,6 +126,24 @@ Steps 3 and 4 use the **real XRPL testnet** via `XRPL_RPC_URL`. The sanctions ch
 
 ---
 
+## Visual Demo
+
+### 1. Treasury Decision / Permit Request
+<img>
+
+### 2. XRPL Testnet Transaction
+<img>
+
+### 3. Settlement Verification
+<img>
+
+### 4. Proof Artifact
+<img>
+
+> Replace placeholders with live demo screenshots before external review.
+
+---
+
 ## Architecture
 
 ```mermaid
