@@ -1,162 +1,394 @@
-# CompliGate (XRPL)
+# CompliGate
 
-**CompliGate is a compliance authorization layer for XRPL that defines the conditions under which a transaction is allowed to execute—aligned with emerging U.S. regulatory frameworks.**
+**A pre-transaction authorization and post-settlement verification layer for the XRP Ledger.**
 
----
+CompliGate defines the conditions under which an XRPL transaction is *allowed* to execute, and produces a cryptographic proof linking those conditions to the on-ledger transaction once it settles.
 
-## ⚖️ Why This Matters (XRPL + Regulation)
-
-Regulation is no longer optional for tokenized assets.
-
-Across:
-- **SEC/CFTC tokenization guidance**
-- **GENIUS Act (stablecoins, 1:1 backing, disclosures)**
-- **CLARITY Act (market structure, asset classification)**
-
-there is a clear shift toward:
-
-> Transactions must be **classified, constrained, and provably compliant**—not just logged after the fact.
+[![Status: MVP](https://img.shields.io/badge/status-MVP-orange.svg)](#current-status--limitations)
+[![XRPL: Testnet](https://img.shields.io/badge/XRPL-testnet-blue.svg)](https://xrpl.org/)
+[![Backend: FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
+[![Frontend: Vite + React](https://img.shields.io/badge/frontend-Vite%20%2B%20React-646cff.svg)](https://vitejs.dev/)
+[![Signing: Ed25519](https://img.shields.io/badge/signing-Ed25519-2ea44f.svg)](https://ed25519.cr.yp.to/)
+[![License: TBD](https://img.shields.io/badge/license-TBD-lightgrey.svg)](#contact)
 
 ---
 
-## 🚨 The Problem (XRPL Today)
+## Executive Summary
 
-XRPL provides:
-- fast execution  
-- native tokenization  
-- reliable settlement  
+CompliGate is an **authorization and verification layer** for tokenized-asset activity on XRPL. Given a proposed transaction, it evaluates configured policy and compliance evidence (KYC, sanctions screening, reserve / 1:1 backing) and issues a short-lived, Ed25519-signed **Proof Bundle** that encodes:
 
-But there is **no standardized way to:**
+- the **decision** (`ALLOW` / `DENY`),
+- the **constraints** under which the transaction may proceed (action, currency, issuer, amount ceiling, validity window),
+- a reference to the underlying **compliance evidence**, and
+- a `bundle_hash` suitable for embedding in an XRPL transaction memo.
 
-- determine if a transaction is **allowed before execution**
-- enforce **jurisdictional constraints** (KYC/sanctions/geography)
-- verify **stablecoin backing (1:1 reserves/liquidity)**
-- consistently handle **asset classification** (security vs commodity vs payment token)
-- produce **verifiable compliance evidence tied to a transaction**
+After the user independently settles the transaction on XRPL, CompliGate **verifies** the on-ledger transaction against the constraints in the bundle and returns a deterministic settlement-verification result.
 
-Today, most teams:
-- handle compliance **off-chain**
-- apply checks **manually or inconsistently**
-- cannot produce **deterministic proof of compliance**
+CompliGate **does not custody assets, broker transactions, or submit settlement on behalf of users.** It is a verifier, not an executor.
 
 ---
 
-## 🧠 The Solution (CompliGate)
+## Why XRPL Needs This
 
-CompliGate introduces a **deterministic authorization layer** for XRPL:
+XRPL provides fast, deterministic settlement and native tokenization. What it does **not** provide is a standardized way to answer, *before* settlement:
 
-> It does not execute transactions.  
-> It defines the **conditions under which a transaction is allowed to execute.**
+- Is this counterparty subject to sanctions or KYC restrictions?
+- Does the asset (e.g. a stablecoin like RLUSD) meet jurisdiction-specific requirements such as 1:1 reserve backing?
+- Is this transaction within the limits, currency, and issuer the institution authorized?
+- After the fact, can we produce **verifiable, tamper-evident proof** that those checks were performed and what they decided?
 
----
+Emerging U.S. regulatory direction (SEC/CFTC tokenization guidance, the GENIUS Act for stablecoins, the CLARITY Act for market structure) is converging on a clear expectation: tokenized-asset transactions should be **classified, constrained, and provably compliant** — not reconstructed from logs after the fact.
 
-## 🔗 XRPL-Native Flow
-Authorization → XRPL Transaction → Settlement Verification → Proof
-1. **Authorization (Pre-Transaction)**
-   - asset classification
-   - sanctions / KYC checks (provider-backed; mock in MVP)
-   - jurisdiction constraints
-   - transaction limits
-
-2. **XRPL Execution**
-   - transaction submitted externally
-   - `bundle_hash` attached via memo
-
-3. **Settlement Verification**
-   - verify transaction via `tx_hash`
-   - link execution to authorization
-
-4. **Proof Artifact**
-   - cryptographic record of:
-     - decision
-     - constraints
-     - compliance evidence
-     - transaction linkage
+CompliGate is a small, focused layer that fills that gap on XRPL without changing how XRPL itself works.
 
 ---
 
-## 🧾 Example: Stablecoin (RLUSD)
+## Problem → Solution
 
-For a stablecoin transfer:
-
-CompliGate evaluates:
-- issuer classification  
-- **1:1 backing requirement (GENIUS alignment)**  
-- jurisdiction (KYC/sanctions)  
-- transaction constraints  
-
-Then outputs:
-“This transaction is valid only if:
-	•	asset = compliant stablecoin
-	•	reserves = verified
-	•	jurisdiction = allowed
-	•	amount < threshold
-	•	time window = valid”
-XRPL executes.  
-CompliGate verifies.  
-Proof is generated.
+| Problem on XRPL today                                                  | CompliGate's contribution                                                                                                              |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| No standard way to decide if a transaction is *allowed* before submit  | Pre-transaction **authorization** producing a signed Proof Bundle with explicit `ALLOW` / `DENY`                                       |
+| Compliance checks happen ad-hoc, off-chain, and inconsistently         | Pluggable, fail-closed compliance providers (KYC, sanctions, reserves) with normalized evidence captured in the bundle                 |
+| Stablecoin 1:1 backing is asserted, not verified, at transaction time  | Reserve provider interface (HTTP or HMAC-signed attestation) consulted at authorization                                                |
+| No deterministic linkage between "we checked" and "the tx that settled" | `bundle_hash` embedded in an XRPL memo; **post-settlement verification** matches the on-ledger tx against bundle constraints           |
+| No tamper-evident artifact a regulator or counterparty can verify      | Canonical-JSON Proof Bundle, Ed25519-signed, SHA-256-hashed, with a public `/public-key` endpoint for independent verification         |
+| Risk of silently approving when a provider is misconfigured            | **Fail-closed by default**: missing or unavailable providers produce an explicit `*_PROVIDER_UNAVAILABLE` denial                       |
 
 ---
 
-## 🎯 Why XRPL Needs This
+## Demo Flow
 
-To support:
-- stablecoins (e.g., RLUSD)
-- tokenized assets
-- institutional participation
+End-to-end happy path (real XRPL testnet, mocked sanctions provider in MVP):
 
-XRPL needs:
+```
+   ┌──────────┐    1. POST /v1/permit          ┌────────────────┐
+   │  Client  │ ─────────────────────────────► │   CompliGate   │
+   │ / dApp   │                                │    Backend     │
+   └──────────┘                                └───────┬────────┘
+        ▲                                              │
+        │                                              │ evaluates KYC, sanctions,
+        │                                              │ reserve, jurisdiction, limits
+        │                                              ▼
+        │  2. Proof Bundle (Ed25519-signed) + bundle_hash
+        │ ◄────────────────────────────────────────────┘
+        │
+        │  3. Submit XRPL Payment with Memo = bundle_hash
+        ▼
+   ┌──────────────────────────────────────────────────────────┐
+   │              XRP Ledger (Testnet)                        │
+   │   Payment tx settles, returns tx_hash                    │
+   └───────────────────────────┬──────────────────────────────┘
+                               │
+                               │  4. POST /v1/settle/verify { tx_hash, bundle, signature }
+                               ▼
+                    ┌────────────────────┐
+                    │   CompliGate       │  fetches tx by hash, checks
+                    │ verifies on-ledger │  amount / currency / issuer /
+                    │ tx vs bundle       │  destination / memo == bundle_hash
+                    └─────────┬──────────┘
+                              │
+                              ▼
+                  5. Verification result + Proof artifact
+```
 
-> **Pre-transaction compliance + post-settlement proof**
-
-Not:
-- manual checks
-- disconnected systems
-- unverifiable claims
-
----
-
-## 🔐 Positioning
-
-CompliGate is:
-
-- an **authorization layer**
-- a **verification layer**
-- a **compliance signal system**
-
-It is NOT:
-- a broker-dealer
-- a transaction executor
-- a custody provider
-
----
-
-## 🚧 Current State
-
-- XRPL transaction + verification → ✅ real
-- authorization engine → ✅ real
-- sanctions provider → 🟡 mock (TRM integration pending)
-- KYC / reserve checks → 🟡 interface defined, providers pending
+Steps 3 and 4 use the **real XRPL testnet** via `XRPL_RPC_URL`. The sanctions check in step 1 is currently served by a **mock provider** unless an HTTP provider is configured (see [Current Status & Limitations](#current-status--limitations)).
 
 ---
 
-## 🚀 Vision
+## Architecture
 
-> CompliGate aims to become:
+```
+                         ┌────────────────────────────────────────┐
+                         │              CompliGate                │
+                         │                                        │
+   ┌──────────────┐      │  ┌──────────────┐   ┌──────────────┐   │
+   │   Frontend   │ ───► │  │   FastAPI    │   │   Policy     │   │
+   │  (Vite/React)│      │  │   routes     │──►│   Engine     │   │
+   └──────────────┘      │  │  /v1/permit  │   │ (constraints,│   │
+                         │  │  /v1/verify  │   │  jurisdiction│   │
+   ┌──────────────┐      │  │  /v1/settle/ │   │  TTL, limits)│   │
+   │   API client │ ───► │  │   verify     │   └──────┬───────┘   │
+   │ (curl, SDK)  │      │  │  /v1/xrpl/*  │          │           │
+   └──────────────┘      │  └──────┬───────┘          │           │
+                         │         │                  ▼           │
+                         │         │           ┌──────────────┐   │
+                         │         │           │  Compliance  │   │
+                         │         │           │  Providers   │   │
+                         │         │           │  (fail-      │   │
+                         │         │           │   closed)    │   │
+                         │         │           │              │   │
+                         │         │           │  KYC ──────► http / upstream_assertion
+                         │         │           │  Sanctions ► http / address_screen / mock_trm
+                         │         │           │  Reserve ──► http / attestation
+                         │         │           └──────┬───────┘   │
+                         │         │                  │           │
+                         │         ▼                  ▼           │
+                         │  ┌────────────────────────────────┐    │
+                         │  │   Proof Bundle Builder         │    │
+                         │  │   • canonical JSON             │    │
+                         │  │   • Ed25519 signature          │    │
+                         │  │   • SHA-256 bundle_hash        │    │
+                         │  │   • iat / exp (TTL, default 5m)│    │
+                         │  └──────┬─────────────────────────┘    │
+                         │         │                              │
+                         │         ▼                              │
+                         │  ┌────────────────────┐  ┌──────────┐  │
+                         │  │ PostgreSQL store   │  │ XRPL     │  │
+                         │  │ (permits, proofs)  │  │ client   │  │
+                         │  │  via SQLAlchemy +  │  │ (testnet │  │
+                         │  │  Alembic           │  │ JSON-RPC)│  │
+                         │  └────────────────────┘  └────┬─────┘  │
+                         └───────────────────────────────┼────────┘
+                                                         │
+                                                         ▼
+                                            ┌─────────────────────┐
+                                            │   XRP Ledger        │
+                                            │   (Testnet today)   │
+                                            └─────────────────────┘
+```
 
-A standardized authorization and verification layer for compliant blockchain transactions
+Key properties:
 
-Bridging:
-	•	on-chain execution
-	•	off-chain compliance requirementsA standardized compliance layer for XRPL and tokenized markets:
-	
+- **CompliGate does not sit on the settlement path.** Users submit their own XRPL transaction; CompliGate verifies it after the fact.
+- **Providers are pluggable and fail-closed.** The default kind is `null`, which denies. Configuration is explicit.
+- **The Proof Bundle is the contract.** It is canonical, signed, hashed, time-bound, and independently verifiable using only the public key from `/public-key`.
+
 ---
 
-## 🛠️ Roadmap
+## Current Capabilities
 
-	•	TRM Labs integration (sanctions)
-	•	KYC provider integration
-	•	Reserve / liquidity verification (stablecoins)
-	•	expanded asset classification logic
-	•	optional enforcement integrations
-	•	multi-chain support
+- ✅ Pre-transaction **authorization API** (`/v1/permit`) producing a canonical-JSON, Ed25519-signed Proof Bundle with explicit constraints (action, currency, issuer, amount ceiling) and a hard validity window (`iat` → `exp`, default 5 minutes).
+- ✅ **Bundle verification API** (`/v1/verify`) — signature + expiry checks usable by any third party with the public key from `/public-key`.
+- ✅ **Post-settlement verification API** (`/v1/settle/verify`) against a real XRPL transaction hash — confirms the settled tx matches the bundle's constraints and that the bundle's `bundle_hash` is present in the XRPL memo.
+- ✅ Real **XRPL testnet integration** for transaction lookup and (optional, gated) signing/submission via `XRPL_SIGNING_MODE=seed`. End-to-end testnet roundtrip script included (`backend/scripts/xrpl_testnet_roundtrip.py`).
+- ✅ **Pluggable, fail-closed compliance providers** for KYC, sanctions, and reserve / 1:1 backing, with normalized `ProviderResult` evidence persisted in the proof artifact.
+- ✅ **HMAC-signed upstream assertions** for KYC and reserve / liquidity attestations, with explicit trusted-issuer / trusted-attestor allowlists.
+- ✅ **API key authentication** on all `/v1/*` endpoints (`X-API-Key` or `Authorization: Bearer`), with rotatable, comma-separated key lists.
+- ✅ **PostgreSQL persistence** of permits and proof artifacts via SQLAlchemy + Alembic migrations.
+- ✅ **Frontend demo** (Vite + React + TypeScript) wiring a permit → settle → verify flow against the running backend.
+
+---
+
+## Current Status & Limitations
+
+CompliGate is at **MVP stage**. It is **not production-ready**, and the README is intentionally honest about which pieces are real and which are stubs.
+
+| Area                              | Status                                                                                                                                  |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| XRPL integration (testnet)        | ✅ Real. Uses live testnet JSON-RPC for transaction lookup and post-settlement verification. Roundtrip test exercises the real network. |
+| XRPL mainnet                      | 🚫 Not supported. Configuration is testnet-oriented; signing modes are explicitly dev/staging.                                          |
+| Authorization / policy engine     | ✅ Real. Constraints, jurisdiction, TTL, and fail-closed semantics are implemented and tested.                                          |
+| Proof Bundle (sign + verify)      | ✅ Real. Ed25519 signing, canonical JSON, SHA-256 `bundle_hash`, public-key verification endpoint.                                       |
+| Sanctions screening               | 🟡 **Mock provider only** (`mock_trm`). **No real TRM Labs integration exists yet.** An HTTP provider interface is defined and ready for a real vendor; configure `SANCTIONS_PROVIDER=http` with a real URL + API key to use one. |
+| KYC                               | 🟡 Interface implemented (`http`, `upstream_assertion`). No bundled real-vendor integration; `null` (fail-closed) is the default.       |
+| Reserve / 1:1 backing             | 🟡 Interface implemented (`http`, `attestation`). No bundled real proof-of-reserves vendor; `null` (fail-closed) is the default.        |
+| Asset classification              | 🟡 Encoded today via `POLICY_VERSION` + `CURRENCY` + `ISSUER_ADDRESS` configuration. No dynamic on-chain classification logic yet.      |
+| HSM / custody signing             | 🚫 Not implemented. `XRPL_SIGNING_MODE=external` is a reserved placeholder.                                                              |
+| Audit, formal review, pen-test    | 🚫 None performed. Treat as pre-audit MVP code.                                                                                         |
+
+What CompliGate is explicitly **not**:
+
+- Not a broker, broker-dealer, custodian, or transaction intermediary.
+- Not an on-ledger enforcement mechanism — XRPL will execute a transaction whether or not CompliGate authorized it. CompliGate provides off-ledger authorization and on-ledger *verification of conformance*.
+- Not a substitute for a regulated KYC, sanctions, or proof-of-reserves provider. CompliGate consumes evidence from such providers; it does not produce it.
+
+---
+
+## Quickstart
+
+Prerequisites: Python 3.11+, Node 20+, and a reachable PostgreSQL instance.
+
+```bash
+# 1. Backend
+cd backend
+cp .env.example .env
+# At minimum set in .env:
+#   DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/compligate
+#   API_KEYS=local-dev-key                 # or API_KEY_ENABLED=false
+#   XRPL_RPC_URL=https://s.altnet.rippletest.net:51234
+#   XRPL_NETWORK=testnet
+#   SANCTIONS_PROVIDER=mock_trm            # MVP only — see limitations
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python3 -m alembic upgrade head
+uvicorn app.main:app --reload --port 8000
+```
+
+```bash
+# 2. Frontend (in a second shell)
+cd frontend
+cp .env.example .env
+npm install
+npm run dev
+```
+
+```bash
+# 3. End-to-end XRPL testnet roundtrip (real network)
+cd backend
+python3 scripts/xrpl_testnet_roundtrip.py
+```
+
+Interactive API docs: <http://localhost:8000/docs>.
+
+For deeper backend setup (Docker, production deployment, Alembic workflow, signing modes), see [`backend/README.md`](backend/README.md).
+
+---
+
+## API Endpoints
+
+All `/v1/*` endpoints are protected by API key authentication when keys are configured (`X-API-Key` header or `Authorization: Bearer <key>`).
+
+| Method | Path                    | Description                                                                                  |
+| ------ | ----------------------- | -------------------------------------------------------------------------------------------- |
+| `GET`  | `/health`               | Liveness probe. Returns `{"status": "ok"}`. Public.                                          |
+| `GET`  | `/public-key`           | Ed25519 public key (base64 + hex) used to verify Proof Bundle signatures. Public.            |
+| `POST` | `/v1/permit`            | Run authorization. Returns a signed Proof Bundle with constraints, `iat`/`exp`, `bundle_hash`. |
+| `POST` | `/v1/verify`            | Verify a Proof Bundle's signature and expiry without contacting XRPL.                        |
+| `POST` | `/v1/settle/verify`     | Post-settlement verification of an XRPL `tx_hash` against a Proof Bundle's constraints.      |
+| `GET`  | `/v1/xrpl/health`       | Reports whether the configured XRPL network is reachable.                                    |
+| `POST` | `/v1/xrpl/payment`      | Optional, gated XRPL signing/submission. Disabled unless `XRPL_SIGNING_ENABLED=true` and `XRPL_SIGNING_MODE=seed`. Testnet only. |
+
+Example — request a permit and verify it:
+
+```bash
+curl -X POST http://localhost:8000/v1/permit \
+  -H "X-API-Key: local-dev-key" \
+  -H "Content-Type: application/json" \
+  -d '{"subject": "rExampleSubjectAddress...", "action": "transfer", "amount": 100.00}'
+```
+
+```bash
+curl -X POST http://localhost:8000/v1/settle/verify \
+  -H "X-API-Key: local-dev-key" \
+  -H "Content-Type: application/json" \
+  -d '{"tx_hash": "<xrpl-tx-hash>", "bundle": { ... }, "signature": "<base64>"}'
+```
+
+---
+
+## Environment Variables
+
+The variables below are the most important for getting CompliGate running. The full list — including every compliance-provider knob, signing mode, and persistence option — is documented in [`backend/.env.example`](backend/.env.example) and [`backend/README.md`](backend/README.md).
+
+### Core / policy
+
+| Variable                       | Description                                                                                              |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `POLICY_VERSION`               | Policy identifier embedded in every Proof Bundle (e.g. `RLUSD_US_v1`).                                   |
+| `JURISDICTION`                 | Jurisdiction code embedded in the bundle (e.g. `US`).                                                    |
+| `CURRENCY`, `ISSUER_ADDRESS`   | Currency and issuer bound to the permit (e.g. `RLUSD` + the RLUSD issuer).                               |
+| `PERMIT_TTL_SECONDS`           | Permit time-to-live (default `300`).                                                                     |
+| `COMPLIGATE_PRIVATE_KEY_B64`   | Base64-encoded Ed25519 seed used to sign Proof Bundles. Required for stable keys; ephemeral in dev.      |
+| `CORS_ORIGINS`                 | Comma-separated allowed CORS origins.                                                                    |
+
+### Persistence & auth
+
+| Variable                                      | Description                                                                              |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                | PostgreSQL URL (`postgresql+psycopg://…`). Required outside of narrow local experiments. |
+| `API_KEY_ENABLED`, `API_KEYS`, `API_KEY_HEADER_NAME` | API key auth toggle, comma-separated keys, and configurable header name.            |
+
+### XRPL
+
+| Variable                | Description                                                                                                |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `XRPL_RPC_URL`          | XRPL JSON-RPC URL (default: testnet).                                                                      |
+| `XRPL_NETWORK`          | Network identifier embedded in verification metadata (`testnet`, `mainnet`, `devnet`).                     |
+| `XRPL_SIGNING_MODE`     | `seed` (dev/staging only), `disabled`, or `external` (HSM placeholder, not implemented).                   |
+| `XRPL_SIGNING_ENABLED`  | Master kill switch for signing.                                                                            |
+| `XRPL_SIGNER_SEED`      | Seed used by `seed` signing mode. **Testnet only.** Never set to a mainnet seed.                            |
+| `XRPL_SIGNER_ADDRESS`   | Optional. If set, the seed must derive to this XRPL address or signing is refused.                         |
+| `RLUSD_ISSUER`, `RLUSD_CURRENCY`, `XRPL_REQUIRE_TRUSTLINE`, `XRPL_ENFORCE_RLUSD_ONLY` | RLUSD-specific configuration. |
+
+### Compliance providers (fail-closed by default)
+
+| Variable                       | Description                                                                                              |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `FAIL_CLOSED_COMPLIANCE`       | When `true` (default), `denied` or `unavailable` provider responses produce a `DENY`. Keep `true` outside of narrow local dev. |
+| `KYC_PROVIDER`                 | `null` (default), `static_allow` (dev only), `http`, or `upstream_assertion`.                            |
+| `SANCTIONS_PROVIDER`           | `null` (default), `static_allow` (dev only), `http`, `address_screen`, or `mock_trm` (MVP simulation, **not** a real TRM integration). |
+| `RESERVE_PROVIDER`             | `null` (default), `static_allow` (dev only), `http`, or `attestation`.                                   |
+| `*_PROVIDER_URL`, `*_API_KEY`  | HTTPS endpoint and bearer key for `http`-mode providers.                                                 |
+| `KYC_UPSTREAM_ASSERTION_SECRET`, `KYC_UPSTREAM_ASSERTION_TRUSTED_ISSUERS` | HMAC secret and allowlist for trusted-upstream KYC assertions. |
+| `RESERVE_ATTESTATION_SECRET`, `RESERVE_ATTESTATION_TRUSTED_ATTESTORS`     | HMAC secret and allowlist for trusted reserve / liquidity attestors. |
+
+---
+
+## Test Plan
+
+Automated:
+
+```bash
+# Backend unit + integration tests (PostgreSQL not required — uses test fixtures)
+cd backend
+source .venv/bin/activate
+pytest tests/
+```
+
+The suite under `backend/tests/` covers:
+
+- Policy engine and authorization decisions (`test_compliance.py`, `test_provider_compliance.py`)
+- Proof Bundle issuance, signature, and expiry (`test_api.py`)
+- Each provider type, including HTTP sanctions, KYC upstream assertions, and reserve attestations (`test_http_sanctions_provider.py`, `test_kyc_upstream_assertion.py`, `test_reserve_attestation.py`, `test_providers.py`)
+- Settlement verification reason codes and edge cases (`test_settlement_reason_codes.py`, `test_settlement_service.py`)
+- XRPL integration paths (`test_xrpl_integration_real.py`)
+
+End-to-end against the **real XRPL testnet** (requires outbound network access to the XRPL testnet faucet + JSON-RPC endpoint):
+
+```bash
+cd backend
+python3 scripts/xrpl_testnet_roundtrip.py
+```
+
+This script submits a real testnet `Payment` carrying a CompliGate `bundle_hash` in a memo, fetches the transaction back, and runs CompliGate's settlement verification against it.
+
+Frontend:
+
+```bash
+cd frontend
+npm test          # vitest
+```
+
+Manual smoke test (after `uvicorn` is running):
+
+1. `curl http://localhost:8000/health` → `{"status": "ok"}`
+2. `curl http://localhost:8000/public-key` → returns Ed25519 public key.
+3. `POST /v1/permit` → receive Proof Bundle.
+4. `POST /v1/verify` → confirm signature + expiry.
+5. Submit XRPL testnet payment with `bundle_hash` in memo.
+6. `POST /v1/settle/verify` with the resulting `tx_hash` → verification result.
+
+---
+
+## Roadmap
+
+**Now (MVP — this repository)**
+- Authorization, Proof Bundle issuance, and post-settlement verification on XRPL testnet
+- Pluggable, fail-closed provider abstractions for KYC / sanctions / reserves
+- Mock sanctions provider (`mock_trm`) for local development and demos
+
+**Next**
+- Real **TRM Labs** sanctions provider (replacing `mock_trm` with a true HTTP integration)
+- Real KYC vendor integration behind the existing `KYC_PROVIDER=http` interface
+- Real proof-of-reserves / liquidity vendor behind `RESERVE_PROVIDER=http`
+- Expanded asset-classification logic (security / commodity / payment token signals)
+- Hardened key management: `XRPL_SIGNING_MODE=external` (HSM / custody) implementation
+- Production XRPL mainnet support, including stricter trustline and issuer enforcement
+- Independent security review and audit of the authorization engine and Proof Bundle format
+
+**Later**
+- Multi-chain authorization (same Proof Bundle shape, additional settlement verifiers)
+- Optional on-ledger anchoring of `bundle_hash` for long-term tamper-evidence
+- Standardization of the Proof Bundle as a portable compliance artifact
+
+---
+
+## Contact
+
+CompliGate is developed by **CompliLedger**.
+
+- Issues & discussion: <https://github.com/Compliledger/CompliGate/issues>
+- Security reports: please open a private security advisory via this repository.
+- General contact / partnership inquiries: open a GitHub issue and a maintainer will follow up.
+
+License: TBD.
