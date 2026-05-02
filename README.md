@@ -263,17 +263,18 @@ For deeper backend setup (Docker, production deployment, Alembic workflow, signi
 
 ## API Endpoints
 
-All `/v1/*` endpoints are protected by API key authentication when keys are configured (`X-API-Key` header or `Authorization: Bearer <key>`).
+All `/v1/*` endpoints are protected by API key authentication when keys are configured (`X-API-Key` header or `Authorization: Bearer <key>`). Public endpoints (`/health`, `/public-key`, `/v1/xrpl/health`) are intentionally unauthenticated so they can be used as liveness/discovery probes.
 
-| Method | Path                    | Description                                                                                  |
-| ------ | ----------------------- | -------------------------------------------------------------------------------------------- |
-| `GET`  | `/health`               | Liveness probe. Returns `{"status": "ok"}`. Public.                                          |
-| `GET`  | `/public-key`           | Ed25519 public key (base64 + hex) used to verify Proof Bundle signatures. Public.            |
-| `POST` | `/v1/permit`            | Run authorization. Returns a signed Proof Bundle with constraints, `iat`/`exp`, `bundle_hash`. |
-| `POST` | `/v1/verify`            | Verify a Proof Bundle's signature and expiry without contacting XRPL.                        |
-| `POST` | `/v1/settle/verify`     | Post-settlement verification of an XRPL `tx_hash` against a Proof Bundle's constraints.      |
-| `GET`  | `/v1/xrpl/health`       | Reports whether the configured XRPL network is reachable.                                    |
-| `POST` | `/v1/xrpl/payment`      | Optional, gated XRPL signing/submission. Disabled unless `XRPL_SIGNING_ENABLED=true` and `XRPL_SIGNING_MODE=seed`. Testnet only. |
+| Method | Endpoint                     | Purpose                                                                                                                          | Auth Required |
+| ------ | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `GET`  | `/health`                    | Liveness probe. Returns `{"status": "ok"}`.                                                                                      | No            |
+| `GET`  | `/public-key`                | Ed25519 public key (base64 + hex) used to verify Proof Bundle signatures.                                                        | No            |
+| `GET`  | `/v1/xrpl/health`            | Reports whether the configured XRPL network is reachable.                                                                        | No            |
+| `POST` | `/v1/permit`                 | Run authorization. Returns a signed Proof Bundle with constraints, `iat`/`exp`, and `bundle_hash`.                               | Yes           |
+| `POST` | `/v1/verify`                 | Verify a Proof Bundle's signature and expiry without contacting XRPL.                                                            | Yes           |
+| `POST` | `/v1/xrpl/trustline/check`   | Check whether an XRPL account has the RLUSD trust line (and capacity) required for settlement.                                   | Yes           |
+| `POST` | `/v1/xrpl/payment`           | Optional, gated XRPL signing/submission. Disabled unless `XRPL_SIGNING_ENABLED=true` and `XRPL_SIGNING_MODE=seed`. Testnet only. | Yes           |
+| `POST` | `/v1/settlement/verify`      | Post-settlement verification of an XRPL `tx_hash` against a Proof Bundle's constraints.                                          | Yes           |
 
 Example — request a permit and verify it:
 
@@ -285,7 +286,7 @@ curl -X POST http://localhost:8000/v1/permit \
 ```
 
 ```bash
-curl -X POST http://localhost:8000/v1/settle/verify \
+curl -X POST http://localhost:8000/v1/settlement/verify \
   -H "X-API-Key: local-dev-key" \
   -H "Content-Type: application/json" \
   -d '{"tx_hash": "<xrpl-tx-hash>", "bundle": { ... }, "signature": "<base64>"}'
