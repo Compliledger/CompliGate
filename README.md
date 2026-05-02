@@ -364,6 +364,39 @@ Manual smoke test (after `uvicorn` is running):
 
 ---
 
+## Testing
+
+### Backend tests
+
+```bash
+cd backend
+pytest
+```
+
+### Real XRPL integration test
+
+Real XRPL integration tests are **opt-in** and skipped by default. To run them, set the
+`RUN_XRPL_INTEGRATION_TESTS` environment variable:
+
+```bash
+RUN_XRPL_INTEGRATION_TESTS=true pytest backend/tests/test_xrpl_integration_real.py
+```
+
+These tests submit and verify real transactions on the XRPL testnet. They require:
+
+- A funded XRPL **testnet signer seed** (e.g. `XRPL_SIGNER_SEED`)
+- `XRPL_RPC_URL` pointing at a reachable XRPL JSON-RPC endpoint
+- A configured database (the backend's `DATABASE_URL` must be set and reachable)
+
+### Frontend build
+
+```bash
+cd frontend
+npm run build
+```
+
+---
+
 ## Roadmap
 
 **Now (MVP — this repository)**
