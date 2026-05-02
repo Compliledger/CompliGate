@@ -71,6 +71,25 @@ The enforcement boundary is the institution's submission path: only transactions
 
 ## Demo Flow
 
+```mermaid
+flowchart LR
+    A[Treasury Decision] --> B[CompliGate Evaluation]
+    B --> C[Signed Permit + Constraints]
+    C --> D[XRPL Testnet Execution]
+    D --> E[Settlement Verification]
+    E --> F[Proof Artifact]
+
+    B --> B1[Asset Classification]
+    B --> B2[Sanctions Provider Abstraction]
+    B --> B3[Jurisdiction + Limits]
+    D --> D1[Memo: bundle_hash]
+    F --> F1[tx_hash]
+    F --> F2[ledger_index]
+    F --> F3[reason_codes]
+```
+
+This is the current MVP demo path: Treasury Decision → CompliGate Evaluation → Permit → XRPL Execution → Proof.
+
 End-to-end happy path (real XRPL testnet, mocked sanctions provider in MVP):
 
 ```
