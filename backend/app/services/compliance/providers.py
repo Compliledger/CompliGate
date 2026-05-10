@@ -55,16 +55,16 @@ logger = get_logger("compliance")
 #: Provider kinds that are explicitly *not* backed by a real third-party
 #: check. They are still traceable in the proof artifact, but they must
 #: never be treated as production-grade compliance evidence.
-NON_PRODUCTION_PROVIDER_KINDS = frozenset({"null", "static_allow"})
+NON_PRODUCTION_PROVIDER_KINDS = frozenset({"null", "static_allow", "demo"})
 
 #: Provider kinds supported for the KYC check. The KYC check uniquely
 #: supports an ``upstream_assertion`` kind in addition to the
 #: cross-cutting kinds, so a verified institutional system can submit a
 #: signed assertion alongside the permit request instead of forcing
 #: CompliGate to call a third-party identity-verification API.
-_KYC_PROVIDER_KINDS = frozenset({"null", "static_allow", "http", "upstream_assertion"})
-_RESERVE_PROVIDER_KINDS = frozenset({"null", "static_allow", "http", "attestation"})
-_DEFAULT_PROVIDER_KINDS = frozenset({"null", "static_allow", "http", "address_screen"})
+_KYC_PROVIDER_KINDS = frozenset({"null", "static_allow", "demo", "http", "upstream_assertion"})
+_RESERVE_PROVIDER_KINDS = frozenset({"null", "static_allow", "demo", "http", "attestation"})
+_DEFAULT_PROVIDER_KINDS = frozenset({"null", "static_allow", "demo", "http", "address_screen"})
 
 _HTTP_TIMEOUT_SECONDS = 5.0
 
@@ -204,6 +204,157 @@ class _StaticAllowProvider(ComplianceProvider):
             reference=reference,
             reason="static_allow_provider_configured",
             details=details,
+        )
+
+
+class _DemoProvider(ComplianceProvider):
+    """Keyword-driven mock provider for demos and integration testing.
+
+    Pass any normal XRPL address and all checks pass so the permit is
+    issued. Embed a trigger keyword anywhere in the subject address to
+    force a specific compliance outcome without a real third-party
+    integration.
+
+    Subject-level triggers (case-insensitive):
+        KYC_DENY        — KYC check denied
+        SANCTIONED      — sanctions check denied
+        RESERVE_FAIL    — reserve not_verified (liquidity still passes)
+        LIQUIDITY_FAIL  — liquidity not_verified (reserve still passes)
+        REVIEW          — provider unavailable → deny under fail-closed
+        UNAVAILABLE     — provider unavailable → deny under fail-closed
+
+    The provider id recorded in the proof artifact is always
+    ``demo:<check>`` so it is immediately obvious that no real check was
+    performed. This kind appears in NON_PRODUCTION_PROVIDER_KINDS.
+    """
+
+    kind = "demo"
+
+    def __init__(self, check: str) -> None:
+        self.check = check
+
+    def _subject_upper(self, context: dict[str, Any]) -> str:
+        return str(context.get("subject") or "").upper()
+
+    def _is_unavailable_trigger(self, subject_u: str) -> bool:
+        return "REVIEW" in subject_u or "UNAVAILABLE" in subject_u
+
+    def evaluate(self, context: dict[str, Any]) -> ProviderResult:
+        provider_id = f"demo:{self.check}"
+        subject_u = self._subject_upper(context)
+
+        if self.check == "kyc":
+            return self._check_kyc(context, provider_id, subject_u)
+        if self.check == "sanctions":
+            return self._check_sanctions(context, provider_id, subject_u)
+        if self.check == "reserve":
+            return self._check_reserve(context, provider_id, subject_u)
+        return _NullProvider(self.check).evaluate(context)
+
+    def _check_kyc(
+        self, context: dict[str, Any], provider_id: str, subject_u: str
+    ) -> ProviderResult:
+        subject = str(context.get("subject") or "")
+        reference = f"demo-kyc-{subject}"
+
+        if self._is_unavailable_trigger(subject_u):
+            kyc_status = KycStatus.UNAVAILABLE
+            status = ProviderStatus.UNAVAILABLE
+            reason = "KYC_UNAVAILABLE_DEMO_TRIGGER"
+            rc: tuple[str, ...] = ("KYC_UNAVAILABLE_DEMO_TRIGGER",)
+        elif "KYC_DENY" in subject_u:
+            kyc_status = KycStatus.NOT_VERIFIED
+            status = ProviderStatus.DENIED
+            reason = "KYC_DENIED_DEMO_TRIGGER"
+            rc = ("KYC_DENIED_DEMO_TRIGGER",)
+        else:
+            kyc_status = KycStatus.VERIFIED
+            status = ProviderStatus.APPROVED
+            reason = "KYC_VERIFIED_DEMO"
+            rc = ("KYC_VERIFIED_DEMO",)
+
+        kyc_result = _kyc_result_from_status(
+            provider_name=provider_id,
+            context=context,
+            kyc_status=kyc_status,
+            evidence_reference=reference,
+            reason_codes=rc,
+        )
+        return ProviderResult(
+            check=self.check,
+            status=status,
+            provider_id=provider_id,
+            reference=reference,
+            reason=reason,
+            details={"kyc_result": kyc_result.to_dict(), "mode": "demo"},
+        )
+
+    def _check_sanctions(
+        self, context: dict[str, Any], provider_id: str, subject_u: str
+    ) -> ProviderResult:
+        subject = str(context.get("subject") or "")
+        reference = f"demo-sanctions-{subject}"
+
+        if self._is_unavailable_trigger(subject_u):
+            status = ProviderStatus.UNAVAILABLE
+            reason = "SANCTIONS_UNAVAILABLE_DEMO_TRIGGER"
+        elif "SANCTIONED" in subject_u:
+            status = ProviderStatus.DENIED
+            reason = "SANCTIONS_HIT_DEMO_TRIGGER"
+        else:
+            status = ProviderStatus.APPROVED
+            reason = "SANCTIONS_PASSED_DEMO"
+
+        return ProviderResult(
+            check=self.check,
+            status=status,
+            provider_id=provider_id,
+            reference=reference,
+            reason=reason,
+            details={"mode": "demo"},
+        )
+
+    def _check_reserve(
+        self, context: dict[str, Any], provider_id: str, subject_u: str
+    ) -> ProviderResult:
+        subject = str(context.get("subject") or "")
+        reference = f"demo-reserve-{subject}"
+
+        if self._is_unavailable_trigger(subject_u):
+            reserve_status = ReserveStatus.UNAVAILABLE
+            liquidity_status = ReserveStatus.UNAVAILABLE
+            rc: tuple[str, ...] = ("RESERVE_UNAVAILABLE_DEMO_TRIGGER",)
+        elif "RESERVE_FAIL" in subject_u:
+            reserve_status = ReserveStatus.NOT_VERIFIED
+            liquidity_status = ReserveStatus.VERIFIED
+            rc = ("RESERVE_NOT_VERIFIED_DEMO_TRIGGER",)
+        elif "LIQUIDITY_FAIL" in subject_u:
+            reserve_status = ReserveStatus.VERIFIED
+            liquidity_status = ReserveStatus.NOT_VERIFIED
+            rc = ("LIQUIDITY_NOT_VERIFIED_DEMO_TRIGGER",)
+        else:
+            reserve_status = ReserveStatus.VERIFIED
+            liquidity_status = ReserveStatus.VERIFIED
+            rc = ("RESERVE_VERIFIED_DEMO", "LIQUIDITY_VERIFIED_DEMO")
+
+        overall_status = _provider_status_from_reserve_pair(
+            reserve_status, liquidity_status
+        )
+        reserve_result = _reserve_result_from_status(
+            provider_name=provider_id,
+            context=context,
+            reserve_status=reserve_status,
+            liquidity_status=liquidity_status,
+            evidence_reference=reference,
+            reason_codes=rc,
+        )
+        return ProviderResult(
+            check=self.check,
+            status=overall_status,
+            provider_id=provider_id,
+            reference=reference,
+            reason=rc[0],
+            details={"reserve_result": reserve_result.to_dict(), "mode": "demo"},
         )
 
 
@@ -942,6 +1093,8 @@ def _build_provider(
     kind = _read_provider_kind(kind_env, allowed_kinds=allowed_kinds)
     if kind == "static_allow":
         return _StaticAllowProvider(check)
+    if kind == "demo":
+        return _DemoProvider(check)
     if kind == "http":
         url = (getattr(config, url_env, "") or "").strip()
         api_key = (getattr(config, api_key_env, "") or "").strip()
