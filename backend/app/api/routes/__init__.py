@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from app.api.routes.demo import router as demo_router
 from app.api.routes.health import router as health_router
 from app.api.routes.permit import router as permit_router
 from app.api.routes.settlement import router as settlement_router
@@ -14,4 +15,5 @@ ROUTERS: tuple[APIRouter, ...] = (
     verify_router,
     xrpl_router,
     settlement_router,
+    demo_router,
 )

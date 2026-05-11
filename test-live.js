@@ -20,6 +20,8 @@ const c = {
 };
 
 const REQUEST_TIMEOUT_MS = 15000;
+const ROUNDTRIP_TIMEOUT_MS = 60000; // submit_and_wait can take ~15-30 s
+const ROUNDTRIP_DESTINATION = process.env.ROUNDTRIP_DESTINATION || "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh";
 
 // ── tiny HTTP helpers ─────────────────────────────────────────────────────────
 async function request(method, path, body, auth = true) {
@@ -47,6 +49,28 @@ async function request(method, path, body, auth = true) {
 
 const GET  = (path, auth = true)       => request("GET",  path, null, auth);
 const POST = (path, body, auth = true) => request("POST", path, body, auth);
+
+async function postWithTimeout(path, body, timeoutMs) {
+  const headers = { "Content-Type": "application/json", [API_KEY_HEADER]: API_KEY };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    let json = null;
+    try { json = await res.json(); } catch (_) {}
+    return { status: res.status, ok: res.ok, json };
+  } catch (err) {
+    if (err.name === "AbortError") return { status: 0, ok: false, json: null, timedOut: true };
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // ── test runner ───────────────────────────────────────────────────────────────
 let passed = 0, failed = 0, skipped = 0;
@@ -407,6 +431,71 @@ async function run() {
       const codes = r.json?.reason_codes ?? [];
       const hasUnavailable = codes.some(c => c.includes("UNAVAILABLE") || c.includes("unavailable"));
       assert(hasUnavailable, "DEMO UNAVAILABLE → unavailable reason_code present", JSON.stringify(codes));
+    }
+  }
+
+  // ── 11. Real XRPL testnet roundtrip ──────────────────────────────────────
+  section("11 · Real XRPL testnet roundtrip");
+
+  console.log(`  ${c.grey}destination=${ROUNDTRIP_DESTINATION} (override via ROUNDTRIP_DESTINATION env var)${c.reset}`);
+  console.log(`  ${c.grey}waiting up to 60 s for submit_and_wait …${c.reset}`);
+
+  const rt = await postWithTimeout(
+    "/v1/demo/roundtrip",
+    { destination: ROUNDTRIP_DESTINATION, amount_xrp: 0.001 },
+    ROUNDTRIP_TIMEOUT_MS,
+  );
+
+  if (rt.timedOut) {
+    fail("ROUNDTRIP → response within 60 s", "request timed out after 60 s");
+  } else {
+    const rtOk = assert(rt.status === 200, "ROUNDTRIP → 200", `got ${rt.status} — ${JSON.stringify(rt.json)}`);
+    if (rtOk) {
+      const j = rt.json;
+
+      // permit
+      assert(typeof j?.permit?.bundle_hash === "string" && j.permit.bundle_hash.length > 0,
+        "ROUNDTRIP → permit.bundle_hash present", JSON.stringify(j?.permit));
+      assert(j?.permit?.decision_result != null,
+        "ROUNDTRIP → permit.decision_result present", JSON.stringify(j?.permit));
+
+      // xrpl_tx
+      const txHash = j?.xrpl_tx?.tx_hash ?? "";
+      assert(/^[A-F0-9]{64}$/i.test(txHash),
+        "ROUNDTRIP → xrpl_tx.tx_hash is 64-char hex", `got "${txHash}"`);
+      assert(j?.xrpl_tx?.validated === true,
+        "ROUNDTRIP → xrpl_tx.validated=true", `got ${j?.xrpl_tx?.validated}`);
+      assert(j?.xrpl_tx?.ledger_index != null,
+        "ROUNDTRIP → xrpl_tx.ledger_index present", `got ${j?.xrpl_tx?.ledger_index}`);
+      assert(j?.xrpl_tx?.engine_result === "tesSUCCESS",
+        "ROUNDTRIP → engine_result=tesSUCCESS", `got "${j?.xrpl_tx?.engine_result}"`);
+
+      // memo verification
+      assert(j?.memo_verification?.match === true,
+        "ROUNDTRIP → memo matches bundle_hash", JSON.stringify(j?.memo_verification));
+      assert(j?.memo_verification?.decoded_memo === j?.permit?.bundle_hash,
+        "ROUNDTRIP → decoded_memo === bundle_hash", JSON.stringify(j?.memo_verification));
+
+      // settlement
+      assert(j?.settlement?.decision === "SETTLED_COMPLIANT",
+        "ROUNDTRIP → settlement.decision=SETTLED_COMPLIANT", `got "${j?.settlement?.decision}"`);
+      const sCodes = j?.settlement?.reason_codes ?? [];
+      assert(sCodes.includes("BUNDLE_HASH_MEMO_MATCHED"),
+        "ROUNDTRIP → BUNDLE_HASH_MEMO_MATCHED in settlement.reason_codes", JSON.stringify(sCodes));
+      assert(sCodes.includes("XRPL_TX_VALIDATED"),
+        "ROUNDTRIP → XRPL_TX_VALIDATED in settlement.reason_codes", JSON.stringify(sCodes));
+
+      // proof artifact
+      assert(j?.settlement?.proof_artifact?.bundle_hash != null,
+        "ROUNDTRIP → proof_artifact.bundle_hash present", JSON.stringify(j?.settlement?.proof_artifact));
+
+      if (rtOk) {
+        console.log(`  ${c.cyan}  tx_hash     : ${txHash}${c.reset}`);
+        console.log(`  ${c.cyan}  ledger_index: ${j?.xrpl_tx?.ledger_index}${c.reset}`);
+        console.log(`  ${c.cyan}  bundle_hash : ${j?.permit?.bundle_hash}${c.reset}`);
+        console.log(`  ${c.cyan}  memo_match  : ${j?.memo_verification?.match}${c.reset}`);
+        console.log(`  ${c.cyan}  decision    : ${j?.settlement?.decision}${c.reset}`);
+      }
     }
   }
 
