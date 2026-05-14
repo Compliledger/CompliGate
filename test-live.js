@@ -327,15 +327,17 @@ async function run() {
   }
 
   {
-    // signing is disabled — should return a structured error, not a 500
+    // when signing is disabled the endpoint returns a structured 400;
+    // when signing is enabled but the destination is invalid it returns 400/422/502 —
+    // in all cases the response must be structured JSON, never a raw 500
     const r = await POST("/v1/xrpl/payment", {
       destination: "rFakeDest000",
       amount: "10",
       memo_bundle_hash: null,
     });
     assert(
-      r.status === 200 || r.status === 400 || r.status === 422 || r.status === 503,
-      "POST /v1/xrpl/payment (signing disabled) → structured response",
+      r.status === 200 || r.status === 400 || r.status === 422 || r.status === 502 || r.status === 503,
+      "POST /v1/xrpl/payment → structured response (not a raw 500)",
       `got ${r.status}`
     );
   }
