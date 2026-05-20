@@ -454,6 +454,21 @@ def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
             detail={"error": "invalid_amount", "reason": f"Invalid XRP amount: {req.amount!r}"},
         ) from exc
 
+    # On testnet the signing wallet typically holds only a small XRP balance
+    # (the faucet funds accounts with 10 XRP). Cap the payment at 1 XRP so
+    # demo flows never exceed the available balance regardless of what RLUSD
+    # amount was written in the permit.
+    _TESTNET_XRP_CAP = Decimal("1")
+    _is_testnet = config.XRPL_NETWORK.lower() in ("testnet", "xrpl_testnet", "altnet")
+    testnet_amount_capped = False
+    if _is_testnet and xrp_amount > _TESTNET_XRP_CAP:
+        logger.info(
+            "xrpl_payment_amount_capped original=%s cap=%s network=%s",
+            xrp_amount, _TESTNET_XRP_CAP, config.XRPL_NETWORK,
+        )
+        xrp_amount = _TESTNET_XRP_CAP
+        testnet_amount_capped = True
+
     try:
         drops = xrp_to_drops(xrp_amount)
     except Exception as exc:  # XRPRangeException etc.
@@ -515,10 +530,13 @@ def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
         "engine_result": engine_result,
         "validated": validated,
         "ledger_index": ledger_index,
-        "network": "testnet",
+        "network": config.XRPL_NETWORK,
         "asset": "XRP",
-        "amount": amount_value,
+        "currency": "XRP",
+        "issuer": "",
+        "amount": str(xrp_amount),
         "destination": req.destination,
+        "testnet_amount_capped": testnet_amount_capped,
     }
 
     if req.memo_bundle_hash:

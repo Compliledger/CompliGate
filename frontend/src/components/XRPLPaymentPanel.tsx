@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 
 import { apiPost, describeError } from "../lib/api";
 import { useCopyToClipboard } from "../lib/useCopyToClipboard";
@@ -44,6 +44,15 @@ export default function XRPLPaymentPanel({ permit, panelNumber, order, result, o
   const { copied, copy: copyToClipboard } = useCopyToClipboard();
 
   const memoBundleHash = permit?.bundle_hash ?? null;
+
+  useEffect(() => {
+    if (permit) {
+      const counterparty = permit.bundle?.constraints?.allowed_counterparty;
+      if (counterparty && !destination) setDestination(counterparty);
+      if (!amount) setAmount("1");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [permit?.bundle_hash]);
 
   async function submitPayment() {
     setError(null);
@@ -120,7 +129,7 @@ export default function XRPLPaymentPanel({ permit, panelNumber, order, result, o
         spellCheck={false}
       />
 
-      <label className="label">Amount</label>
+      <label className="label">Amount (XRP)</label>
       <input
         className="input"
         type="text"
@@ -128,8 +137,11 @@ export default function XRPLPaymentPanel({ permit, panelNumber, order, result, o
         value={amount}
         onChange={(e) => setAmount(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="e.g. 100"
+        placeholder="e.g. 1"
       />
+      <p className="muted" style={{ fontSize: "0.78rem", marginTop: "-0.25rem" }}>
+        Testnet payments are in XRP (max 1 XRP auto-applied). The permit compliance check is in RLUSD.
+      </p>
 
       {memoBundleHash ? (
         <div className="verifyRows">
@@ -175,6 +187,12 @@ export default function XRPLPaymentPanel({ permit, panelNumber, order, result, o
       {!error && !loading && !result && (
         <StatusMessage variant="empty" title="No payment submitted yet">
           Fill in destination and amount, then submit to see the result here.
+        </StatusMessage>
+      )}
+
+      {result?.testnet_amount_capped && (
+        <StatusMessage variant="empty" title="Amount adjusted for testnet">
+          Requested amount exceeded the testnet wallet balance — capped to 1 XRP. Compliance check remains unchanged.
         </StatusMessage>
       )}
 

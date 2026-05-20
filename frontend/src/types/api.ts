@@ -448,10 +448,14 @@ export type XRPLPaymentResponse = {
   submitted: boolean;
   tx_hash: string;
   engine_result: string;
+  validated?: boolean;
+  ledger_index?: number | null;
   network: string;
+  asset?: string;
   currency: string;
   issuer: string;
   amount: string;
   destination: string;
   proof_link?: ProofLink | null;
+  testnet_amount_capped?: boolean;
 };
