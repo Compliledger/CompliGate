@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 from decimal import Decimal, InvalidOperation
 
@@ -496,9 +497,22 @@ def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
     try:
         response = submit_and_wait(payment, client, wallet)
     except Exception as exc:
+        exc_str = str(exc)
+        # Detect deterministic XRPL engine failure codes (tec/ter/tef/tem).
+        # These are not server errors — return 422 so callers can distinguish
+        # a ledger-level business rejection from a real network/infra failure.
+        _engine_match = re.search(r'\b(tec[A-Z_]+|ter[A-Z_]+|tef[A-Z_]+|tem[A-Z_]+)\b', exc_str)
+        _engine_code = _engine_match.group(1) if _engine_match else None
+        _status = 422 if _engine_code else 502
         raise HTTPException(
-            status_code=502,
-            detail={"error": "xrpl_submit_failed", "reason": str(exc)},
+            status_code=_status,
+            detail={
+                "error": "xrpl_submit_failed",
+                "reason": exc_str,
+                "source_account": wallet.address,
+                "network": config.XRPL_NETWORK,
+                "engine_result": _engine_code or "unknown",
+            },
         ) from exc
 
     result_payload = response.result if hasattr(response, "result") else {}
