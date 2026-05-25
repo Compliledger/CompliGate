@@ -192,7 +192,13 @@ export default function XRPLPaymentPanel({ permit, panelNumber, order, result, o
 
       {result?.testnet_amount_capped && (
         <StatusMessage variant="empty" title="Amount adjusted for testnet">
-          Requested amount exceeded the testnet wallet balance — capped to 1 XRP. Compliance check remains unchanged.
+          Requested amount exceeded the testnet wallet balance — capped to 1 XRP. Compliance authorization remains unchanged.
+        </StatusMessage>
+      )}
+
+      {result?.demo_settlement_note && (
+        <StatusMessage variant="empty" title="Demo settlement path">
+          {result.demo_settlement_note}
         </StatusMessage>
       )}
 
@@ -259,15 +265,43 @@ export default function XRPLPaymentPanel({ permit, panelNumber, order, result, o
 
             <div className="verifyRow">
               <span className={checkCls}>{checkSym}</span>
-              <span className="summaryLabel">Currency</span>
+              <span className="summaryLabel">Settlement Asset</span>
               <span className="summaryValue">{result.currency}</span>
             </div>
+
+            {result.permit_asset && result.permit_asset !== result.currency && (
+              <div className="verifyRow">
+                <span className="check">—</span>
+                <span className="summaryLabel">Permit Asset (compliance)</span>
+                <span className="summaryValue" style={{ color: "var(--text-warn, #b08d57)" }}>
+                  {result.permit_asset}
+                </span>
+              </div>
+            )}
+
+            {result.settlement_path && (
+              <div className="verifyRow">
+                <span className={checkCls}>{checkSym}</span>
+                <span className="summaryLabel">Settlement Path</span>
+                <span className="summaryValue">{result.settlement_path}</span>
+              </div>
+            )}
+
+            {result.trustline_mode && (
+              <div className="verifyRow">
+                <span className="check">—</span>
+                <span className="summaryLabel">Trustline Check</span>
+                <span className="summaryValue" style={{ color: result.trustline_mode === "advisory" ? "var(--text-warn, #b08d57)" : undefined }}>
+                  {result.trustline_mode === "advisory" ? "Advisory (not enforced on XRP path)" : result.trustline_mode}
+                </span>
+              </div>
+            )}
 
             <div className="verifyRow">
               <span className={checkCls}>{checkSym}</span>
               <span className="summaryLabel">Issuer</span>
               <span className="summaryValue commitValueMono breakAll">
-                {result.issuer}
+                {result.issuer || "—"}
               </span>
             </div>
 

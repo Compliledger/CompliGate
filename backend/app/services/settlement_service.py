@@ -8,6 +8,7 @@ from app.models.proof import build_proof_artifact
 from app.models.xrpl import SettlementVerifyByHashResponse
 from app.services.policy_service import ASSET_CLASSIFICATION_REGULATED_STABLECOIN
 from app.services.storage_service import get_permit_context
+from app.services.permit_service import get_recent_permit_context
 from app.services.xrpl_service import fetch_xrpl_transaction as _fetch_xrpl_transaction
 from app.services.xrpl_service import decode_memo_hex, extract_bundle_hash_from_tx, normalize_xrpl_amount
 
@@ -385,11 +386,13 @@ def verify_settlement_by_hash(bundle_hash: str, tx_hash: str) -> SettlementVerif
     """
     permit_context = get_permit_context(bundle_hash)
     if permit_context is None:
+        permit_context = get_recent_permit_context(bundle_hash)
+    if permit_context is None:
         raise HTTPException(
             status_code=404,
             detail={
                 "error": "permit_not_found",
-                "reason": "No persisted permit context found for bundle_hash",
+                "reason": "No permit context found for bundle_hash (not in DB or in-memory cache)",
                 "reason_code": "PERMIT_CONTEXT_NOT_FOUND",
                 "bundle_hash": bundle_hash,
             },

@@ -538,6 +538,7 @@ def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
         validated,
     )
 
+    settlement_path = "xrp_testnet_capped" if _is_testnet else "xrp_mainnet"
     result: dict = {
         "submitted": True,
         "tx_hash": tx_hash,
@@ -551,6 +552,14 @@ def submit_xrpl_payment(req: XRPLPaymentRequest) -> dict:
         "amount": str(xrp_amount),
         "destination": req.destination,
         "testnet_amount_capped": testnet_amount_capped,
+        "settlement_path": settlement_path,
+        "permit_asset": config.RLUSD_CURRENCY or "RLUSD",
+        "trustline_mode": "advisory",
+        "demo_settlement_note": (
+            "Demo executes capped XRP settlement path (max 1 XRP). "
+            "Compliance authorization is RLUSD-denominated. "
+            "RLUSD trustline check is advisory for XRP fallback payments."
+        ) if _is_testnet else None,
     }
 
     if req.memo_bundle_hash:

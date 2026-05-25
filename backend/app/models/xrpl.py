@@ -51,3 +51,7 @@ class XRPLPaymentResponse(BaseModel):
     destination: str = Field(..., description="Destination XRPL account address.")
     proof_link: ProofLink | None = Field(None, description="Linkage between CompliGate bundle hash and XRPL transaction hash.")
     testnet_amount_capped: bool = Field(False, description="True when the requested amount was capped to the testnet safety limit.")
+    settlement_path: str = Field("xrp_testnet_capped", description="Settlement execution path (e.g. xrp_testnet_capped, xrp_mainnet).")
+    permit_asset: str = Field("RLUSD", description="Asset the compliance permit was authorized for (may differ from settlement asset).")
+    trustline_mode: str = Field("advisory", description="Whether RLUSD trustline is required ('required') or advisory ('advisory') for this payment path.")
+    demo_settlement_note: str | None = Field(None, description="Human-readable note clarifying the demo settlement path.")

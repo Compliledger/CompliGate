@@ -458,4 +458,8 @@ export type XRPLPaymentResponse = {
   destination: string;
   proof_link?: ProofLink | null;
   testnet_amount_capped?: boolean;
+  settlement_path?: string;
+  permit_asset?: string;
+  trustline_mode?: string;
+  demo_settlement_note?: string | null;
 };
